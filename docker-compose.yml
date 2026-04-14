@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: baloo-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-baloo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-baloo}
+      POSTGRES_DB: ${POSTGRES_DB:-baloo}
+    volumes:
+      - baloo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-baloo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  baloo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: baloo:local
+    container_name: baloo-agent
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ${BALOO_ENV_FILE:-.env}
+    volumes:
+      - ./.secrets:/app/.secrets:ro
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      MAX_CONCURRENT_REVIEWS: ${MAX_CONCURRENT_REVIEWS:-3}
+      AGENT_MODEL: ${AGENT_MODEL:-claude-sonnet-4-6}
+      AGENT_MAX_TOKENS: ${AGENT_MAX_TOKENS:-4096}
+      AGENT_TEMPERATURE: ${AGENT_TEMPERATURE:-0.2}
+      REVIEW_AUTO_APPROVE: ${REVIEW_AUTO_APPROVE:-false}
+      REVIEW_MIN_SEVERITY: ${REVIEW_MIN_SEVERITY:-MEDIUM}
+      DATABASE_ENABLED: ${DATABASE_ENABLED:-false}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://baloo:baloo@db:5432/baloo}
+      DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-false}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-baloo}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-baloo}
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  baloo_pgdata:

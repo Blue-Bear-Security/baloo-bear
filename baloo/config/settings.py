@@ -1,0 +1,139 @@
+"""Configuration settings for Baloo using Pydantic."""
+
+import os
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+
+    model_config = SettingsConfigDict(
+        env_file=os.getenv("BALOO_ENV_FILE", ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # GitHub App Configuration
+    github_app_id: str = Field(default="", description="GitHub App ID")
+    github_private_key: str = Field(default="", description="GitHub App private key (PEM format)")
+    github_webhook_secret: str = Field(default="", description="GitHub webhook secret for signature validation")
+
+    # Anthropic Configuration
+    anthropic_api_key: str = Field(default="", description="Anthropic API key for Claude")
+
+    # Application Configuration
+    app_environment: str = Field(default="development", description="Application environment (development, production)")
+    app_host: str = Field(default="0.0.0.0", description="Application host")
+    app_port: int = Field(default=8000, description="Application port")
+    log_level: str = Field(default="INFO", description="Logging level")
+    max_concurrent_reviews: int = Field(
+        default=3,
+        description="Maximum number of PR reviews to process concurrently",
+    )
+
+    # Agent Configuration
+    agent_provider: str = Field(default="anthropic", description="LLM provider (anthropic, google, openai)")
+    agent_model: str = Field(default="claude-sonnet-4-6", description="Model to use for reviews")
+    agent_fallback_model: str = Field(
+        default="google/gemini-2.5-flash",
+        description="Fallback model (provider/model) if the primary fails. Empty to disable.",
+    )
+    agent_max_tokens: int = Field(default=4096, description="Max tokens for agent responses")
+    agent_temperature: float = Field(default=0.2, description="Temperature for agent responses")
+    pi_binary_path: str = Field(
+        default="pi",
+        description="Path to the pi binary (or just 'pi' if on PATH)",
+    )
+    pi_thinking_level: str = Field(
+        default="medium",
+        description="PI thinking level: off, minimal, low, medium, high",
+    )
+
+    # Review Configuration
+    ticket_id_prefix: str = Field(
+        default="DEN",
+        description="Prefix for ticket IDs (e.g., 'DEN' for DEN-123)",
+    )
+    review_auto_approve: bool = Field(
+        default=True,
+        description="Auto-approve PRs with no critical/high issues",
+    )
+    review_min_severity: str = Field(
+        default="MEDIUM",
+        description="Minimum severity to report (LOW, MEDIUM, HIGH, CRITICAL)",
+    )
+    review_use_checks_api: bool = Field(
+        default=True,
+        description="Use GitHub Checks API for MEDIUM severity issues",
+    )
+
+    # Database Configuration
+    database_url: str = Field(default="", description="PostgreSQL connection URL")
+    database_enabled: bool = Field(
+        default=False, description="Enable database persistence for review data"
+    )
+
+    # Dashboard Configuration
+    dashboard_enabled: bool = Field(
+        default=True, description="Enable the review history dashboard"
+    )
+    dashboard_username: str = Field(
+        default="", description="Dashboard basic auth username"
+    )
+    dashboard_password: str = Field(
+        default="", description="Dashboard basic auth password"
+    )
+
+    # Fidelity Report Configuration
+    fidelity_enabled: bool = Field(
+        default=True,
+        description="Enable fidelity report comparing PR changes against design plan",
+    )
+    fidelity_plan_path_pattern: str = Field(
+        default="docs/plans/{ticket_id}.md",
+        description="Path pattern for plan files, with {ticket_id} placeholder",
+    )
+    fidelity_approval_threshold: int = Field(
+        default=90,
+        description="Minimum fidelity score (0-100) required for auto-approval with clean review",
+    )
+
+    @property
+    def github_private_key_bytes(self) -> bytes:
+        """Get GitHub private key as bytes."""
+        # Handle both inline key and file path
+        if self.github_private_key.startswith("-----BEGIN"):
+            return self.github_private_key.encode("utf-8")
+        else:
+            # Assume it's a file path
+            with open(self.github_private_key, "rb") as f:
+                return f.read()
+
+
+# Global settings instance (lazy-loaded to avoid import errors)
+_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """Get or create the global settings instance."""
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
+
+
+def reset_settings() -> None:
+    """Reset the global settings instance (useful for tests)."""
+    global _settings
+    _settings = None
+
+
+# For backward compatibility - but note: this will be evaluated on import
+# For testing, use get_settings() function instead
+def __getattr__(name: str):
+    """Lazy load settings attribute."""
+    if name == "settings":
+        return get_settings()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

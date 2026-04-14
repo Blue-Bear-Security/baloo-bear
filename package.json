@@ -1,0 +1,12 @@
+{
+  "name": "baloo-hooks",
+  "private": true,
+  "scripts": {
+    "prepare": "node .husky/install.mjs",
+    "hooks:install": "npm run prepare",
+    "precommit:gitleaks": "gitleaks git --staged --pre-commit --no-banner --redact"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

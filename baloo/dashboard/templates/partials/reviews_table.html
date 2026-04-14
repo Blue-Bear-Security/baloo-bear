@@ -1,0 +1,70 @@
+<table class="min-w-full divide-y divide-gray-200">
+  <thead class="bg-gray-50">
+    <tr>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Repo</th>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PR</th>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Author</th>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cost</th>
+      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Started</th>
+    </tr>
+  </thead>
+  <tbody class="divide-y divide-gray-200">
+    {% for r in reviews %}
+    <tr class="hover:bg-gray-50">
+      <td class="px-4 py-3 text-sm text-gray-900">{{ r.repo_full_name }}</td>
+      <td class="px-4 py-3 text-sm">
+        <a href="/dashboard/reviews/{{ r.id }}" class="text-indigo-600 hover:underline">
+          #{{ r.pr_number }} {{ r.pr_title }}
+        </a>
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-500">{{ r.pr_author }}</td>
+      <td class="px-4 py-3 text-sm">
+        {% if r.review_status == "approved" %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">approved</span>
+        {% elif r.review_status == "changes_requested" %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">changes requested</span>
+        {% elif r.review_status == "error" %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">error</span>
+        {% elif r.review_status == "in_progress" %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">in progress</span>
+        {% else %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">{{ r.review_status }}</span>
+        {% endif %}
+      </td>
+      <td class="px-4 py-3 text-sm text-gray-500">{{ "%.1f"|format(r.duration_seconds) if r.duration_seconds else "-" }}s</td>
+      <td class="px-4 py-3 text-sm text-gray-500">{{ "$%.4f"|format(r.cost_usd) if r.cost_usd else "-" }}</td>
+      <td class="px-4 py-3 text-sm text-gray-500">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+    </tr>
+    {% endfor %}
+    {% if not reviews %}
+    <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">No reviews match the filters</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<!-- Pagination -->
+<div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200">
+  <span class="text-sm text-gray-500">
+    Page {{ page }} of {{ total_pages }} ({{ total }} total)
+  </span>
+  <div class="flex space-x-2">
+    {% if page > 1 %}
+    <button
+      hx-get="/dashboard/reviews?page={{ page - 1 }}{% if repo %}&repo={{ repo }}{% endif %}{% if status %}&status={{ status }}{% endif %}"
+      hx-target="#reviews-table"
+      hx-swap="innerHTML"
+      class="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+    >Previous</button>
+    {% endif %}
+    {% if page < total_pages %}
+    <button
+      hx-get="/dashboard/reviews?page={{ page + 1 }}{% if repo %}&repo={{ repo }}{% endif %}{% if status %}&status={{ status }}{% endif %}"
+      hx-target="#reviews-table"
+      hx-swap="innerHTML"
+      class="px-3 py-1 text-sm border rounded hover:bg-gray-50"
+    >Next</button>
+    {% endif %}
+  </div>
+</div>

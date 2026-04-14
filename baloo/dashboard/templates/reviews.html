@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set active_page = "reviews" %}
+
+{% block title %}Reviews - Baloo Dashboard{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Reviews</h1>
+
+  <!-- Filters -->
+  <form class="flex space-x-3" hx-get="/dashboard/reviews" hx-target="#reviews-table" hx-swap="innerHTML" hx-push-url="true">
+    <select name="status" class="border rounded px-3 py-1.5 text-sm">
+      <option value="">All statuses</option>
+      {% for s in ["approved", "changes_requested", "commented", "error", "in_progress"] %}
+      <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <select name="repo" class="border rounded px-3 py-1.5 text-sm">
+      <option value="">All repos</option>
+      {% for rp in repos %}
+      <option value="{{ rp }}" {% if repo == rp %}selected{% endif %}>{{ rp }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm hover:bg-indigo-700">Filter</button>
+  </form>
+</div>
+
+<div id="reviews-table" class="bg-white rounded-lg shadow overflow-hidden">
+  {% include "partials/reviews_table.html" %}
+</div>
+{% endblock %}
