@@ -41,7 +41,7 @@ class FidelityAgent(PIAgentBase):
             plan_content: The design plan file content
             pr_title: PR title for context
             diff: The PR diff
-            ticket_id: Ticket ID (e.g., DEN-123)
+            ticket_id: Ticket ID (e.g., PROJ-123)
 
         Returns:
             FidelityResult with analysis, or None if analysis fails

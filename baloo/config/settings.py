@@ -53,8 +53,8 @@ class Settings(BaseSettings):
 
     # Review Configuration
     ticket_id_prefix: str = Field(
-        default="DEN",
-        description="Prefix for ticket IDs (e.g., 'DEN' for DEN-123)",
+        default="PROJ",
+        description="Prefix for ticket IDs (e.g., 'PROJ' for PROJ-123)",
     )
     review_auto_approve: bool = Field(
         default=True,

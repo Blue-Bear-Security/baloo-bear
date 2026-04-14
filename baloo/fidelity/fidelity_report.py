@@ -134,8 +134,8 @@ def _format_no_ticket() -> str:
 **No ticket ID found in PR.**
 
 To enable fidelity analysis:
-- Use branch naming: `feat/DEN-XXX/description` or `fix/DEN-XXX-description`
-- Or include ticket in PR title: `[DEN-XXX] Title` or `DEN-XXX: Title`
+- Use branch naming: `feat/PROJ-XXX/description` or `fix/PROJ-XXX-description`
+- Or include ticket in PR title: `[PROJ-XXX] Title` or `PROJ-XXX: Title`
 
 </details>"""
 

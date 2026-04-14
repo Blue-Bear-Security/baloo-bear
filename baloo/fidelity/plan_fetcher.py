@@ -20,12 +20,12 @@ async def fetch_plan_content(
 
     Searches for plan files in two ways:
     1. Exact match: docs/plans/{ticket_id}.md
-    2. Prefix match: docs/plans/{ticket_id}-*.md (e.g., DEN-123-feature-name.md)
+    2. Prefix match: docs/plans/{ticket_id}-*.md (e.g., PROJ-123-feature-name.md)
 
     Args:
         github_client: GitHub API client
         repo_full_name: Repository full name (owner/repo)
-        ticket_id: Ticket ID (e.g., DEN-123)
+        ticket_id: Ticket ID (e.g., PROJ-123)
         ref: Git reference (branch, tag, or commit SHA)
 
     Returns:
@@ -44,7 +44,7 @@ async def fetch_plan_content(
             logger.info(f"Found plan file for {ticket_id}: {len(content)} chars")
             return content
 
-        # 2. Try prefix match (e.g., DEN-123-description.md)
+        # 2. Try prefix match (e.g., PROJ-123-description.md)
         logger.debug(f"Exact path not found, searching {plans_dir} for {ticket_id}-*.md")
         files = await github_client.list_directory(repo_full_name, plans_dir, ref)
         if not files:

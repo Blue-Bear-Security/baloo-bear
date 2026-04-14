@@ -32,7 +32,7 @@ def extract_ticket_id(
         prefix: Optional prefix override (defaults to settings.ticket_id_prefix)
 
     Returns:
-        Normalized ticket ID (e.g., "DEN-123") or None if not found
+        Normalized ticket ID (e.g., "PROJ-123") or None if not found
     """
     if prefix is None:
         prefix = get_settings().ticket_id_prefix

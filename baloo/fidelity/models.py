@@ -41,7 +41,7 @@ def fidelity_output_schema() -> dict:
 class FidelityResult(BaseModel):
     """Result of fidelity analysis comparing PR to design plan."""
 
-    ticket_id: str = Field(description="The ticket ID (e.g., DEN-123)")
+    ticket_id: str = Field(description="The ticket ID (e.g., PROJ-123)")
     fidelity_score: int = Field(
         description="Fidelity score 0-100 indicating alignment with plan"
     )
