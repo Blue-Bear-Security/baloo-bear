@@ -100,8 +100,8 @@ class TestFormatFidelityReportNoTicket:
         assert "Fidelity Report" in report
         assert "Skipped" in report
         assert "No ticket ID found" in report
-        assert "feat/DEN-XXX" in report
-        assert "[DEN-XXX]" in report
+        assert "feat/PROJ-XXX" in report
+        assert "[PROJ-XXX]" in report
 
 
 class TestFormatFidelityReportNoPlan:
