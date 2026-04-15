@@ -27,6 +27,8 @@
           <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">changes requested</span>
         {% elif r.review_status == "error" %}
           <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">error</span>
+        {% elif r.review_status == "agent_error" %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800" title="{{ r.error_category or 'agent error' }}">agent error</span>
         {% elif r.review_status == "in_progress" %}
           <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">in progress</span>
         {% else %}

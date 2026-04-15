@@ -22,6 +22,8 @@
       <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">changes requested</span>
     {% elif review.review_status == "error" %}
       <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">error</span>
+    {% elif review.review_status == "agent_error" %}
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">agent error</span>
     {% elif review.review_status == "in_progress" %}
       <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">in progress</span>
     {% else %}
@@ -78,11 +80,36 @@
   </div>
 </div>
 
-<!-- Error message -->
-{% if review.error_message %}
+<!-- Error details -->
+{% if review.error_message or review.error_category or review.fallback_model %}
 <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
-  <h2 class="text-sm font-semibold text-red-800 mb-1">Error</h2>
-  <p class="text-sm text-red-700">{{ review.error_message }}</p>
+  <h2 class="text-sm font-semibold text-red-800 mb-2">Error Details</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+    {% if review.error_category %}
+    <div>
+      <p class="text-xs text-red-600 uppercase font-medium">Category</p>
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium font-mono bg-red-100 text-red-800">{{ review.error_category }}</span>
+    </div>
+    {% endif %}
+    {% if review.fallback_model %}
+    <div>
+      <p class="text-xs text-red-600 uppercase font-medium">Fallback Model</p>
+      <p class="text-sm text-red-700 font-mono">{{ review.fallback_model }}</p>
+    </div>
+    {% endif %}
+    {% if review.review_status in ["error", "agent_error"] %}
+    <div>
+      <p class="text-xs text-red-600 uppercase font-medium">Status</p>
+      <p class="text-sm text-red-700">Review did not complete successfully</p>
+    </div>
+    {% endif %}
+  </div>
+  {% if review.error_message %}
+  <div>
+    <p class="text-xs text-red-600 uppercase font-medium mb-1">Error Message</p>
+    <pre class="text-sm text-red-700 bg-red-100 rounded p-2 overflow-x-auto whitespace-pre-wrap">{{ review.error_message }}</pre>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 

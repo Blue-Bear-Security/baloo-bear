@@ -19,11 +19,40 @@
   </form>
 </div>
 
-<!-- Cost summary -->
-<div class="bg-white rounded-lg shadow p-5 mb-6">
-  <p class="text-sm text-gray-500">Total Cost (last {{ days }} days)</p>
-  <p class="text-3xl font-bold text-gray-900">${{ "%.2f"|format(total_cost) }}</p>
+<!-- Summary cards -->
+<div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Total Cost ({{ days }}d)</p>
+    <p class="text-3xl font-bold text-gray-900">${{ "%.2f"|format(total_cost) }}</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Success Rate</p>
+    <p class="text-3xl font-bold {% if success_rate < 75 %}text-red-600{% elif success_rate < 90 %}text-yellow-600{% else %}text-green-600{% endif %}">{{ success_rate }}%</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Failed Reviews ({{ days }}d)</p>
+    <p class="text-3xl font-bold {% if error_total > 0 %}text-red-600{% else %}text-green-600{% endif %}">{{ error_total }}</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Total Reviews ({{ days }}d)</p>
+    <p class="text-3xl font-bold text-gray-900">{{ total_in_period }}</p>
+  </div>
 </div>
+
+<!-- Error category breakdown -->
+{% if error_categories %}
+<div class="bg-white rounded-lg shadow p-5 mb-6">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Failure Categories ({{ days }}d)</h2>
+  <div class="flex flex-wrap gap-3">
+    {% for cat, count in error_categories.items() %}
+    <div class="flex items-center space-x-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+      <span class="text-sm font-mono font-medium text-red-800">{{ cat }}</span>
+      <span class="inline-flex items-center justify-center min-w-[1.5rem] h-6 text-xs font-bold text-white bg-red-500 rounded-full px-1.5">{{ count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 <!-- Charts grid -->
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -43,6 +72,14 @@
     <h2 class="text-lg font-semibold text-gray-900 mb-4">Top Repositories</h2>
     <canvas id="reposChart" height="250"></canvas>
   </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Daily Failures</h2>
+    <canvas id="errorsChart" height="250"></canvas>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Error Categories</h2>
+    <canvas id="errorCatChart" height="250"></canvas>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -51,6 +88,8 @@
   const statuses = {{ statuses | tojson }};
   const severities = {{ severities | tojson }};
   const repos = {{ repos | tojson }};
+  const dailyErrors = {{ daily_errors | tojson }};
+  const errorCategories = {{ error_categories | tojson }};
 
   // Daily line chart
   new Chart(document.getElementById('dailyChart'), {
@@ -72,7 +111,8 @@
   // Status doughnut
   const statusColors = {
     approved: '#22c55e', changes_requested: '#ef4444',
-    commented: '#6b7280', error: '#dc2626', in_progress: '#eab308'
+    commented: '#6b7280', error: '#dc2626', agent_error: '#f97316',
+    in_progress: '#eab308'
   };
   new Chart(document.getElementById('statusChart'), {
     type: 'doughnut',
@@ -114,6 +154,39 @@
       }]
     },
     options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }
+  });
+
+  // Daily errors line chart
+  new Chart(document.getElementById('errorsChart'), {
+    type: 'line',
+    data: {
+      labels: dailyErrors.map(d => d.day),
+      datasets: [{
+        label: 'Failures',
+        data: dailyErrors.map(d => d.count),
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239,68,68,0.1)',
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+
+  // Error categories doughnut
+  const catColors = ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#8b5cf6', '#ec4899', '#6b7280'];
+  const catLabels = Object.keys(errorCategories);
+  const catData = Object.values(errorCategories);
+  new Chart(document.getElementById('errorCatChart'), {
+    type: 'doughnut',
+    data: {
+      labels: catLabels,
+      datasets: [{
+        data: catData,
+        backgroundColor: catLabels.map((_, i) => catColors[i % catColors.length]),
+      }]
+    },
+    options: { responsive: true }
   });
 </script>
 {% endblock %}

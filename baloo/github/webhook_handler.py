@@ -731,7 +731,16 @@ async def process_pr_review(
                     fidelity_metadata.get("cost_usd") or 0.0
                 )
 
-                if approve:
+                # Detect agent soft-failures: agent caught an error
+                # internally and returned 0 findings
+                agent_had_error = review_metadata.get("agent_error", False)
+                error_category = review_metadata.get("error_category")
+                error_detail = review_metadata.get("error_detail")
+                fallback_model = review_metadata.get("primary_model") if review_metadata.get("fallback_used") else None
+
+                if agent_had_error:
+                    review_status = "agent_error"
+                elif approve:
                     review_status = "approved"
                 elif request_changes:
                     review_status = "changes_requested"
@@ -757,6 +766,9 @@ async def process_pr_review(
                         if fidelity_result
                         else None
                     ),
+                    error_message=error_detail,
+                    error_category=error_category,
+                    fallback_model=fallback_model,
                     findings=[
                         {
                             "file_path": c.path,
@@ -802,6 +814,10 @@ async def process_pr_review(
                     fidelity_metadata.get("cost_usd") or 0.0
                 )
 
+                # Classify the exception error
+                from baloo.agent.client import BalooAgent
+                exc_category = BalooAgent._classify_error(str(e))
+
                 complete_data = ReviewCompleteDTO(
                     review_status="error",
                     completed_at=datetime.now(timezone.utc),
@@ -810,6 +826,7 @@ async def process_pr_review(
                     tokens_output=total_output_tokens,
                     cost_usd=total_cost_usd,
                     error_message=str(e),
+                    error_category=exc_category,
                 )
 
                 await ReviewService.complete_review(

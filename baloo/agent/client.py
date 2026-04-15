@@ -54,6 +54,8 @@ class BalooAgent(PIAgentBase):
                 comments = findings_to_comments(structured_data)
             else:
                 logger.warning("No structured output received from agent")
+                metadata["agent_error"] = True
+                metadata["error_category"] = metadata.get("error_category", "no_output")
 
             # Generate summary using shared formatter
             summary = CommentFormatter.format_summary(comments, metadata)
@@ -75,6 +77,9 @@ class BalooAgent(PIAgentBase):
             logger.error(f"Error during review: {e}", exc_info=True)
             # Return a minimal result with error info and captured metadata (costs)
             metadata = getattr(e, "metadata", {})
+            metadata["agent_error"] = True
+            metadata["error_category"] = self._classify_error(str(e))
+            metadata["error_detail"] = str(e)
             return ReviewResult(
                 summary=f"Review failed due to error: {str(e)}",
                 comments=[],
@@ -82,6 +87,24 @@ class BalooAgent(PIAgentBase):
                 request_changes=False,
                 metadata=metadata,
             )
+
+    @staticmethod
+    def _classify_error(error_msg: str) -> str:
+        """Classify an error message into a category for tracking."""
+        msg = error_msg.lower()
+        if "separator" in msg and ("chunk" in msg or "limit" in msg):
+            return "buffer_overflow"
+        if "prompt is too long" in msg:
+            return "prompt_too_long"
+        if "json" in msg and ("parse" in msg or "decode" in msg or "retry" in msg):
+            return "json_parse_error"
+        if "timeout" in msg or "timed out" in msg:
+            return "timeout"
+        if "rate limit" in msg or "429" in msg:
+            return "rate_limited"
+        if "authentication" in msg or "401" in msg or "403" in msg:
+            return "auth_error"
+        return "agent_error"
 
     async def _run_with_fallback(self, query: str):
         """Run query with automatic fallback to secondary model on failure."""

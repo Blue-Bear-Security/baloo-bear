@@ -26,6 +26,54 @@
   </div>
 </div>
 
+<!-- Error alert banner -->
+{% if errors_today > 0 or error_rate > 10 %}
+<div class="{% if error_rate > 25 %}bg-red-50 border-red-300{% else %}bg-yellow-50 border-yellow-300{% endif %} border rounded-lg p-4 mb-8">
+  <div class="flex items-start">
+    <span class="text-2xl mr-3">{% if error_rate > 25 %}🚨{% else %}⚠️{% endif %}</span>
+    <div>
+      <h2 class="text-sm font-semibold {% if error_rate > 25 %}text-red-800{% else %}text-yellow-800{% endif %}">Review Health Alert</h2>
+      <p class="text-sm {% if error_rate > 25 %}text-red-700{% else %}text-yellow-700{% endif %} mt-1">
+        <strong>{{ errors_today }}</strong> failed review(s) today &middot;
+        <strong>{{ errors_total }}</strong> total failures ({{ error_rate }}% error rate).
+        <a href="/dashboard/reviews?status=agent_error" class="underline font-medium">View failures →</a>
+      </p>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Error stats row -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <div class="bg-white rounded-lg shadow p-5 {% if errors_today > 0 %}ring-2 ring-red-200{% endif %}">
+    <p class="text-sm text-gray-500">Failures Today</p>
+    <p class="text-3xl font-bold {% if errors_today > 0 %}text-red-600{% else %}text-green-600{% endif %}">{{ errors_today }}</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Total Failures</p>
+    <p class="text-3xl font-bold text-gray-900">{{ errors_total }}</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Error Rate</p>
+    <p class="text-3xl font-bold {% if error_rate > 25 %}text-red-600{% elif error_rate > 10 %}text-yellow-600{% else %}text-green-600{% endif %}">{{ error_rate }}%</p>
+  </div>
+</div>
+
+<!-- Error category breakdown -->
+{% if error_categories %}
+<div class="bg-white rounded-lg shadow p-5 mb-8">
+  <h2 class="text-lg font-semibold text-gray-900 mb-3">Failure Categories</h2>
+  <div class="flex flex-wrap gap-4">
+    {% for cat, count in error_categories.items() %}
+    <div class="flex items-center space-x-2 bg-red-50 rounded-lg px-3 py-2">
+      <span class="text-sm font-mono font-medium text-red-800">{{ cat }}</span>
+      <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-bold text-white bg-red-500 rounded-full">{{ count }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Severity breakdown -->
 {% if severity %}
 <div class="bg-white rounded-lg shadow p-5 mb-8">
@@ -48,6 +96,47 @@
       Low: {{ severity.get("LOW", 0) }}
     </span>
   </div>
+</div>
+{% endif %}
+
+<!-- Recent failures table -->
+{% if recent_failures %}
+<div class="bg-white rounded-lg shadow overflow-hidden mb-8 ring-1 ring-red-200">
+  <div class="px-5 py-4 border-b border-red-200 bg-red-50">
+    <h2 class="text-lg font-semibold text-red-900">Recent Failures</h2>
+  </div>
+  <table class="min-w-full divide-y divide-gray-200">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Repo</th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PR</th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
+        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">When</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-200">
+      {% for r in recent_failures %}
+      <tr class="hover:bg-red-50">
+        <td class="px-4 py-3 text-sm text-gray-900">{{ r.repo_full_name }}</td>
+        <td class="px-4 py-3 text-sm">
+          <a href="/dashboard/reviews/{{ r.id }}" class="text-indigo-600 hover:underline">
+            #{{ r.pr_number }} {{ r.pr_title }}
+          </a>
+        </td>
+        <td class="px-4 py-3 text-sm">
+          {% if r.error_category %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-medium font-mono bg-red-100 text-red-800">{{ r.error_category }}</span>
+          {% else %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">unknown</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-sm text-red-700 max-w-xs truncate" title="{{ r.error_message }}">{{ r.error_message[:80] if r.error_message else "-" }}{{ "..." if r.error_message and r.error_message|length > 80 else "" }}</td>
+        <td class="px-4 py-3 text-sm text-gray-500">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 {% endif %}
 
@@ -82,6 +171,8 @@
             <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">changes requested</span>
           {% elif r.review_status == "error" %}
             <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">error</span>
+          {% elif r.review_status == "agent_error" %}
+            <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">agent error</span>
           {% elif r.review_status == "in_progress" %}
             <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">in progress</span>
           {% else %}

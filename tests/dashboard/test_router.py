@@ -37,6 +37,11 @@ def test_dashboard_overview_renders() -> None:
                 started_at=datetime(2026, 4, 14, 12, 0, tzinfo=timezone.utc),
             )
         ],
+        "errors_total": 0,
+        "errors_today": 0,
+        "error_rate": 0.0,
+        "error_categories": {},
+        "recent_failures": [],
     }
 
     with patch(

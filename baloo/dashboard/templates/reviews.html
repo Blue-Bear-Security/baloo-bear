@@ -11,7 +11,7 @@
   <form class="flex space-x-3" hx-get="/dashboard/reviews" hx-target="#reviews-table" hx-swap="innerHTML" hx-push-url="true">
     <select name="status" class="border rounded px-3 py-1.5 text-sm">
       <option value="">All statuses</option>
-      {% for s in ["approved", "changes_requested", "commented", "error", "in_progress"] %}
+      {% for s in ["approved", "changes_requested", "commented", "error", "agent_error", "in_progress"] %}
       <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ s }}</option>
       {% endfor %}
     </select>

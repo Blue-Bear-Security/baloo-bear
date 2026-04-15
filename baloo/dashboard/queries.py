@@ -56,6 +56,48 @@ class DashboardService:
             ).all()
             severity = {row[0]: row[1] for row in severity_rows}
 
+            # Error / agent_error counts
+            error_statuses = ["error", "agent_error"]
+            errors_total = (
+                await session.execute(
+                    select(func.count(Review.id)).where(
+                        Review.review_status.in_(error_statuses)
+                    )
+                )
+            ).scalar() or 0
+
+            errors_today = (
+                await session.execute(
+                    select(func.count(Review.id)).where(
+                        Review.review_status.in_(error_statuses),
+                        Review.started_at >= today_start,
+                    )
+                )
+            ).scalar() or 0
+
+            error_rate = round(errors_total / total * 100, 1) if total else 0.0
+
+            # Error category breakdown
+            error_category_rows = (
+                await session.execute(
+                    select(Review.error_category, func.count(Review.id))
+                    .where(Review.error_category.is_not(None))
+                    .group_by(Review.error_category)
+                    .order_by(func.count(Review.id).desc())
+                )
+            ).all()
+            error_categories = {row[0]: row[1] for row in error_category_rows}
+
+            # Recent failures
+            recent_failures = (
+                await session.execute(
+                    select(Review)
+                    .where(Review.review_status.in_(error_statuses))
+                    .order_by(Review.started_at.desc())
+                    .limit(5)
+                )
+            ).scalars().all()
+
             recent = (
                 await session.execute(
                     select(Review).order_by(Review.started_at.desc()).limit(5)
@@ -69,6 +111,11 @@ class DashboardService:
             "approval_rate": approval_rate,
             "severity": severity,
             "recent_reviews": recent,
+            "errors_total": errors_total,
+            "errors_today": errors_today,
+            "error_rate": error_rate,
+            "error_categories": error_categories,
+            "recent_failures": recent_failures,
         }
 
     @staticmethod
@@ -187,10 +234,65 @@ class DashboardService:
                 )
             ).scalar() or 0
 
+            # Error category breakdown for the period
+            error_category_rows = (
+                await session.execute(
+                    select(Review.error_category, func.count(Review.id))
+                    .where(
+                        Review.started_at >= since,
+                        Review.error_category.is_not(None),
+                    )
+                    .group_by(Review.error_category)
+                    .order_by(func.count(Review.id).desc())
+                )
+            ).all()
+
+            # Daily error counts
+            error_statuses = ["error", "agent_error"]
+            daily_error_rows = (
+                await session.execute(
+                    select(
+                        func.date(Review.started_at).label("day"),
+                        func.count(Review.id),
+                    )
+                    .where(
+                        Review.started_at >= since,
+                        Review.review_status.in_(error_statuses),
+                    )
+                    .group_by(func.date(Review.started_at))
+                    .order_by(func.date(Review.started_at))
+                )
+            ).all()
+
+            # Success rate (non-error / total)
+            error_total = (
+                await session.execute(
+                    select(func.count(Review.id)).where(
+                        Review.started_at >= since,
+                        Review.review_status.in_(error_statuses),
+                    )
+                )
+            ).scalar() or 0
+            total_in_period = (
+                await session.execute(
+                    select(func.count(Review.id)).where(Review.started_at >= since)
+                )
+            ).scalar() or 0
+            success_rate = (
+                round((total_in_period - error_total) / total_in_period * 100, 1)
+                if total_in_period
+                else 100.0
+            )
+
         return {
             "daily": [{"day": str(r[0]), "count": r[1]} for r in daily_rows],
             "statuses": {r[0]: r[1] for r in status_rows},
             "severities": {r[0]: r[1] for r in severity_rows},
             "repos": [{"name": r[0], "count": r[1]} for r in repo_rows],
             "total_cost": round(total_cost, 2) if total_cost else 0,
+            "error_categories": {r[0]: r[1] for r in error_category_rows},
+            "daily_errors": [{"day": str(r[0]), "count": r[1]} for r in daily_error_rows],
+            "success_rate": success_rate,
+            "error_total": error_total,
+            "total_in_period": total_in_period,
         }

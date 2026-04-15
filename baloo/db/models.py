@@ -44,6 +44,8 @@ class Review(Base):
     auto_approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     fidelity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    fallback_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     findings: Mapped[list["Finding"]] = relationship(
         "Finding", back_populates="review", cascade="all, delete-orphan"
@@ -52,6 +54,7 @@ class Review(Base):
     __table_args__ = (
         Index("ix_reviews_repo_pr", "repo_full_name", "pr_number"),
         Index("ix_reviews_started_at", "started_at"),
+        Index("ix_reviews_error_category", "error_category"),
     )
 
 
