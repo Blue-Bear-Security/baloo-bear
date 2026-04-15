@@ -20,15 +20,25 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "reviews",
-        sa.Column("error_category", sa.String(50), nullable=True),
-    )
-    op.add_column(
-        "reviews",
-        sa.Column("fallback_model", sa.String(100), nullable=True),
-    )
-    op.create_index("ix_reviews_error_category", "reviews", ["error_category"])
+    # Use batch mode and IF NOT EXISTS guard for idempotent upgrades
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_columns = {c["name"] for c in inspector.get_columns("reviews")}
+
+    if "error_category" not in existing_columns:
+        op.add_column(
+            "reviews",
+            sa.Column("error_category", sa.String(50), nullable=True),
+        )
+    if "fallback_model" not in existing_columns:
+        op.add_column(
+            "reviews",
+            sa.Column("fallback_model", sa.String(100), nullable=True),
+        )
+
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("reviews")}
+    if "ix_reviews_error_category" not in existing_indexes:
+        op.create_index("ix_reviews_error_category", "reviews", ["error_category"])
 
 
 def downgrade() -> None:
