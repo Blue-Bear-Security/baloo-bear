@@ -213,7 +213,7 @@ __marimo__/
 .nikui*
 nikui_results/
 
-docs/plans
+# docs/plans — previously ignored, now tracked for feature design docs
 node_modules/
 .husky/_/
 
