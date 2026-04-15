@@ -151,9 +151,7 @@ class TestMergeCommitDetection:
         """Should detect merge from remote-tracking branch."""
         commit_info = {
             "parents": [{"sha": "abc123"}, {"sha": "def456"}],
-            "commit": {
-                "message": "Merge remote-tracking branch 'origin/main' into feature"
-            },
+            "commit": {"message": "Merge remote-tracking branch 'origin/main' into feature"},
             "files": [{"filename": "conflict.py"}],
         }
 

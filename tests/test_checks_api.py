@@ -39,7 +39,7 @@ async def test_create_check_run():
                 commit_sha="abc123def",
                 name="Test Check",
                 conclusion="neutral",
-                summary="Test summary"
+                summary="Test summary",
             )
 
             # Verify
@@ -65,15 +65,11 @@ async def test_add_annotations_includes_category():
             line=10,
             body="Security issue description",
             severity="MEDIUM",
-            category="Security"
+            category="Security",
         ),
         ReviewComment(
-            path="main.py",
-            line=25,
-            body="Bug description",
-            severity="MEDIUM",
-            category="Bugs"
-        )
+            path="main.py", line=25, body="Bug description", severity="MEDIUM", category="Bugs"
+        ),
     ]
 
     with patch("baloo.github.checks_api.GitHubAuth") as mock_auth_class:
@@ -97,9 +93,7 @@ async def test_add_annotations_includes_category():
 
             # Call the method
             await client.add_annotations(
-                repo_full_name="owner/repo",
-                check_run_id="12345",
-                findings=findings
+                repo_full_name="owner/repo", check_run_id="12345", findings=findings
             )
 
             # Verify
@@ -143,9 +137,7 @@ async def test_add_annotations_empty_list():
 
             # Call with empty list
             await client.add_annotations(
-                repo_full_name="owner/repo",
-                check_run_id="12345",
-                findings=[]
+                repo_full_name="owner/repo", check_run_id="12345", findings=[]
             )
 
             # Should not make any API calls
@@ -158,11 +150,7 @@ async def test_add_annotations_truncates_to_50():
     # Create 100 findings
     findings = [
         ReviewComment(
-            path=f"file{i}.py",
-            line=i,
-            body=f"Issue {i}",
-            severity="MEDIUM",
-            category="Quality"
+            path=f"file{i}.py", line=i, body=f"Issue {i}", severity="MEDIUM", category="Quality"
         )
         for i in range(100)
     ]
@@ -188,9 +176,7 @@ async def test_add_annotations_truncates_to_50():
 
             # Call the method
             await client.add_annotations(
-                repo_full_name="owner/repo",
-                check_run_id="12345",
-                findings=findings
+                repo_full_name="owner/repo", check_run_id="12345", findings=findings
             )
 
             # Verify only 50 annotations were sent
@@ -228,7 +214,7 @@ async def test_create_check_run_with_different_conclusions():
                     commit_sha="abc123",
                     name="Test",
                     conclusion=conclusion,
-                    summary="Test"
+                    summary="Test",
                 )
 
                 # Verify conclusion was set correctly

@@ -1,6 +1,5 @@
 """Format fidelity analysis results as markdown report."""
 
-
 from baloo.fidelity.models import FidelityResult
 
 
@@ -64,11 +63,13 @@ def _format_result(result: FidelityResult) -> str:
 
     # Requirements checklist
     if result.requirements:
-        lines.extend([
-            "### Requirement Checklist",
-            "| Requirement | Status | Evidence |",
-            "|-------------|--------|----------|",
-        ])
+        lines.extend(
+            [
+                "### Requirement Checklist",
+                "| Requirement | Status | Evidence |",
+                "|-------------|--------|----------|",
+            ]
+        )
         for req in result.requirements:
             status_icon = _get_status_icon(req.status)
             evidence = req.evidence or "-"
@@ -80,21 +81,25 @@ def _format_result(result: FidelityResult) -> str:
 
     # Hidden extras
     if result.extras:
-        lines.extend([
-            "### Hidden Extras",
-            "_Changes implemented beyond the plan:_",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Hidden Extras",
+                "_Changes implemented beyond the plan:_",
+                "",
+            ]
+        )
         for extra in result.extras:
             lines.append(f"- {extra}")
         lines.append("")
 
     # Critical discrepancies
     if result.discrepancies:
-        lines.extend([
-            "### Critical Discrepancies",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Critical Discrepancies",
+                "",
+            ]
+        )
         for disc in result.discrepancies:
             severity_icon = _get_severity_icon(disc.severity)
             lines.append(f"- {severity_icon} **[{disc.severity}]** {disc.description}")

@@ -9,6 +9,9 @@ from baloo.github.models import ReviewComment
 
 logger = logging.getLogger(__name__)
 
+# GitHub limits annotations to 50 per request
+MAX_ANNOTATIONS = 50
+
 
 def _enum_value(value: object) -> object:
     """Return enum values for user-facing strings without changing plain strings."""
@@ -39,12 +42,7 @@ class GitHubChecksClient:
         }
 
     async def create_check_run(
-        self,
-        repo_full_name: str,
-        commit_sha: str,
-        name: str,
-        conclusion: str,
-        summary: str
+        self, repo_full_name: str, commit_sha: str, name: str, conclusion: str, summary: str
     ) -> str:
         """
         Create a GitHub Check Run.
@@ -66,10 +64,7 @@ class GitHubChecksClient:
                 "head_sha": commit_sha,
                 "status": "completed",
                 "conclusion": conclusion,
-                "output": {
-                    "title": name,
-                    "summary": summary
-                }
+                "output": {"title": name, "summary": summary},
             }
 
             logger.debug(f"Creating check run: {name} for {repo_full_name}@{commit_sha[:7]}")
@@ -82,10 +77,7 @@ class GitHubChecksClient:
             return str(data["id"])
 
     async def add_annotations(
-        self,
-        repo_full_name: str,
-        check_run_id: str,
-        findings: list[ReviewComment]
+        self, repo_full_name: str, check_run_id: str, findings: list[ReviewComment]
     ) -> None:
         """
         Add annotations to a check run.
@@ -100,9 +92,6 @@ class GitHubChecksClient:
         if not findings:
             logger.debug("No findings to annotate")
             return
-
-        # GitHub limits annotations to 50 per request
-        MAX_ANNOTATIONS = 50
 
         if len(findings) > MAX_ANNOTATIONS:
             logger.warning(
@@ -121,7 +110,7 @@ class GitHubChecksClient:
                 "end_line": finding.line,
                 "annotation_level": "warning",  # Can be: notice, warning, failure
                 "message": f"{category}: {finding.body}",
-                "title": f"[{severity}] {category}"
+                "title": f"[{severity}] {category}",
             }
             annotations.append(annotation)
 
@@ -131,7 +120,7 @@ class GitHubChecksClient:
                 "output": {
                     "title": "Baloo Code Quality",
                     "summary": f"Found {len(findings)} code quality issue(s)",
-                    "annotations": annotations
+                    "annotations": annotations,
                 }
             }
 

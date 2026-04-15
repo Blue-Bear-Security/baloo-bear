@@ -88,7 +88,9 @@ def build_review_threads(raw_comments: Sequence[dict]) -> list[DiscussionThread]
     threads: dict[int, list[dict]] = {}
 
     for comment in raw_comments:
-        root_id = comment.get("in_reply_to_id") or comment.get("original_comment_id") or comment["id"]
+        root_id = (
+            comment.get("in_reply_to_id") or comment.get("original_comment_id") or comment["id"]
+        )
         threads.setdefault(root_id, []).append(comment)
 
     discussion_threads: list[DiscussionThread] = []
@@ -108,7 +110,9 @@ def build_review_threads(raw_comments: Sequence[dict]) -> list[DiscussionThread]
         is_baloo_thread = any(comment.is_baloo for comment in discussion_comments)
         last_comment = discussion_comments[-1]
         awaiting_response = is_baloo_thread and last_comment.is_baloo
-        resolved = determine_resolution_state(is_baloo_thread, awaiting_response, discussion_comments)
+        resolved = determine_resolution_state(
+            is_baloo_thread, awaiting_response, discussion_comments
+        )
 
         discussion_threads.append(
             DiscussionThread(

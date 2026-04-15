@@ -157,8 +157,7 @@ mock_pr_large = PRContext(
         base_branch="main",
         head_branch="refactor/database",
         files_changed=[
-            mock_file_change(f"db/models/model_{i}.py", "modified", 50, 30)
-            for i in range(1, 6)
+            mock_file_change(f"db/models/model_{i}.py", "modified", 50, 30) for i in range(1, 6)
         ],
     ),
     discussion=PRDiscussionContext(),

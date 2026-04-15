@@ -25,7 +25,7 @@ class DecisionEngine:
             Tuple of (approve, request_changes)
         """
         settings = get_settings()
-        
+
         # Count by severity using shared utility
         counts = count_by_severity(comments)
         critical_count = counts.get(ReviewSeverity.CRITICAL.value, 0)

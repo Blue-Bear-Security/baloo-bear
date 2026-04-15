@@ -1,6 +1,6 @@
 """Format review comments and summaries as Markdown."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 from baloo.github.models import ReviewComment
 
@@ -16,9 +16,7 @@ class CommentFormatter:
     }
 
     @staticmethod
-    def format_summary(
-        comments: list[ReviewComment], metadata: Dict[str, Any] = None
-    ) -> str:
+    def format_summary(comments: list[ReviewComment], metadata: dict[str, Any] = None) -> str:
         """
         Format a review summary markdown.
 
@@ -45,18 +43,24 @@ class CommentFormatter:
             summary_parts.append("✅ **No issues found!** Code looks good.")
         else:
             stats = []
-            if critical > 0: stats.append(f"🔴 **{critical}** Critical")
-            if high > 0: stats.append(f"🟠 **{high}** High")
-            if medium > 0: stats.append(f"🟡 **{medium}** Medium")
-            if low > 0: stats.append(f"🔵 **{low}** Low")
-            
+            if critical > 0:
+                stats.append(f"🔴 **{critical}** Critical")
+            if high > 0:
+                stats.append(f"🟠 **{high}** High")
+            if medium > 0:
+                stats.append(f"🟡 **{medium}** Medium")
+            if low > 0:
+                stats.append(f"🔵 **{low}** Low")
+
             summary_parts.append(" | ".join(stats))
             summary_parts.append(f"\n**Total**: {len(comments)} issue(s) found")
 
             if critical > 0 or high > 0:
                 summary_parts.append("\n⚠️ **Please address CRITICAL/HIGH issues before merging**")
             else:
-                summary_parts.append("\n✅ **No blocking issues - safe to merge** (consider addressing MEDIUM/LOW items)")
+                summary_parts.append(
+                    "\n✅ **No blocking issues - safe to merge** (consider addressing MEDIUM/LOW items)"
+                )
 
         if metadata:
             summary_parts.append(CommentFormatter.format_metadata_section(metadata))
@@ -64,7 +68,7 @@ class CommentFormatter:
         return "\n".join(summary_parts)
 
     @staticmethod
-    def format_metadata_section(metadata: Dict[str, Any]) -> str:
+    def format_metadata_section(metadata: dict[str, Any]) -> str:
         """
         Format agent metadata as a collapsible HTML details section.
 

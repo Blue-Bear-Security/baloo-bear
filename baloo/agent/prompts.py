@@ -83,15 +83,22 @@ def _is_simple_pr(pr_context: PRContext | dict[str, Any]) -> bool:
 
     # Check if all files are dependency or config files
     simple_file_patterns = [
-        'requirements.txt', 'package.json', 'package-lock.json',
-        'go.mod', 'go.sum', 'Gemfile', 'Gemfile.lock',
-        '.md', '.txt', '.yml', '.yaml', '.toml', '.ini'
+        "requirements.txt",
+        "package.json",
+        "package-lock.json",
+        "go.mod",
+        "go.sum",
+        "Gemfile",
+        "Gemfile.lock",
+        ".md",
+        ".txt",
+        ".yml",
+        ".yaml",
+        ".toml",
+        ".ini",
     ]
 
-    return all(
-        any(f.endswith(pattern) for pattern in simple_file_patterns)
-        for f in changed_files
-    )
+    return all(any(f.endswith(pattern) for pattern in simple_file_patterns) for f in changed_files)
 
 
 # Maximum characters to show in recommendation summary fallback
@@ -138,8 +145,8 @@ def _extract_baloo_recommendations(threads: list) -> str:
 
         if len(parts) > 1 and parts[1].strip():
             # Extract first few lines after recommendation marker
-            rec_lines = parts[1].split('\n')[0:3]  # Get first 3 lines
-            rec_summary = '\n'.join(rec_lines).strip()
+            rec_lines = parts[1].split("\n")[0:3]  # Get first 3 lines
+            rec_summary = "\n".join(rec_lines).strip()
 
             # Fallback if extraction resulted in empty string
             if not rec_summary:
@@ -213,27 +220,38 @@ def _is_dependabot_pr(pr_context: PRContext | dict[str, Any]) -> bool:
     description = (_ctx_get(pr_context, "description", "") or "").lower()
 
     # Explicit Dependabot detection
-    if 'dependabot' in author or 'dependabot' in title or 'dependabot' in description:
+    if "dependabot" in author or "dependabot" in title or "dependabot" in description:
         return True
 
     # Known dependency update bots (whitelist)
-    dependency_bots = ['renovate[bot]', 'dependabot[bot]', 'dependabot-preview[bot]']
+    dependency_bots = ["renovate[bot]", "dependabot[bot]", "dependabot-preview[bot]"]
     if author in dependency_bots:
         return True
 
     # Bot with dependency-specific keywords (stricter check)
-    if author.endswith('[bot]'):
+    if author.endswith("[bot]"):
         # More specific dependency-related keywords
-        dependency_keywords = ['bump', 'upgrade']
+        dependency_keywords = ["bump", "upgrade"]
         if any(kw in title for kw in dependency_keywords):
             # Additional check: verify dependency files are being changed
             changed_files = _ctx_get(pr_context, "changed_file_paths", [])
             dep_file_patterns = [
-                'requirements.txt', 'package.json', 'package-lock.json',
-                'go.mod', 'go.sum', 'Gemfile', 'Gemfile.lock',
-                'pom.xml', 'build.gradle', 'yarn.lock', 'Cargo.toml', 'Cargo.lock'
+                "requirements.txt",
+                "package.json",
+                "package-lock.json",
+                "go.mod",
+                "go.sum",
+                "Gemfile",
+                "Gemfile.lock",
+                "pom.xml",
+                "build.gradle",
+                "yarn.lock",
+                "Cargo.toml",
+                "Cargo.lock",
             ]
-            if any(any(f.endswith(pattern) for pattern in dep_file_patterns) for f in changed_files):
+            if any(
+                any(f.endswith(pattern) for pattern in dep_file_patterns) for f in changed_files
+            ):
                 return True
 
     return False
@@ -245,12 +263,12 @@ def _is_security_patch(pr_context: PRContext | dict[str, Any]) -> bool:
     description = (_ctx_get(pr_context, "description", "") or "").lower()
 
     return (
-        'security' in title or
-        'security' in description or
-        'vulnerability' in title or
-        'vulnerability' in description or
-        'cve' in title or
-        'cve' in description
+        "security" in title
+        or "security" in description
+        or "vulnerability" in title
+        or "vulnerability" in description
+        or "cve" in title
+        or "cve" in description
     )
 
 
@@ -376,7 +394,7 @@ def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
         guidelines_section = (
             f"The following guidelines were fetched directly from this repository:\n\n"
             f"```\n{repo_guidelines}\n```\n\n"
-            f"Flag any violations of the conventions documented above as **CRITICAL** with category \"Guidelines\".\n"
+            f'Flag any violations of the conventions documented above as **CRITICAL** with category "Guidelines".\n'
             f"Only flag a violation if the guidelines explicitly require a specific convention."
         )
     else:

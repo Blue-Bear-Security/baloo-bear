@@ -19,6 +19,7 @@ from baloo.db.engine import close_db, init_db
 from baloo.db.service import ReviewCompleteDTO, ReviewService
 from baloo.fidelity.fidelity_analyzer import analyze_fidelity
 from baloo.fidelity.fidelity_report import format_fidelity_report
+from baloo.fidelity.models import FidelityResult
 from baloo.fidelity.plan_fetcher import fetch_plan_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
 from baloo.github.api_client import GitHubAPIClient
@@ -88,7 +89,9 @@ def get_review_semaphore() -> asyncio.Semaphore:
     global review_semaphore
     if review_semaphore is None:
         review_semaphore = asyncio.Semaphore(settings.max_concurrent_reviews)
-        logger.info(f"Initialized review queue with max {settings.max_concurrent_reviews} concurrent reviews")
+        logger.info(
+            f"Initialized review queue with max {settings.max_concurrent_reviews} concurrent reviews"
+        )
     return review_semaphore
 
 
@@ -147,10 +150,10 @@ def _extract_issue_signature(body: str) -> str:
     if match:
         category = match.group(1).strip().lower()
         remainder = match.group(2).strip().lower()
-        
+
         # Strip markdown bolding/italics/backticks
         remainder = re.sub(r"[`*_]", "", remainder)
-        
+
         # Normalize whitespace
         remainder = " ".join(remainder.split())
         return f"{category}:{remainder}"
@@ -218,10 +221,10 @@ def _match_thread(
         # 3. Check content similarity
         if not thread.comments:
             continue
-            
+
         thread_sig = _extract_issue_signature(thread.comments[0].body)
         similarity = _calculate_similarity(comment_sig, thread_sig)
-        
+
         # DEBUG
         # print(f"Comparing line {comment.line} with thread at {thread.line}")
         # print(f"Similarity: {similarity}")
@@ -243,7 +246,9 @@ def _match_thread(
 
 
 @app.post("/webhook")
-async def handle_webhook(request: Request, background_tasks: BackgroundTasks) -> dict[str, str | int]:
+async def handle_webhook(
+    request: Request, background_tasks: BackgroundTasks
+) -> dict[str, str | int]:
     """
     Handle GitHub webhook events.
 
@@ -280,9 +285,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks) ->
             if action in ["opened", "synchronize", "reopened", "ready_for_review"]:
                 # Skip draft PRs
                 if webhook_payload.pull_request.draft:
-                    logger.info(
-                        f"Skipping draft PR: {repo_name}#{pr_number} (action: {action})"
-                    )
+                    logger.info(f"Skipping draft PR: {repo_name}#{pr_number} (action: {action})")
                     return {"status": "skipped", "reason": "draft PR"}
 
                 # For synchronize events, check if this is just a merge/sync commit
@@ -295,9 +298,7 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks) ->
                         repo_name, head_sha, base_branch
                     )
                     if is_merge:
-                        logger.info(
-                            f"Skipping review for {repo_name}#{pr_number}: {merge_reason}"
-                        )
+                        logger.info(f"Skipping review for {repo_name}#{pr_number}: {merge_reason}")
                         return {"status": "skipped", "reason": merge_reason}
 
                 # Check current queue status
@@ -359,7 +360,7 @@ async def _run_fidelity_analysis(
     github_client: GitHubAPIClient,
     repo_full_name: str,
     pr_context,
-) -> tuple[str, Any | None]:
+) -> tuple[str, FidelityResult | None]:
     """
     Run fidelity analysis comparing PR changes to design plan.
 
@@ -395,11 +396,14 @@ async def _run_fidelity_analysis(
 
         if not plan_content:
             logger.info(f"Fidelity: No plan file found for {ticket_id}")
-            return format_fidelity_report(
-                no_plan=True,
-                ticket_id=ticket_id,
-                plan_path=plan_path,
-            ), None
+            return (
+                format_fidelity_report(
+                    no_plan=True,
+                    ticket_id=ticket_id,
+                    plan_path=plan_path,
+                ),
+                None,
+            )
 
         # Run fidelity analysis
         logger.info(f"Fidelity: Analyzing {ticket_id} against plan")
@@ -456,9 +460,7 @@ async def process_pr_review(
                     repo_full_name=repo_full_name,
                     pr_number=pr_number,
                     trigger_reason=trigger_reason,
-                    started_at=datetime.fromtimestamp(
-                        review_start_time, tz=timezone.utc
-                    ),
+                    started_at=datetime.fromtimestamp(review_start_time, tz=timezone.utc),
                 )
 
             # Initialize GitHub client
@@ -485,6 +487,7 @@ async def process_pr_review(
 
             # Initialize agent and perform review
             from baloo.agent.client import BalooAgent
+
             agent = BalooAgent()
             agent_result = await agent.review_pr(pr_context)
             agent_metadata = agent_result.metadata
@@ -526,13 +529,9 @@ async def process_pr_review(
             summary_text = f"{summary_text}\n\n{decision_summary}"
 
             if follow_up_comments:
-                summary_text += (
-                    f"\n\n↪️ Baloo added follow-ups to {len(follow_up_comments)} existing thread(s)."
-                )
+                summary_text += f"\n\n↪️ Baloo added follow-ups to {len(follow_up_comments)} existing thread(s)."
             if skipped_duplicates:
-                summary_text += (
-                    f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
-                )
+                summary_text += f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
             if awaiting_threads:
                 summary_text += (
                     f"\n\n⏳ {awaiting_threads} Baloo thread(s) remain open from earlier reviews."
@@ -600,16 +599,18 @@ async def process_pr_review(
                         commit_sha=pr_context.head_sha,
                         name="Baloo Code Quality",
                         conclusion="neutral",
-                        summary=f"Found {len(routed['checks'])} code quality issue(s) (MEDIUM severity)"
+                        summary=f"Found {len(routed['checks'])} code quality issue(s) (MEDIUM severity)",
                     )
 
                     await checks_client.add_annotations(
                         repo_full_name=repo_full_name,
                         check_run_id=check_run_id,
-                        findings=routed["checks"]
+                        findings=routed["checks"],
                     )
 
-                    logger.info(f"Successfully posted GitHub Check with {len(routed['checks'])} annotations")
+                    logger.info(
+                        f"Successfully posted GitHub Check with {len(routed['checks'])} annotations"
+                    )
 
                 except Exception as check_error:
                     logger.error(f"Failed to post GitHub Check: {check_error}", exc_info=True)
@@ -646,9 +647,7 @@ async def process_pr_review(
                 logger.info("No blocking issues found, posting approval review")
                 approval_msg = "✅ No critical or high severity issues found. Safe to merge!"
                 if routed["checks"]:
-                    approval_msg += (
-                        f"\n\n💡 {len(routed['checks'])} medium severity suggestion(s) available in the Checks tab."
-                    )
+                    approval_msg += f"\n\n💡 {len(routed['checks'])} medium severity suggestion(s) available in the Checks tab."
 
                 await github_client.post_review(
                     repo_full_name,
@@ -675,17 +674,23 @@ async def process_pr_review(
                         f"{counts.get(ReviewSeverity.LOW.value, 0)} low."
                     )
                 elif not request_changes and approve:
-                    completion_msg = f"✅ Baloo review completed in {review_duration}s. No issues found!"
+                    completion_msg = (
+                        f"✅ Baloo review completed in {review_duration}s. No issues found!"
+                    )
                 elif awaiting_threads:
                     completion_msg = (
                         f"🐻 Baloo review completed in {review_duration}s. "
                         f"Still waiting on {awaiting_threads} existing thread(s)."
                     )
                 else:
-                    completion_msg = f"🐻 Baloo review completed in {review_duration}s. No new issues found."
+                    completion_msg = (
+                        f"🐻 Baloo review completed in {review_duration}s. No new issues found."
+                    )
 
                 try:
-                    await github_client.edit_comment(repo_full_name, progress_comment_id, completion_msg)
+                    await github_client.edit_comment(
+                        repo_full_name, progress_comment_id, completion_msg
+                    )
                 except Exception as edit_err:
                     logger.warning(f"Failed to update progress comment: {edit_err}")
 
@@ -725,7 +730,11 @@ async def process_pr_review(
                 agent_had_error = review_metadata.get("agent_error", False)
                 error_category = review_metadata.get("error_category")
                 error_detail = review_metadata.get("error_detail")
-                fallback_model = review_metadata.get("primary_model") if review_metadata.get("fallback_used") else None
+                fallback_model = (
+                    review_metadata.get("primary_model")
+                    if review_metadata.get("fallback_used")
+                    else None
+                )
 
                 if agent_had_error:
                     review_status = "agent_error"
@@ -750,11 +759,7 @@ async def process_pr_review(
                     agent_turns=review_metadata.get("num_turns"),
                     files_examined=len(pr_context.files_changed),
                     auto_approved=approve and not request_changes,
-                    fidelity_score=(
-                        fidelity_result.fidelity_score
-                        if fidelity_result
-                        else None
-                    ),
+                    fidelity_score=(fidelity_result.fidelity_score if fidelity_result else None),
                     error_message=error_detail,
                     error_category=error_category,
                     fallback_model=fallback_model,
@@ -800,7 +805,7 @@ async def process_pr_review(
                 await github_client.edit_comment(
                     repo_full_name,
                     progress_comment_id,
-                    "👋 This review was cancelled because a new commit was pushed. Baloo is starting a new review!"
+                    "👋 This review was cancelled because a new commit was pushed. Baloo is starting a new review!",
                 )
             except Exception:
                 pass

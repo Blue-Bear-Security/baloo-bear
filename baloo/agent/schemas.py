@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -13,14 +12,10 @@ from baloo.github.models import FindingCategory, ReviewComment, ReviewSeverity
 logger = logging.getLogger(__name__)
 
 # Lookup for case-insensitive category matching
-_CATEGORY_LOOKUP: dict[str, str] = {
-    v.value.upper(): v.value for v in FindingCategory
-}
+_CATEGORY_LOOKUP: dict[str, str] = {v.value.upper(): v.value for v in FindingCategory}
 
 # Lookup for case-insensitive severity matching
-_SEVERITY_LOOKUP: dict[str, str] = {
-    v.value.upper(): v.value for v in ReviewSeverity
-}
+_SEVERITY_LOOKUP: dict[str, str] = {v.value.upper(): v.value for v in ReviewSeverity}
 
 
 def _normalize_category(raw: str) -> str:

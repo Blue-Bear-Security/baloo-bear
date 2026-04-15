@@ -111,8 +111,12 @@ class GitHubAPIClient:
                 diff = diff_response.text
 
             # Fetch discussion data
-            review_comments_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
-            issue_comments_url = f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
+            review_comments_url = (
+                f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
+            )
+            issue_comments_url = (
+                f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
+            )
             reviews_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
 
             review_comments = await self._fetch_paginated_json(
@@ -178,6 +182,7 @@ class GitHubAPIClient:
             review_result: Review result to post
         """
         import logging
+
         logger = logging.getLogger(__name__)
 
         async with httpx.AsyncClient() as client:
@@ -211,7 +216,9 @@ class GitHubAPIClient:
                     review_url, headers=self._get_headers(), json=review_payload
                 )
                 response.raise_for_status()
-                logger.info(f"Successfully posted review with {len(review_result.comments)} inline comments")
+                logger.info(
+                    f"Successfully posted review with {len(review_result.comments)} inline comments"
+                )
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 422:
@@ -234,14 +241,14 @@ class GitHubAPIClient:
                         await self.post_comment(repo_full_name, pr_number, comment_body)
                         logger.info(f"Posted issue comment {i+1}/{len(review_result.comments)}")
 
-                    logger.info(f"Successfully posted review as {len(review_result.comments)} issue comments")
+                    logger.info(
+                        f"Successfully posted review as {len(review_result.comments)} issue comments"
+                    )
                 else:
                     # Other HTTP error - re-raise
                     raise
 
-    async def post_comment(
-        self, repo_full_name: str, pr_number: int, comment: str
-    ) -> int:
+    async def post_comment(self, repo_full_name: str, pr_number: int, comment: str) -> int:
         """
         Post a general comment to a pull request.
 
@@ -254,9 +261,7 @@ class GitHubAPIClient:
             The comment ID
         """
         async with httpx.AsyncClient() as client:
-            comment_url = (
-                f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
-            )
+            comment_url = f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
             response = await client.post(
                 comment_url,
                 headers=self._get_headers(),
@@ -265,9 +270,7 @@ class GitHubAPIClient:
             response.raise_for_status()
             return response.json()["id"]
 
-    async def edit_comment(
-        self, repo_full_name: str, comment_id: int, comment: str
-    ) -> None:
+    async def edit_comment(self, repo_full_name: str, comment_id: int, comment: str) -> None:
         """
         Edit an existing comment.
 
@@ -277,9 +280,7 @@ class GitHubAPIClient:
             comment: New comment text
         """
         async with httpx.AsyncClient() as client:
-            comment_url = (
-                f"{self.base_url}/repos/{repo_full_name}/issues/comments/{comment_id}"
-            )
+            comment_url = f"{self.base_url}/repos/{repo_full_name}/issues/comments/{comment_id}"
             response = await client.patch(
                 comment_url,
                 headers=self._get_headers(),
@@ -305,7 +306,9 @@ class GitHubAPIClient:
             True if reply was successful, False if comment is outdated (404)
         """
         async with httpx.AsyncClient() as client:
-            reply_url = f"{self.base_url}/repos/{repo_full_name}/pulls/comments/{review_comment_id}/replies"
+            reply_url = (
+                f"{self.base_url}/repos/{repo_full_name}/pulls/comments/{review_comment_id}/replies"
+            )
             response = await client.post(
                 reply_url,
                 headers=self._get_headers(),
@@ -370,7 +373,7 @@ class GitHubAPIClient:
                 # Check for common merge patterns
                 merge_patterns = [
                     f"merge branch '{base_branch}'",
-                    f"merge branch \"{base_branch}\"",
+                    f'merge branch "{base_branch}"',
                     f"merge {base_branch} into",
                     "merge pull request",
                     "merge remote-tracking branch",
@@ -384,7 +387,10 @@ class GitHubAPIClient:
 
                         # If it only has a few conflict resolution files, likely just a sync
                         if len(files) <= 3:
-                            return True, f"merge commit with only {len(files)} file(s) (conflict resolution)"
+                            return (
+                                True,
+                                f"merge commit with only {len(files)} file(s) (conflict resolution)",
+                            )
 
             return False, ""
 
@@ -455,9 +461,7 @@ class GitHubAPIClient:
                 params["ref"] = ref
 
             try:
-                response = await client.get(
-                    url, headers=self._get_headers(), params=params
-                )
+                response = await client.get(url, headers=self._get_headers(), params=params)
 
                 if response.status_code == 404:
                     return []
@@ -486,7 +490,9 @@ class GitHubAPIClient:
         page = 1
 
         while True:
-            response = await client.get(url, headers=headers, params={"per_page": 100, "page": page})
+            response = await client.get(
+                url, headers=headers, params={"per_page": 100, "page": page}
+            )
             response.raise_for_status()
             data = response.json()
             if not data:

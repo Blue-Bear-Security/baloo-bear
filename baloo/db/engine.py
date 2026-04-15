@@ -53,9 +53,7 @@ def _run_alembic_migrations(database_url: str) -> bool:
     alembic_ini = project_root / "alembic.ini"
 
     if not alembic_ini.exists():
-        logger.warning(
-            "alembic.ini not found at %s, skipping migrations", alembic_ini
-        )
+        logger.warning("alembic.ini not found at %s, skipping migrations", alembic_ini)
         return False
 
     # Convert async URL to sync for Alembic
@@ -81,8 +79,7 @@ def _run_alembic_migrations(database_url: str) -> bool:
 
         if "reviews" in tables and "alembic_version" not in tables:
             logger.info(
-                "Existing DB without alembic_version detected, "
-                "stamping baseline revision 001"
+                "Existing DB without alembic_version detected, " "stamping baseline revision 001"
             )
             command.stamp(alembic_cfg, "001")
     except Exception as e:

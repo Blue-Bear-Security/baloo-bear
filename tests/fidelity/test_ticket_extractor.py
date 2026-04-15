@@ -1,8 +1,10 @@
 """Tests for ticket ID extraction from PR metadata."""
 
 import re
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from baloo.fidelity.ticket_extractor import (
     _extract_from_branch,
     _extract_from_description,
@@ -34,8 +36,12 @@ class TestExtractFromBranch:
 
     def test_feat_slash_format(self):
         """Test feat/DEN-XXX/description format."""
-        assert _extract_from_branch("feat/DEN-123/add-feature", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
-        assert _extract_from_branch("feat/DEN-1234/some-thing", DEN_PREFIX, DEN_PATTERN) == "DEN-1234"
+        assert (
+            _extract_from_branch("feat/DEN-123/add-feature", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
+        )
+        assert (
+            _extract_from_branch("feat/DEN-1234/some-thing", DEN_PREFIX, DEN_PATTERN) == "DEN-1234"
+        )
 
     def test_fix_slash_format(self):
         """Test fix/DEN-XXX/description format."""
@@ -43,7 +49,9 @@ class TestExtractFromBranch:
 
     def test_chore_slash_format(self):
         """Test chore/DEN-XXX/description format."""
-        assert _extract_from_branch("chore/DEN-789/update-deps", DEN_PREFIX, DEN_PATTERN) == "DEN-789"
+        assert (
+            _extract_from_branch("chore/DEN-789/update-deps", DEN_PREFIX, DEN_PATTERN) == "DEN-789"
+        )
 
     def test_dash_format(self):
         """Test DEN-XXX-description format."""
@@ -72,7 +80,9 @@ class TestExtractFromTitle:
 
     def test_bracketed_format(self):
         """Test [DEN-XXX] format."""
-        assert _extract_from_title("[DEN-123] Add new feature", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
+        assert (
+            _extract_from_title("[DEN-123] Add new feature", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
+        )
         assert _extract_from_title("[DEN-1234] Fix bug", DEN_PREFIX, DEN_PATTERN) == "DEN-1234"
 
     def test_colon_prefix(self):
@@ -82,12 +92,17 @@ class TestExtractFromTitle:
 
     def test_dash_prefix(self):
         """Test DEN-XXX - format."""
-        assert _extract_from_title("DEN-123 - Add new feature", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
+        assert (
+            _extract_from_title("DEN-123 - Add new feature", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
+        )
 
     def test_anywhere_in_title(self):
         """Test DEN-XXX anywhere in title (fallback)."""
         assert _extract_from_title("Fix the DEN-789 issue", DEN_PREFIX, DEN_PATTERN) == "DEN-789"
-        assert _extract_from_title("Implement feature for DEN-100", DEN_PREFIX, DEN_PATTERN) == "DEN-100"
+        assert (
+            _extract_from_title("Implement feature for DEN-100", DEN_PREFIX, DEN_PATTERN)
+            == "DEN-100"
+        )
 
     def test_case_insensitive(self):
         """Test that extraction is case-insensitive."""
@@ -105,7 +120,12 @@ class TestExtractFromDescription:
 
     def test_explicit_ticket_reference(self):
         """Test Ticket: DEN-XXX format."""
-        assert _extract_from_description("Ticket: DEN-123\n\nDescription here", DEN_PREFIX, DEN_PATTERN) == "DEN-123"
+        assert (
+            _extract_from_description(
+                "Ticket: DEN-123\n\nDescription here", DEN_PREFIX, DEN_PATTERN
+            )
+            == "DEN-123"
+        )
         assert _extract_from_description("ticket: den-456", DEN_PREFIX, DEN_PATTERN) == "DEN-456"
 
     def test_fixes_pattern(self):
@@ -148,7 +168,7 @@ class TestExtractTicketId:
             branch_name="feat/DEN-111/feature",
             pr_title="[DEN-222] Title",
             pr_description="Ticket: DEN-333",
-            prefix="DEN"
+            prefix="DEN",
         )
         assert ticket_id == "DEN-111"
 
@@ -158,7 +178,7 @@ class TestExtractTicketId:
             branch_name="feature-branch",
             pr_title="[DEN-222] Title",
             pr_description="Ticket: DEN-333",
-            prefix="DEN"
+            prefix="DEN",
         )
         assert ticket_id == "DEN-222"
 
@@ -168,7 +188,7 @@ class TestExtractTicketId:
             branch_name="feature-branch",
             pr_title="Add new feature",
             pr_description="Ticket: DEN-333",
-            prefix="DEN"
+            prefix="DEN",
         )
         assert ticket_id == "DEN-333"
 
@@ -178,37 +198,28 @@ class TestExtractTicketId:
             branch_name="feature-branch",
             pr_title="Add new feature",
             pr_description="This is a description",
-            prefix="DEN"
+            prefix="DEN",
         )
         assert ticket_id is None
 
     def test_none_description(self, patch_settings):
         """Test with None description."""
         ticket_id = extract_ticket_id(
-            branch_name="feat/DEN-123/feature",
-            pr_title="Title",
-            pr_description=None,
-            prefix="DEN"
+            branch_name="feat/DEN-123/feature", pr_title="Title", pr_description=None, prefix="DEN"
         )
         assert ticket_id == "DEN-123"
 
     def test_empty_description(self, patch_settings):
         """Test with empty description."""
         ticket_id = extract_ticket_id(
-            branch_name="feature-branch",
-            pr_title="Add feature",
-            pr_description="",
-            prefix="DEN"
+            branch_name="feature-branch", pr_title="Add feature", pr_description="", prefix="DEN"
         )
         assert ticket_id is None
 
     def test_normalizes_to_uppercase(self, patch_settings):
         """Test that ticket ID is normalized to uppercase."""
         ticket_id = extract_ticket_id(
-            branch_name="feat/den-123/feature",
-            pr_title="",
-            pr_description=None,
-            prefix="DEN"
+            branch_name="feat/den-123/feature", pr_title="", pr_description=None, prefix="DEN"
         )
         assert ticket_id == "DEN-123"
 
@@ -218,6 +229,6 @@ class TestExtractTicketId:
             branch_name="feat/JIRA-999/feature",
             pr_title="Title",
             pr_description=None,
-            prefix="JIRA"
+            prefix="JIRA",
         )
         assert ticket_id == "JIRA-999"

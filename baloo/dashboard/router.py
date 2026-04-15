@@ -38,7 +38,10 @@ async def reviews_list(
     search: str | None = Query(None),
 ):
     data = await DashboardService.list_reviews(
-        page=page, repo_filter=repo, status_filter=status, search_filter=search,
+        page=page,
+        repo_filter=repo,
+        status_filter=status,
+        search_filter=search,
     )
     ctx = {"repo": repo, "status": status, "search": search, **data}
     # HTMX partial swap

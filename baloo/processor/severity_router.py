@@ -1,11 +1,9 @@
 """Route review findings by severity and provide counting utilities."""
 
-from typing import Dict
-
-from baloo.github.models import FindingCategory, ReviewComment, ReviewSeverity
+from baloo.github.models import ReviewComment, ReviewSeverity
 
 
-def count_by_severity(findings: list[ReviewComment]) -> Dict[str, int]:
+def count_by_severity(findings: list[ReviewComment]) -> dict[str, int]:
     """
     Count findings by their severity level.
 
@@ -54,7 +52,4 @@ def route_findings(findings: list[ReviewComment]) -> dict:
         # LOW severity is currently not routed to a specific GitHub reporting mechanism
         # but could be added to the digest.
 
-    return {
-        "review": review_findings,
-        "checks": checks_findings
-    }
+    return {"review": review_findings, "checks": checks_findings}

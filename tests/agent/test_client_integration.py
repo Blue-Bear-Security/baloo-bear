@@ -30,7 +30,7 @@ def sample_pr_context():
                 additions=10,
                 deletions=5,
                 changes=15,
-                patch="@@ -1,5 +1,10 @@\n+new code"
+                patch="@@ -1,5 +1,10 @@\n+new code",
             )
         ],
     )
@@ -38,15 +38,19 @@ def sample_pr_context():
     return PRContext(
         metadata=metadata,
         discussion=discussion,
-        diff="diff --git a/test.py b/test.py\n@@ -1,5 +1,10 @@"
+        diff="diff --git a/test.py b/test.py\n@@ -1,5 +1,10 @@",
     )
 
 
-def _make_pi_events(structured_output: dict | None, usage: dict = None, is_error: bool = False) -> list[bytes]:
+def _make_pi_events(
+    structured_output: dict | None, usage: dict = None, is_error: bool = False
+) -> list[bytes]:
     """Build the sequence of JSONL events a PI process would emit."""
     usage = usage or {
-        "input": 500, "output": 100,
-        "cacheRead": 0, "cacheWrite": 0,
+        "input": 500,
+        "output": 100,
+        "cacheRead": 0,
+        "cacheWrite": 0,
         "cost": {"total": 0.01},
     }
 
@@ -61,13 +65,16 @@ def _make_pi_events(structured_output: dict | None, usage: dict = None, is_error
         {"type": "agent_start"},
         {"type": "turn_start"},
         {"type": "message_start", "message": {"role": "assistant"}},
-        {"type": "message_end", "message": {
-            "role": "assistant",
-            "content": [{"type": "text", "text": assistant_text}] if assistant_text else [],
-            "model": "claude-sonnet-4-6",
-            "usage": usage,
-            "stopReason": "error" if is_error else "stop",
-        }},
+        {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": assistant_text}] if assistant_text else [],
+                "model": "claude-sonnet-4-6",
+                "usage": usage,
+                "stopReason": "error" if is_error else "stop",
+            },
+        },
         {"type": "turn_end"},
         {"type": "agent_end"},
     ]
@@ -105,7 +112,10 @@ class TestBalooAgentErrorHandling:
     async def test_review_pr_handles_process_crash(self, sample_pr_context):
         """Test graceful handling of PI process crash."""
         events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
             json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
             b"",  # EOF — process crashed
         ]
@@ -124,8 +134,10 @@ class TestBalooAgentErrorHandling:
         """Test handling when PI binary cannot be spawned."""
         agent = BalooAgent()
 
-        with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec",
-                    side_effect=FileNotFoundError("pi not found")):
+        with patch(
+            "baloo.agent.pi_runtime.asyncio.create_subprocess_exec",
+            side_effect=FileNotFoundError("pi not found"),
+        ):
             result = await agent.review_pr(sample_pr_context)
 
             assert "error" in result.summary.lower() or "failed" in result.summary.lower()
@@ -164,14 +176,16 @@ class TestBalooAgentSuccessPath:
     async def test_review_pr_successful_with_findings(self, sample_pr_context):
         """Test successful review with valid structured findings."""
         structured = {
-            "findings": [{
-                "file": "test.py",
-                "line": 5,
-                "severity": "HIGH",
-                "category": "Security",
-                "title": "SQL Injection",
-                "description": "Unsafe query",
-            }],
+            "findings": [
+                {
+                    "file": "test.py",
+                    "line": 5,
+                    "severity": "HIGH",
+                    "category": "Security",
+                    "title": "SQL Injection",
+                    "description": "Unsafe query",
+                }
+            ],
             "summary": {"total_issues": 1},
         }
         events = _make_pi_events(structured)
@@ -207,7 +221,9 @@ class TestBalooAgentSuccessPath:
     async def test_review_pr_medium_severity_approves(self, sample_pr_context):
         """Test that MEDIUM/LOW severity issues don't block approval."""
         structured = {
-            "findings": [{"file": "test.py", "line": 1, "severity": "MEDIUM", "title": "Minor issue"}],
+            "findings": [
+                {"file": "test.py", "line": 1, "severity": "MEDIUM", "title": "Minor issue"}
+            ],
         }
         events = _make_pi_events(structured)
         agent = BalooAgent()
@@ -238,12 +254,13 @@ class TestBalooAgentModelSelection:
                 head_branch="docs",
                 head_sha="abc",
                 files_changed=[
-                    FileChange(filename="README.md", status="modified",
-                               additions=2, deletions=1, changes=3)
+                    FileChange(
+                        filename="README.md", status="modified", additions=2, deletions=1, changes=3
+                    )
                 ],
             ),
             discussion=PRDiscussionContext(),
-            diff="diff --git a/README.md"
+            diff="diff --git a/README.md",
         )
 
         events = _make_pi_events({"findings": [], "summary": {}})
@@ -258,11 +275,14 @@ class TestBalooAgentModelSelection:
     @pytest.mark.asyncio
     async def test_uses_sonnet_for_complex_pr(self, sample_pr_context):
         """Test that Sonnet is used for complex PRs."""
-        sample_pr_context.files_changed.extend([
-            FileChange(filename=f"file{i}.py", status="added",
-                       additions=50, deletions=0, changes=50)
-            for i in range(5)
-        ])
+        sample_pr_context.files_changed.extend(
+            [
+                FileChange(
+                    filename=f"file{i}.py", status="added", additions=50, deletions=0, changes=50
+                )
+                for i in range(5)
+            ]
+        )
 
         events = _make_pi_events({"findings": [], "summary": {}})
         agent = BalooAgent()
@@ -287,12 +307,17 @@ class TestBalooAgentModelSelection:
                 head_branch="feature/auth",
                 head_sha="abc",
                 files_changed=[
-                    FileChange(filename="src/auth/login.py", status="modified",
-                               additions=20, deletions=5, changes=25)
+                    FileChange(
+                        filename="src/auth/login.py",
+                        status="modified",
+                        additions=20,
+                        deletions=5,
+                        changes=25,
+                    )
                 ],
             ),
             discussion=PRDiscussionContext(),
-            diff="diff --git a/src/auth/login.py b/src/auth/login.py\n+def verify_token():"
+            diff="diff --git a/src/auth/login.py b/src/auth/login.py\n+def verify_token():",
         )
 
         events = _make_pi_events({"findings": [], "summary": {}})
@@ -312,7 +337,9 @@ class TestBalooAgentSeveritySummary:
     async def test_summary_includes_critical_severity(self, sample_pr_context):
         """Test that CRITICAL severity is included in summary."""
         structured = {
-            "findings": [{"file": "test.py", "line": 1, "severity": "CRITICAL", "title": "Critical issue"}],
+            "findings": [
+                {"file": "test.py", "line": 1, "severity": "CRITICAL", "title": "Critical issue"}
+            ],
         }
         events = _make_pi_events(structured)
         agent = BalooAgent()
@@ -349,8 +376,19 @@ class TestBalooAgentFallback:
         """Test that primary failure triggers fallback to secondary model."""
         # Primary model fails
         fail_events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
-            json.dumps({"type": "response", "command": "prompt", "success": False, "error": "API key invalid"}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "response",
+                    "command": "prompt",
+                    "success": False,
+                    "error": "API key invalid",
+                }
+            ).encode()
+            + b"\n",
         ]
         # Fallback model succeeds
         success_events = _make_pi_events({"findings": [], "summary": {}})
@@ -359,6 +397,7 @@ class TestBalooAgentFallback:
         call_count = 0
 
         with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+
             def side_effect(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
@@ -379,14 +418,22 @@ class TestBalooAgentFallback:
     async def test_no_fallback_when_same_model(self, sample_pr_context):
         """Test that fallback is skipped when it's the same as primary."""
         fail_events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
-            json.dumps({"type": "response", "command": "prompt", "success": False, "error": "API error"}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {"type": "response", "command": "prompt", "success": False, "error": "API error"}
+            ).encode()
+            + b"\n",
         ]
 
         agent = BalooAgent()
         # Set fallback to same as primary
-        with patch("baloo.config.settings.settings.agent_fallback_model",
-                    f"{agent.options.provider}/{agent.options.model}"):
+        with patch(
+            "baloo.config.settings.settings.agent_fallback_model",
+            f"{agent.options.provider}/{agent.options.model}",
+        ):
             with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
                 mock_exec.return_value = _mock_pi_process(fail_events)
                 result = await agent.review_pr(sample_pr_context)
@@ -402,8 +449,10 @@ class TestBalooAgentMetadata:
     async def test_metadata_captures_cost_and_tokens(self, sample_pr_context):
         """Test that metadata includes cost and token counts."""
         usage = {
-            "input": 2000, "output": 500,
-            "cacheRead": 1000, "cacheWrite": 200,
+            "input": 2000,
+            "output": 500,
+            "cacheRead": 1000,
+            "cacheWrite": 200,
             "cost": {"total": 0.10},
         }
         structured = {"findings": [], "summary": {}}
