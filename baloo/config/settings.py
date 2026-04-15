@@ -86,6 +86,24 @@ class Settings(BaseSettings):
         default="", description="Dashboard basic auth password"
     )
 
+    # FP Verification Configuration
+    fp_verification_enabled: bool = Field(
+        default=False,
+        description="Enable LLM-powered false-positive verification pass",
+    )
+    fp_verification_model: str = Field(
+        default="haiku",
+        description="Model for FP verification (short name or provider/model)",
+    )
+    fp_verification_max_concurrent: int = Field(
+        default=5,
+        description="Max concurrent FP verification calls",
+    )
+    fp_audit_log_path: str = Field(
+        default="/var/log/baloo/fp-audit.jsonl",
+        description="Path for FP verification audit log (JSONL). Empty to disable.",
+    )
+
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(
         default=True,

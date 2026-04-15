@@ -159,6 +159,42 @@ Key test cases:
 3. Log all rejections to tune the verification prompt
 4. Enable in production once rejection accuracy is validated
 
+## Audit Log
+
+Every FP rejection is logged to a structured JSON-lines file so we can
+review accuracy offline and tune prompts.
+
+**File**: `/var/log/baloo/fp-audit.jsonl` (configurable via `fp_audit_log_path`)
+
+**Each line:**
+```json
+{
+  "timestamp": "2026-04-14T13:00:00Z",
+  "repo": "org/repo",
+  "pr_number": 42,
+  "commit_sha": "abc123",
+  "finding": {
+    "file": "src/auth.py",
+    "line": 55,
+    "severity": "HIGH",
+    "category": "Security",
+    "title": "SQL injection risk",
+    "description": "..."
+  },
+  "verdict": "fp",
+  "reason": "The query uses parameterized bindings, not string concat",
+  "model": "claude-haiku-4-5-20251001",
+  "review_model": "claude-sonnet-4-6",
+  "cost_usd": 0.0003
+}
+```
+
+Also logs `"verdict": "real"` entries so we have the full picture.
+
+If database is enabled, a summary (rejected count, cost) is stored in the
+review record. The full audit trail stays in the log file — cheap, greppable,
+easy to pipe into analysis scripts.
+
 ## Open questions
 
 - **Fail-open vs fail-closed**: If verification errors, keep or drop the
