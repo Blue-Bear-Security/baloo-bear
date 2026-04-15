@@ -145,7 +145,21 @@ All settings are environment variables. Key ones:
 | `DASHBOARD_ENABLED` | `false` | Enable review dashboard UI |
 | `FIDELITY_ENABLED` | `true` | Compare PRs against plan docs |
 
-Full reference: [`.env.example`](.env.example)
+Full reference: [docs/configuration.md](docs/configuration.md)
+
+## Documentation
+
+📖 **[docs/README.md](docs/README.md)** — Full documentation index
+
+Feature guides:
+- [Review Agent](docs/features/review-agent.md) — How the agentic review works
+- [Guidelines Enforcement](docs/features/guidelines.md) — Repo convention checking
+- [Fidelity Analysis](docs/features/fidelity.md) — Plan-vs-implementation scoring
+- [Models](docs/features/models.md) — Supported models and fallback
+- [Severity Routing](docs/features/severity-routing.md) — How findings reach developers
+- [Discussion Tracking](docs/features/discussions.md) — Thread follow-ups across iterations
+- [FP Verification](docs/features/fp-verification.md) — False-positive reduction
+- [Dashboard](docs/features/dashboard.md) — Review history UI
 
 ## Development
 
