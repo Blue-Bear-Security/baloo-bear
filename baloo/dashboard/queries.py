@@ -109,7 +109,7 @@ class DashboardService:
             last_24h = now - timedelta(hours=24)
             
             # Dialect-aware hour grouping
-            if "postgresql" in settings.database_url:
+            if "postgres" in settings.database_url:
                 hour_label = func.to_char(func.date_trunc("hour", Review.started_at), "YYYY-MM-DD HH24:00")
             else:
                 # Default to SQLite
