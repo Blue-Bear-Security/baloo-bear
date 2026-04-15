@@ -15,5 +15,9 @@ def get_version_info() -> str:
         return f"Baloo v{VERSION} (local development)"
 
     # Only truncate if it's a real SHA (not 'unknown', 'dev', or empty)
-    commit_display = COMMIT_SHA[:8] if COMMIT_SHA not in ('unknown', 'dev', '') and len(COMMIT_SHA) >= 8 else COMMIT_SHA
+    commit_display = (
+        COMMIT_SHA[:8]
+        if COMMIT_SHA not in ("unknown", "dev", "") and len(COMMIT_SHA) >= 8
+        else COMMIT_SHA
+    )
     return f"Baloo v{VERSION} (commit: {commit_display}, built: {BUILD_DATE})"

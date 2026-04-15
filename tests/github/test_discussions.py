@@ -98,16 +98,18 @@ def test_build_discussion_digest_counts_awaiting_threads():
 
     digest, awaiting = build_discussion_digest(
         [awaiting_thread, resolved_thread],
-        [build_discussion_comment(
-            {
-                "id": 7,
-                "body": "General question",
-                "created_at": "2025-02-14T10:00:00Z",
-                "updated_at": "2025-02-14T10:00:00Z",
-                "user": {"login": "reviewer"},
-            },
-            source="issue_comment",
-        )],
+        [
+            build_discussion_comment(
+                {
+                    "id": 7,
+                    "body": "General question",
+                    "created_at": "2025-02-14T10:00:00Z",
+                    "updated_at": "2025-02-14T10:00:00Z",
+                    "user": {"login": "reviewer"},
+                },
+                source="issue_comment",
+            )
+        ],
     )
 
     assert awaiting == 1

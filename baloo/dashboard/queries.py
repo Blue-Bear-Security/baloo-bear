@@ -60,9 +60,7 @@ class DashboardService:
             error_statuses = ["error", "agent_error"]
             errors_total = (
                 await session.execute(
-                    select(func.count(Review.id)).where(
-                        Review.review_status.in_(error_statuses)
-                    )
+                    select(func.count(Review.id)).where(Review.review_status.in_(error_statuses))
                 )
             ).scalar() or 0
 
@@ -90,27 +88,33 @@ class DashboardService:
 
             # Recent failures
             recent_failures = (
-                await session.execute(
-                    select(Review)
-                    .where(Review.review_status.in_(error_statuses))
-                    .order_by(Review.started_at.desc())
-                    .limit(5)
+                (
+                    await session.execute(
+                        select(Review)
+                        .where(Review.review_status.in_(error_statuses))
+                        .order_by(Review.started_at.desc())
+                        .limit(5)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
             # Recent reviews
             recent = (
-                await session.execute(
-                    select(Review).order_by(Review.started_at.desc()).limit(5)
-                )
-            ).scalars().all()
+                (await session.execute(select(Review).order_by(Review.started_at.desc()).limit(5)))
+                .scalars()
+                .all()
+            )
 
             # Reviews per hour (last 24h)
             last_24h = now - timedelta(hours=24)
-            
+
             # Dialect-aware hour grouping
             if "postgres" in settings.database_url:
-                hour_label = func.to_char(func.date_trunc("hour", Review.started_at), "YYYY-MM-DD HH24:00")
+                hour_label = func.to_char(
+                    func.date_trunc("hour", Review.started_at), "YYYY-MM-DD HH24:00"
+                )
             else:
                 # Default to SQLite
                 hour_label = func.strftime("%Y-%m-%d %H:00", Review.started_at)
@@ -181,10 +185,14 @@ class DashboardService:
 
             # Distinct repos for filter dropdown
             repos = (
-                await session.execute(
-                    select(Review.repo_full_name).distinct().order_by(Review.repo_full_name)
+                (
+                    await session.execute(
+                        select(Review.repo_full_name).distinct().order_by(Review.repo_full_name)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         total_pages = max(1, -(-total // per_page))  # ceil division
         return {
@@ -204,9 +212,7 @@ class DashboardService:
 
         async with factory() as session:
             result = await session.execute(
-                select(Review)
-                .options(selectinload(Review.findings))
-                .where(Review.id == review_id)
+                select(Review).options(selectinload(Review.findings)).where(Review.id == review_id)
             )
             return result.scalars().first()
 
@@ -262,8 +268,9 @@ class DashboardService:
             # Previous period stats for trends
             prev_total_cost = (
                 await session.execute(
-                    select(func.sum(Review.cost_usd))
-                    .where(Review.started_at >= prev_since, Review.started_at < since)
+                    select(func.sum(Review.cost_usd)).where(
+                        Review.started_at >= prev_since, Review.started_at < since
+                    )
                 )
             ).scalar() or 0
             prev_error_total = (
@@ -277,8 +284,9 @@ class DashboardService:
             ).scalar() or 0
             prev_total_in_period = (
                 await session.execute(
-                    select(func.count(Review.id))
-                    .where(Review.started_at >= prev_since, Review.started_at < since)
+                    select(func.count(Review.id)).where(
+                        Review.started_at >= prev_since, Review.started_at < since
+                    )
                 )
             ).scalar() or 0
             prev_success_rate = (

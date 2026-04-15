@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)
 
 class ReviewServiceError(Exception):
     """Base exception for ReviewService."""
+
     pass
 
 
 class ReviewNotFoundError(ReviewServiceError):
     """Raised when a review is not found in the database."""
+
     pass
 
 
@@ -63,7 +65,7 @@ class ReviewService:
 
         Returns:
             The review ID.
-        
+
         Raises:
             ReviewServiceError: If database operation fails.
         """
@@ -83,10 +85,7 @@ class ReviewService:
                     session.add(review)
                     await session.flush()
 
-                logger.info(
-                    f"Started review {review.id} for "
-                    f"{repo_full_name}#{pr_number}"
-                )
+                logger.info(f"Started review {review.id} for " f"{repo_full_name}#{pr_number}")
                 return review.id
 
         except Exception as e:

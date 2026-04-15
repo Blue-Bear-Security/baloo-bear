@@ -9,7 +9,6 @@ import pytest
 from baloo.agent.pi_runtime import (
     PIAgentBase,
     PIAgentOptions,
-    PIRunResult,
     _extract_json_from_text,
 )
 
@@ -60,7 +59,7 @@ class TestExtractJsonFromText:
 
     def test_json_array_not_object(self):
         """Arrays should not match — we expect an object."""
-        data = _extract_json_from_text('[1, 2, 3]')
+        data = _extract_json_from_text("[1, 2, 3]")
         # Strategy 1 parses it but it's a list, not dict
         # Our function returns whatever json.loads gives
         assert data == [1, 2, 3]
@@ -107,9 +106,7 @@ class TestPIAgentBase:
     @pytest.mark.asyncio
     async def test_read_event_parses_json(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
-        reader.readline = AsyncMock(
-            return_value=b'{"type": "agent_end"}\n'
-        )
+        reader.readline = AsyncMock(return_value=b'{"type": "agent_end"}\n')
         event = await PIAgentBase._read_event(reader)
         assert event == {"type": "agent_end"}
 
@@ -130,9 +127,7 @@ class TestPIAgentBase:
     @pytest.mark.asyncio
     async def test_read_event_strips_cr(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
-        reader.readline = AsyncMock(
-            return_value=b'{"type": "test"}\r\n'
-        )
+        reader.readline = AsyncMock(return_value=b'{"type": "test"}\r\n')
         event = await PIAgentBase._read_event(reader)
         assert event == {"type": "test"}
 
@@ -142,7 +137,13 @@ class TestPIAgentBaseRunQuery:
 
     def _make_events(self, structured_output: dict, usage: dict = None) -> list[bytes]:
         """Build the sequence of JSONL events a PI process would emit."""
-        usage = usage or {"input": 500, "output": 100, "cacheRead": 0, "cacheWrite": 0, "cost": {"total": 0.01}}
+        usage = usage or {
+            "input": 500,
+            "output": 100,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {"total": 0.01},
+        }
         assistant_text = json.dumps(structured_output)
 
         events = [
@@ -155,13 +156,16 @@ class TestPIAgentBaseRunQuery:
             # Turn
             {"type": "turn_start"},
             {"type": "message_start", "message": {"role": "assistant"}},
-            {"type": "message_end", "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": assistant_text}],
-                "model": "claude-sonnet-4-6",
-                "usage": usage,
-                "stopReason": "stop",
-            }},
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": assistant_text}],
+                    "model": "claude-sonnet-4-6",
+                    "usage": usage,
+                    "stopReason": "stop",
+                },
+            },
             {"type": "turn_end"},
             # Done
             {"type": "agent_end"},
@@ -185,11 +189,13 @@ class TestPIAgentBaseRunQuery:
             proc.stdout = AsyncMock(spec=asyncio.StreamReader)
 
             event_iter = iter(events)
+
             async def fake_readline():
                 try:
                     return next(event_iter)
                 except StopIteration:
                     return b""
+
             proc.stdout.readline = fake_readline
 
             proc.stderr = AsyncMock()
@@ -224,11 +230,13 @@ class TestPIAgentBaseRunQuery:
             proc.stdout = AsyncMock(spec=asyncio.StreamReader)
 
             event_iter = iter(events)
+
             async def fake_readline():
                 try:
                     return next(event_iter)
                 except StopIteration:
                     return b""
+
             proc.stdout.readline = fake_readline
 
             proc.stderr = AsyncMock()
@@ -244,7 +252,10 @@ class TestPIAgentBaseRunQuery:
     async def test_process_crash(self):
         """Test handling of PI process crashing (stdout closes early)."""
         events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
             json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
             b"",  # EOF — process crashed
         ]
@@ -260,11 +271,13 @@ class TestPIAgentBaseRunQuery:
             proc.stdout = AsyncMock(spec=asyncio.StreamReader)
 
             event_iter = iter(events)
+
             async def fake_readline():
                 try:
                     return next(event_iter)
                 except StopIteration:
                     return b""
+
             proc.stdout.readline = fake_readline
 
             proc.stderr = AsyncMock()
@@ -282,12 +295,15 @@ class TestPIAgentBaseRunQuery:
     async def test_command_failure(self):
         """Test handling of PI command returning failure."""
         events = [
-            json.dumps({
-                "type": "response",
-                "command": "set_thinking_level",
-                "success": False,
-                "error": "Model not found",
-            }).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "response",
+                    "command": "set_thinking_level",
+                    "success": False,
+                    "error": "Model not found",
+                }
+            ).encode()
+            + b"\n",
         ]
 
         agent = PIAgentBase(PIAgentOptions())
@@ -301,11 +317,13 @@ class TestPIAgentBaseRunQuery:
             proc.stdout = AsyncMock(spec=asyncio.StreamReader)
 
             event_iter = iter(events)
+
             async def fake_readline():
                 try:
                     return next(event_iter)
                 except StopIteration:
                     return b""
+
             proc.stdout.readline = fake_readline
 
             proc.stderr = AsyncMock()
@@ -326,16 +344,31 @@ class TestPIAgentBaseRunQuery:
         agent = PIAgentBase(PIAgentOptions(max_turns=1))
 
         events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
             json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
             json.dumps({"type": "turn_start"}).encode() + b"\n",
-            json.dumps({"type": "message_end", "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": '{"findings": []}'}],
-                "model": "test",
-                "usage": {"input": 100, "output": 50, "cacheRead": 0, "cacheWrite": 0, "cost": {"total": 0.005}},
-                "stopReason": "toolUse",
-            }}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": '{"findings": []}'}],
+                        "model": "test",
+                        "usage": {
+                            "input": 100,
+                            "output": 50,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                            "cost": {"total": 0.005},
+                        },
+                        "stopReason": "toolUse",
+                    },
+                }
+            ).encode()
+            + b"\n",
             json.dumps({"type": "turn_end"}).encode() + b"\n",
             # After abort, agent_end would come
             json.dumps({"type": "agent_end"}).encode() + b"\n",
@@ -350,11 +383,13 @@ class TestPIAgentBaseRunQuery:
             proc.stdout = AsyncMock(spec=asyncio.StreamReader)
 
             event_iter = iter(events)
+
             async def fake_readline():
                 try:
                     return next(event_iter)
                 except StopIteration:
                     return b""
+
             proc.stdout.readline = fake_readline
 
             proc.stderr = AsyncMock()
@@ -374,32 +409,69 @@ class TestPIAgentBaseRunQuery:
         """Test that invalid JSON triggers a retry that succeeds."""
         # First run returns non-JSON text
         bad_events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
             json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
             json.dumps({"type": "turn_start"}).encode() + b"\n",
-            json.dumps({"type": "message_end", "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "Here are my findings about the code..."}],
-                "model": "test",
-                "usage": {"input": 500, "output": 200, "cacheRead": 0, "cacheWrite": 0, "cost": {"total": 0.01}},
-                "stopReason": "stop",
-            }}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Here are my findings about the code..."}
+                        ],
+                        "model": "test",
+                        "usage": {
+                            "input": 500,
+                            "output": 200,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                            "cost": {"total": 0.01},
+                        },
+                        "stopReason": "stop",
+                    },
+                }
+            ).encode()
+            + b"\n",
             json.dumps({"type": "turn_end"}).encode() + b"\n",
             json.dumps({"type": "agent_end"}).encode() + b"\n",
         ]
 
         # Retry returns valid JSON
         good_events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
             json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
             json.dumps({"type": "turn_start"}).encode() + b"\n",
-            json.dumps({"type": "message_end", "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": '{"findings": [{"file": "a.py", "line": 1}], "summary": {}}'}],
-                "model": "test",
-                "usage": {"input": 100, "output": 50, "cacheRead": 0, "cacheWrite": 0, "cost": {"total": 0.002}},
-                "stopReason": "stop",
-            }}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": '{"findings": [{"file": "a.py", "line": 1}], "summary": {}}',
+                            }
+                        ],
+                        "model": "test",
+                        "usage": {
+                            "input": 100,
+                            "output": 50,
+                            "cacheRead": 0,
+                            "cacheWrite": 0,
+                            "cost": {"total": 0.002},
+                        },
+                        "stopReason": "stop",
+                    },
+                }
+            ).encode()
+            + b"\n",
             json.dumps({"type": "turn_end"}).encode() + b"\n",
             json.dumps({"type": "agent_end"}).encode() + b"\n",
         ]
@@ -408,6 +480,7 @@ class TestPIAgentBaseRunQuery:
         call_count = 0
 
         with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+
             def make_proc(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
@@ -449,31 +522,58 @@ class TestPIAgentBaseRunQuery:
     @pytest.mark.asyncio
     async def test_usage_aggregation_across_turns(self):
         """Test that token usage is aggregated across multiple turns."""
-        usage1 = {"input": 200, "output": 50, "cacheRead": 0, "cacheWrite": 0, "cost": {"total": 0.005}}
-        usage2 = {"input": 300, "output": 75, "cacheRead": 0, "cacheWrite": 0, "cost": {"total": 0.008}}
+        usage1 = {
+            "input": 200,
+            "output": 50,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {"total": 0.005},
+        }
+        usage2 = {
+            "input": 300,
+            "output": 75,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "cost": {"total": 0.008},
+        }
 
         events = [
-            json.dumps({"type": "response", "command": "set_thinking_level", "success": True}).encode() + b"\n",
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
             json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
             # Turn 1
             json.dumps({"type": "turn_start"}).encode() + b"\n",
-            json.dumps({"type": "message_end", "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": "Let me check..."}],
-                "model": "test",
-                "usage": usage1,
-                "stopReason": "toolUse",
-            }}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Let me check..."}],
+                        "model": "test",
+                        "usage": usage1,
+                        "stopReason": "toolUse",
+                    },
+                }
+            ).encode()
+            + b"\n",
             json.dumps({"type": "turn_end"}).encode() + b"\n",
             # Turn 2
             json.dumps({"type": "turn_start"}).encode() + b"\n",
-            json.dumps({"type": "message_end", "message": {
-                "role": "assistant",
-                "content": [{"type": "text", "text": '{"findings": [], "summary": {}}'}],
-                "model": "test",
-                "usage": usage2,
-                "stopReason": "stop",
-            }}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": '{"findings": [], "summary": {}}'}],
+                        "model": "test",
+                        "usage": usage2,
+                        "stopReason": "stop",
+                    },
+                }
+            ).encode()
+            + b"\n",
             json.dumps({"type": "turn_end"}).encode() + b"\n",
             json.dumps({"type": "agent_end"}).encode() + b"\n",
         ]
@@ -489,11 +589,13 @@ class TestPIAgentBaseRunQuery:
             proc.stdout = AsyncMock(spec=asyncio.StreamReader)
 
             event_iter = iter(events)
+
             async def fake_readline():
                 try:
                     return next(event_iter)
                 except StopIteration:
                     return b""
+
             proc.stdout.readline = fake_readline
 
             proc.stderr = AsyncMock()

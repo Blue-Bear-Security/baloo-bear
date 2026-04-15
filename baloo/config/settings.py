@@ -1,6 +1,7 @@
 """Configuration settings for Baloo using Pydantic."""
 
 import os
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,13 +19,17 @@ class Settings(BaseSettings):
     # GitHub App Configuration
     github_app_id: str = Field(default="", description="GitHub App ID")
     github_private_key: str = Field(default="", description="GitHub App private key (PEM format)")
-    github_webhook_secret: str = Field(default="", description="GitHub webhook secret for signature validation")
+    github_webhook_secret: str = Field(
+        default="", description="GitHub webhook secret for signature validation"
+    )
 
     # Anthropic Configuration
     anthropic_api_key: str = Field(default="", description="Anthropic API key for Claude")
 
     # Application Configuration
-    app_environment: str = Field(default="development", description="Application environment (development, production)")
+    app_environment: str = Field(
+        default="development", description="Application environment (development, production)"
+    )
     app_host: str = Field(default="0.0.0.0", description="Application host")
     app_port: int = Field(default=8000, description="Application port")
     log_level: str = Field(default="INFO", description="Logging level")
@@ -34,7 +39,9 @@ class Settings(BaseSettings):
     )
 
     # Agent Configuration
-    agent_provider: str = Field(default="anthropic", description="LLM provider (anthropic, google, openai)")
+    agent_provider: str = Field(
+        default="anthropic", description="LLM provider (anthropic, google, openai)"
+    )
     agent_model: str = Field(default="claude-sonnet-4-6", description="Model to use for reviews")
     agent_fallback_model: str = Field(
         default="google/gemini-2.5-flash",
@@ -76,15 +83,9 @@ class Settings(BaseSettings):
     )
 
     # Dashboard Configuration
-    dashboard_enabled: bool = Field(
-        default=True, description="Enable the review history dashboard"
-    )
-    dashboard_username: str = Field(
-        default="", description="Dashboard basic auth username"
-    )
-    dashboard_password: str = Field(
-        default="", description="Dashboard basic auth password"
-    )
+    dashboard_enabled: bool = Field(default=True, description="Enable the review history dashboard")
+    dashboard_username: str = Field(default="", description="Dashboard basic auth username")
+    dashboard_password: str = Field(default="", description="Dashboard basic auth password")
 
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(

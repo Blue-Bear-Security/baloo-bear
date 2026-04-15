@@ -1,6 +1,5 @@
 """Pydantic models for fidelity report data."""
 
-
 from pydantic import BaseModel, Field
 
 
@@ -18,9 +17,7 @@ class Discrepancy(BaseModel):
     """A discrepancy between the plan and implementation."""
 
     description: str = Field(description="Description of the discrepancy")
-    severity: str = Field(
-        default="MEDIUM", description="Severity: LOW, MEDIUM, HIGH"
-    )
+    severity: str = Field(default="MEDIUM", description="Severity: LOW, MEDIUM, HIGH")
 
 
 class FidelityOutput(BaseModel):
@@ -42,12 +39,8 @@ class FidelityResult(BaseModel):
     """Result of fidelity analysis comparing PR to design plan."""
 
     ticket_id: str = Field(description="The ticket ID (e.g., PROJ-123)")
-    fidelity_score: int = Field(
-        description="Fidelity score 0-100 indicating alignment with plan"
-    )
-    logic_summary: str = Field(
-        description="2-sentence business explanation of the implementation"
-    )
+    fidelity_score: int = Field(description="Fidelity score 0-100 indicating alignment with plan")
+    logic_summary: str = Field(description="2-sentence business explanation of the implementation")
     requirements: list[Requirement] = Field(
         default_factory=list, description="Requirements and their fulfillment status"
     )
@@ -57,6 +50,4 @@ class FidelityResult(BaseModel):
     discrepancies: list[Discrepancy] = Field(
         default_factory=list, description="Critical differences from the plan"
     )
-    metadata: dict = Field(
-        default_factory=dict, description="Metadata like cost, tokens"
-    )
+    metadata: dict = Field(default_factory=dict, description="Metadata like cost, tokens")

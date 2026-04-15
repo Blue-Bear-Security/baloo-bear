@@ -85,23 +85,23 @@ def test_prompt_without_discussion_digest():
 
 def test_is_dependabot_pr_detects_dependabot_author():
     """Test detection via dependabot author."""
-    pr = {'author': 'dependabot[bot]', 'title': '', 'description': ''}
+    pr = {"author": "dependabot[bot]", "title": "", "description": ""}
     assert _is_dependabot_pr(pr) is True
 
 
 def test_is_dependabot_pr_detects_dependabot_in_title():
     """Test detection via dependabot in title."""
-    pr = {'author': 'user', 'title': 'dependabot update', 'description': ''}
+    pr = {"author": "user", "title": "dependabot update", "description": ""}
     assert _is_dependabot_pr(pr) is True
 
 
 def test_is_dependabot_pr_detects_bot_with_bump_keyword():
     """Test detection of bot with bump in title and dependency files."""
     pr = {
-        'author': 'renovate[bot]',
-        'title': 'Bump package version',
-        'description': '',
-        'changed_file_paths': ['package.json']
+        "author": "renovate[bot]",
+        "title": "Bump package version",
+        "description": "",
+        "changed_file_paths": ["package.json"],
     }
     assert _is_dependabot_pr(pr) is True
 
@@ -109,100 +109,100 @@ def test_is_dependabot_pr_detects_bot_with_bump_keyword():
 def test_is_dependabot_pr_rejects_bot_with_bump_but_no_dep_files():
     """Test that bots with bump keyword but no dependency files are rejected."""
     pr = {
-        'author': 'some-bot[bot]',
-        'title': 'Bump version in docs',
-        'description': '',
-        'changed_file_paths': ['docs/version.md']
+        "author": "some-bot[bot]",
+        "title": "Bump version in docs",
+        "description": "",
+        "changed_file_paths": ["docs/version.md"],
     }
     assert _is_dependabot_pr(pr) is False
 
 
 def test_is_dependabot_pr_rejects_unrelated_bot():
     """Test that non-dependency bots are not detected."""
-    pr = {'author': 'codecov[bot]', 'title': 'Coverage report updated', 'description': ''}
+    pr = {"author": "codecov[bot]", "title": "Coverage report updated", "description": ""}
     assert _is_dependabot_pr(pr) is False
 
 
 def test_is_dependabot_pr_rejects_regular_user():
     """Test that regular users are not detected."""
-    pr = {'author': 'john-doe', 'title': 'Update code', 'description': ''}
+    pr = {"author": "john-doe", "title": "Update code", "description": ""}
     assert _is_dependabot_pr(pr) is False
 
 
 def test_is_security_patch_detects_security_in_title():
     """Test detection via security keyword in title."""
-    pr = {'title': 'Security update for django', 'description': ''}
+    pr = {"title": "Security update for django", "description": ""}
     assert _is_security_patch(pr) is True
 
 
 def test_is_security_patch_detects_vulnerability_in_description():
     """Test detection via vulnerability keyword in description."""
-    pr = {'title': '', 'description': 'Fixes vulnerability in auth module'}
+    pr = {"title": "", "description": "Fixes vulnerability in auth module"}
     assert _is_security_patch(pr) is True
 
 
 def test_is_security_patch_detects_cve():
     """Test detection via CVE identifier."""
-    pr = {'title': 'Bump django', 'description': 'Fixes CVE-2024-1234'}
+    pr = {"title": "Bump django", "description": "Fixes CVE-2024-1234"}
     assert _is_security_patch(pr) is True
 
 
 def test_is_security_patch_rejects_regular_pr():
     """Test that non-security PRs are not detected."""
-    pr = {'title': 'Add new feature', 'description': 'Implements user dashboard'}
+    pr = {"title": "Add new feature", "description": "Implements user dashboard"}
     assert _is_security_patch(pr) is False
 
 
 def test_security_patch_notice_in_prompt():
     """Test that security patch notice appears in prompt for Dependabot security PR."""
     pr_context = {
-        'title': 'chore(deps): Bump js-yaml from 4.1.0 to 4.1.1',
-        'author': 'dependabot[bot]',
-        'description': 'Security fix for prototype pollution',
-        'files_changed': [{'filename': 'package-lock.json'}],
-        'changed_file_paths': ['package-lock.json'],
-        'diff': '...',
+        "title": "chore(deps): Bump js-yaml from 4.1.0 to 4.1.1",
+        "author": "dependabot[bot]",
+        "description": "Security fix for prototype pollution",
+        "files_changed": [{"filename": "package-lock.json"}],
+        "changed_file_paths": ["package-lock.json"],
+        "diff": "...",
     }
 
     prompt = build_pr_review_prompt(pr_context)
 
-    assert '🔒 SECURITY PATCH DETECTED' in prompt
-    assert 'OLD version has vulnerability' in prompt
-    assert 'Do NOT report the upgrade itself as introducing a vulnerability' in prompt
-    assert 'Default to APPROVE' in prompt
+    assert "🔒 SECURITY PATCH DETECTED" in prompt
+    assert "OLD version has vulnerability" in prompt
+    assert "Do NOT report the upgrade itself as introducing a vulnerability" in prompt
+    assert "Default to APPROVE" in prompt
 
 
 def test_dependabot_notice_in_prompt():
     """Test that Dependabot notice appears for non-security dependency update."""
     pr_context = {
-        'title': 'Bump package from 1.0 to 1.1',
-        'author': 'dependabot[bot]',
-        'description': 'Regular update',
-        'files_changed': [{'filename': 'requirements.txt'}],
-        'changed_file_paths': ['requirements.txt'],
-        'diff': '...',
+        "title": "Bump package from 1.0 to 1.1",
+        "author": "dependabot[bot]",
+        "description": "Regular update",
+        "files_changed": [{"filename": "requirements.txt"}],
+        "changed_file_paths": ["requirements.txt"],
+        "diff": "...",
     }
 
     prompt = build_pr_review_prompt(pr_context)
 
-    assert '🤖 DEPENDABOT PR DETECTED' in prompt
-    assert 'automated dependency update' in prompt
+    assert "🤖 DEPENDABOT PR DETECTED" in prompt
+    assert "automated dependency update" in prompt
 
 
 def test_no_special_notice_for_regular_pr():
     """Test that regular PRs don't get special notices."""
     pr_context = {
-        'title': 'Add feature',
-        'author': 'developer',
-        'description': 'New feature',
-        'base_branch': 'main',
-        'head_branch': 'feature/add-feature',
-        'files_changed': [{'filename': 'app.py'}],
-        'changed_file_paths': ['app.py'],
-        'diff': '...',
+        "title": "Add feature",
+        "author": "developer",
+        "description": "New feature",
+        "base_branch": "main",
+        "head_branch": "feature/add-feature",
+        "files_changed": [{"filename": "app.py"}],
+        "changed_file_paths": ["app.py"],
+        "diff": "...",
     }
 
     prompt = build_pr_review_prompt(pr_context)
 
-    assert '🔒 SECURITY PATCH DETECTED' not in prompt
-    assert '🤖 DEPENDABOT PR DETECTED' not in prompt
+    assert "🔒 SECURITY PATCH DETECTED" not in prompt
+    assert "🤖 DEPENDABOT PR DETECTED" not in prompt

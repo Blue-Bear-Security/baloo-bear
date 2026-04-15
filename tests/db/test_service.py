@@ -129,9 +129,7 @@ async def test_complete_review_success(db_session_factory):
         assert review.pr_title == "Add feature"
         assert review.tokens_input == 1000
 
-        result = await session.execute(
-            select(Finding).where(Finding.review_id == review_id)
-        )
+        result = await session.execute(select(Finding).where(Finding.review_id == review_id))
         findings = result.scalars().all()
         assert len(findings) == 2
 
@@ -194,9 +192,7 @@ async def test_complete_review_no_findings(db_session_factory):
     )
 
     async with db_session_factory() as session:
-        result = await session.execute(
-            select(Finding).where(Finding.review_id == review_id)
-        )
+        result = await session.execute(select(Finding).where(Finding.review_id == review_id))
         assert result.scalars().all() == []
 
 

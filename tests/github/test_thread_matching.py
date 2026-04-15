@@ -161,9 +161,7 @@ class TestMatchThread:
 
     def test_exact_line_match(self):
         """Should match thread on exact same line."""
-        thread = _make_thread(
-            1, "file.py", 50, "**[HIGH] Bugs** - Issue description"
-        )
+        thread = _make_thread(1, "file.py", 50, "**[HIGH] Bugs** - Issue description")
         lookup = _build_thread_lookup([thread])
 
         comment = ReviewComment(
@@ -180,9 +178,7 @@ class TestMatchThread:
 
     def test_fuzzy_line_match_within_tolerance(self):
         """Should match thread within LINE_MATCH_TOLERANCE lines."""
-        thread = _make_thread(
-            1, "file.py", 50, "**[HIGH] Bugs** - Race condition in handler"
-        )
+        thread = _make_thread(1, "file.py", 50, "**[HIGH] Bugs** - Race condition in handler")
         lookup = _build_thread_lookup([thread])
 
         # Comment is 3 lines away (within tolerance of 5)
@@ -200,9 +196,7 @@ class TestMatchThread:
 
     def test_no_match_outside_tolerance(self):
         """Should not match thread outside LINE_MATCH_TOLERANCE."""
-        thread = _make_thread(
-            1, "file.py", 50, "**[HIGH] Bugs** - Issue description"
-        )
+        thread = _make_thread(1, "file.py", 50, "**[HIGH] Bugs** - Issue description")
         lookup = _build_thread_lookup([thread])
 
         # Comment is 10 lines away (outside tolerance of 5)
@@ -219,9 +213,7 @@ class TestMatchThread:
 
     def test_no_match_different_file(self):
         """Should not match thread in different file."""
-        thread = _make_thread(
-            1, "file1.py", 50, "**[HIGH] Bugs** - Issue description"
-        )
+        thread = _make_thread(1, "file1.py", 50, "**[HIGH] Bugs** - Issue description")
         lookup = _build_thread_lookup([thread])
 
         comment = ReviewComment(
@@ -237,12 +229,8 @@ class TestMatchThread:
 
     def test_prefers_exact_line_match_over_fuzzy(self):
         """Should prefer exact line match when multiple threads exist."""
-        thread_exact = _make_thread(
-            1, "file.py", 50, "**[HIGH] Bugs** - Exact match issue"
-        )
-        thread_nearby = _make_thread(
-            2, "file.py", 48, "**[HIGH] Bugs** - Nearby issue"
-        )
+        thread_exact = _make_thread(1, "file.py", 50, "**[HIGH] Bugs** - Exact match issue")
+        thread_nearby = _make_thread(2, "file.py", 48, "**[HIGH] Bugs** - Nearby issue")
         lookup = _build_thread_lookup([thread_exact, thread_nearby])
 
         comment = ReviewComment(
@@ -259,9 +247,7 @@ class TestMatchThread:
 
     def test_requires_content_similarity_for_fuzzy_match(self):
         """Fuzzy match should require content similarity."""
-        thread = _make_thread(
-            1, "file.py", 50, "**[HIGH] Security** - SQL injection vulnerability"
-        )
+        thread = _make_thread(1, "file.py", 50, "**[HIGH] Security** - SQL injection vulnerability")
         lookup = _build_thread_lookup([thread])
 
         # Same line range but completely different issue
@@ -279,9 +265,7 @@ class TestMatchThread:
 
     def test_no_match_for_non_baloo_thread(self):
         """Should not match non-Baloo threads."""
-        thread = _make_thread(
-            1, "file.py", 50, "Developer comment", is_baloo=False
-        )
+        thread = _make_thread(1, "file.py", 50, "Developer comment", is_baloo=False)
         lookup = _build_thread_lookup([thread])
 
         comment = ReviewComment(

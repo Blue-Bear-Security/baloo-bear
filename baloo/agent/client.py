@@ -1,7 +1,6 @@
 """PI-based agent client for code review."""
 
 import logging
-from typing import List
 
 from baloo.agent.config import get_agent_options
 from baloo.agent.pi_runtime import PIAgentBase
@@ -9,7 +8,7 @@ from baloo.agent.prompts import (
     build_pr_review_prompt,
 )
 from baloo.agent.schemas import findings_to_comments
-from baloo.github.models import PRContext, ReviewResult, ReviewComment
+from baloo.github.models import PRContext, ReviewResult
 from baloo.processor.decision_engine import DecisionEngine
 from baloo.processor.formatter import CommentFormatter
 
@@ -39,7 +38,9 @@ class BalooAgent(PIAgentBase):
         if model_override:
             self.options = get_agent_options(model_override)
 
-        logger.info(f"Starting review for {pr_context.repo_full_name}#{pr_context.pr_number} using {self.options.model}")
+        logger.info(
+            f"Starting review for {pr_context.repo_full_name}#{pr_context.pr_number} using {self.options.model}"
+        )
 
         try:
             # Build review prompt
@@ -121,10 +122,7 @@ class BalooAgent(PIAgentBase):
             fallback_provider, fallback_model = fallback.split("/", 1)
 
             # Don't fallback to the same provider/model we just failed with
-            if (
-                fallback_provider == self.options.provider
-                and fallback_model == self.options.model
-            ):
+            if fallback_provider == self.options.provider and fallback_model == self.options.model:
                 raise
 
             logger.warning(
@@ -149,9 +147,7 @@ class BalooAgent(PIAgentBase):
                 result[1]["primary_error"] = str(primary_err)
                 return result
             except Exception as fallback_err:
-                logger.error(
-                    "Fallback model %s also failed: %s", fallback, fallback_err
-                )
+                logger.error("Fallback model %s also failed: %s", fallback, fallback_err)
                 # Restore original model info on the exception metadata
                 if hasattr(primary_err, "metadata"):
                     raise primary_err from fallback_err

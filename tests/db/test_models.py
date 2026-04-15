@@ -100,9 +100,7 @@ async def test_review_findings_relationship(async_session: AsyncSession):
         trigger_reason="pull_request:opened",
         started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
-    finding1 = Finding(
-        file_path="a.py", severity="HIGH", category="Bugs", body="Null pointer"
-    )
+    finding1 = Finding(file_path="a.py", severity="HIGH", category="Bugs", body="Null pointer")
     finding2 = Finding(
         file_path="b.py", severity="LOW", category="Quality", body="Missing docstring"
     )
@@ -111,9 +109,7 @@ async def test_review_findings_relationship(async_session: AsyncSession):
     async with async_session.begin():
         async_session.add(review)
 
-    result = await async_session.execute(
-        select(Review).where(Review.id == review.id)
-    )
+    result = await async_session.execute(select(Review).where(Review.id == review.id))
     saved = result.scalar_one()
     await async_session.refresh(saved, ["findings"])
     assert len(saved.findings) == 2
@@ -142,9 +138,7 @@ async def test_cascade_delete(async_session: AsyncSession):
         to_delete = await async_session.get(Review, review_id)
         await async_session.delete(to_delete)
 
-    result = await async_session.execute(
-        select(Finding).where(Finding.review_id == review_id)
-    )
+    result = await async_session.execute(select(Finding).where(Finding.review_id == review_id))
     assert result.scalars().all() == []
 
 

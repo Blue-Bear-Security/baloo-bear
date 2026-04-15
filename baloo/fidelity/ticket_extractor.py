@@ -8,9 +8,6 @@ from baloo.config.settings import get_settings
 logger = logging.getLogger(__name__)
 
 
-
-
-
 def extract_ticket_id(
     branch_name: str,
     pr_title: str,
@@ -36,7 +33,7 @@ def extract_ticket_id(
     """
     if prefix is None:
         prefix = get_settings().ticket_id_prefix
-    
+
     pattern = re.compile(rf"{prefix}-(\d+)", re.IGNORECASE)
 
     # Try branch name first
@@ -60,7 +57,6 @@ def extract_ticket_id(
 
     logger.debug("No ticket ID found in PR metadata")
     return None
-
 
 
 def _extract_from_branch(branch_name: str, prefix: str, pattern: re.Pattern) -> str | None:
