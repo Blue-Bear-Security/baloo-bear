@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +78,10 @@ if (
 # Initialized lazily on first use to respect settings
 review_semaphore = None
 
+# Registry of active review tasks to allow cancellation of redundant reviews
+# Map of (repo_full_name, pr_number) -> asyncio.Task
+active_reviews: dict[tuple[str, int], asyncio.Task] = {}
+
 
 def get_review_semaphore() -> asyncio.Semaphore:
     """Get or create the review semaphore with the configured limit."""
@@ -84,6 +90,17 @@ def get_review_semaphore() -> asyncio.Semaphore:
         review_semaphore = asyncio.Semaphore(settings.max_concurrent_reviews)
         logger.info(f"Initialized review queue with max {settings.max_concurrent_reviews} concurrent reviews")
     return review_semaphore
+
+
+def cancel_existing_review(repo_full_name: str, pr_number: int) -> None:
+    """Cancel any existing review task for the same PR."""
+    key = (repo_full_name, pr_number)
+    if key in active_reviews:
+        task = active_reviews[key]
+        if not task.done():
+            logger.info(f"Cancelling redundant review for {repo_full_name}#{pr_number}")
+            task.cancel()
+        del active_reviews[key]
 
 
 @app.get("/")
@@ -98,170 +115,131 @@ async def health() -> dict[str, str]:
     return {"status": "healthy"}
 
 
-def _is_bot_sender(sender: dict | None) -> bool:
-    """Return True if the webhook sender is a bot (to avoid feedback loops)."""
-    if not sender:
-        return False
-    if sender.get("type") == "Bot":
-        return True
-    login = (sender.get("login") or "").lower()
-    return login.endswith("[bot]") or "baloo" in login
+# ------------------------------------------------------------------
+# Thread matching and deduplication helpers
+# ------------------------------------------------------------------
 
-
-# Number of lines to search above/below when matching threads (handles line drift)
+# Max lines difference to consider a finding as part of an existing thread
 LINE_MATCH_TOLERANCE = 5
 
 
-def _build_thread_lookup(
-    threads: list[DiscussionThread],
-) -> dict[str, list[DiscussionThread]]:
-    """
-    Create a lookup for Baloo threads grouped by file path.
-
-    Returns a dict mapping file path -> list of threads in that file,
-    sorted by line number for efficient range searching.
-    """
-    lookup: dict[str, list[DiscussionThread]] = {}
+def _build_thread_lookup(threads: list[DiscussionThread]) -> dict[str, list[DiscussionThread]]:
+    """Build a lookup dictionary for discussion threads grouped by file path."""
+    lookup = defaultdict(list)
     for thread in threads:
-        if not thread.path or thread.line is None:
-            continue
-        if thread.path not in lookup:
-            lookup[thread.path] = []
-        lookup[thread.path].append(thread)
+        if thread.path and thread.line is not None:
+            lookup[thread.path].append(thread)
 
-    # Sort threads by line number within each file
+    # Sort threads within each file by line number for faster matching
     for path in lookup:
-        lookup[path].sort(key=lambda t: t.line or 0)
+        lookup[path].sort(key=lambda t: t.line if t.line is not None else 0)
 
     return lookup
 
 
 def _extract_issue_signature(body: str) -> str:
     """
-    Extract a normalized signature from a Baloo comment for similarity matching.
-
-    This extracts the category and key terms from the issue description
-    to identify semantically similar issues even if line numbers drift.
+    Extract a normalized signature from a Baloo finding body.
+    Format: "**[SEVERITY] Category** - Description" -> "category:description"
     """
-    # Normalize whitespace and lowercase
-    normalized = " ".join(body.lower().split())
-
-    # Try to extract category from Baloo's format: **[SEVERITY] Category** - description
-    import re
-    match = re.search(r"\*\*\[(?:critical|high|medium|low)\]\s*(\w+)\*\*\s*-\s*(.+)", normalized)
+    # First, handle the bold category part: **[SEVERITY] Category** - Remainder
+    match = re.search(r"\*\*\[(?:.*?)\]\s+(.*?)\*\*\s*-\s*(.*)", body, re.DOTALL | re.IGNORECASE)
     if match:
-        category = match.group(1)
-        description = match.group(2)
+        category = match.group(1).strip().lower()
+        remainder = match.group(2).strip().lower()
+        
+        # Strip markdown bolding/italics/backticks
+        remainder = re.sub(r"[`*_]", "", remainder)
+        
+        # Normalize whitespace
+        remainder = " ".join(remainder.split())
+        return f"{category}:{remainder}"
 
-        # Extract key technical terms (identifiers, function names, etc.)
-        # This helps match issues about the same code construct
-        key_terms = set()
+    # Fallback: normalize the whole body
+    return " ".join(body.strip().lower().split())
 
-        # Find identifiers (camelCase, snake_case, etc.)
-        identifiers = re.findall(r'\b[a-z_][a-z0-9_]*(?:[A-Z][a-z0-9]*)*\b', description)
-        key_terms.update(identifiers)
 
-        # Find quoted terms
-        quoted = re.findall(r'[`\'"]([^`\'"]+)[`\'"]', description)
-        for q in quoted:
-            key_terms.update(q.lower().split())
+def _calculate_similarity(s1: str, s2: str) -> float:
+    """
+    Calculate similarity between two issue signatures.
+    Uses token-based Jaccard similarity.
+    """
+    if not s1 or not s2:
+        return 0.0
 
-        # Include first 100 chars of description plus key terms
-        return f"{category}:{description[:100]} {' '.join(sorted(key_terms))}"
+    # Tokenize by non-alphanumeric characters
+    def tokenize(s):
+        # We include technical keywords that often indicate the same issue
+        tokens = re.findall(r"\w+", s.lower())
+        return {t for t in tokens if len(t) > 2 or t.isdigit()}
 
-    # Fallback: use first 150 chars
-    return normalized[:150]
+    tokens1 = tokenize(s1)
+    tokens2 = tokenize(s2)
+
+    if not tokens1 or not tokens2:
+        return 0.0
+
+    intersection = tokens1 & tokens2
+    union = tokens1 | tokens2
+
+    sim = len(intersection) / len(union)
+    return sim
 
 
 def _match_thread(
-    lookup: dict[str, list[DiscussionThread]],
-    comment: ReviewComment,
+    lookup: dict[str, list[DiscussionThread]], comment: ReviewComment
 ) -> DiscussionThread | None:
     """
-    Find an existing discussion thread matching a review comment.
-
-    Uses fuzzy matching:
-    1. First checks for exact (path, line) match
-    2. Then checks within ±LINE_MATCH_TOLERANCE lines for similar issues
-
-    Scoring:
-    - line_score: (LINE_MATCH_TOLERANCE - distance), max 5 for exact match
-    - content_score: Jaccard similarity (0-1) * 15
-    - Same category bonus: +3 if categories match
-    - Minimum threshold: 4 (to catch line drift with similar issues)
+    Find a matching existing thread for a finding using fuzzy line matching
+    and content similarity.
     """
     if not comment.path or comment.line is None:
         return None
 
-    threads_in_file = lookup.get(comment.path)
+    threads_in_file = lookup.get(comment.path, [])
     if not threads_in_file:
         return None
 
-    comment_signature = _extract_issue_signature(comment.body)
-    comment_category = comment_signature.split(":")[0] if ":" in comment_signature else ""
+    comment_sig = _extract_issue_signature(comment.body)
 
-    best_match: DiscussionThread | None = None
-    best_score = 0.0
+    best_match = None
+    best_similarity = 0.0
 
     for thread in threads_in_file:
-        if thread.line is None:
+        # 1. Skip non-Baloo threads or resolved threads
+        if not thread.is_baloo_thread or thread.resolved:
             continue
 
-        line_distance = abs(thread.line - comment.line)
-
-        # Skip if outside tolerance range
-        if line_distance > LINE_MATCH_TOLERANCE:
+        # 2. Check if line is within tolerance
+        line_diff = abs(thread.line - comment.line)
+        if line_diff > LINE_MATCH_TOLERANCE:
             continue
 
-        # Check if this is a Baloo thread with similar content
-        if thread.is_baloo_thread and thread.comments:
-            thread_signature = _extract_issue_signature(thread.comments[0].body)
-            thread_category = thread_signature.split(":")[0] if ":" in thread_signature else ""
+        # 3. Check content similarity
+        if not thread.comments:
+            continue
+            
+        thread_sig = _extract_issue_signature(thread.comments[0].body)
+        similarity = _calculate_similarity(comment_sig, thread_sig)
+        
+        # DEBUG
+        # print(f"Comparing line {comment.line} with thread at {thread.line}")
+        # print(f"Similarity: {similarity}")
+        # print(f"S1: {comment_sig}")
+        # print(f"S2: {thread_sig}")
 
-            # Calculate similarity score (higher is better)
-            # Exact line match gets bonus points
-            line_score = LINE_MATCH_TOLERANCE - line_distance  # 0-5
-            content_score = _calculate_similarity(comment_signature, thread_signature) * 15  # 0-15
+        # 4. If exact line match and very high similarity, it's a definite match
+        if line_diff == 0 and similarity > 0.8:
+            return thread
 
-            # Bonus for same category (e.g., both "bugs", both "security")
-            category_bonus = 3 if comment_category == thread_category else 0
+        # 5. Otherwise, track the best fuzzy match
+        if similarity > best_similarity:
+            best_similarity = similarity
+            best_match = thread
 
-            total_score = line_score + content_score + category_bonus
-
-            if total_score > best_score:
-                best_score = total_score
-                best_match = thread
-
-    # Threshold of 4 allows:
-    # - Exact line match (5) with minimal content similarity
-    # - Same category (3) + nearby line (2) + some content overlap
-    # - High content similarity (>0.25 * 15 = 3.75) + same category (3) with line drift
-    if best_match and best_score >= 4:
-        return best_match
-
-    return None
-
-
-def _calculate_similarity(sig1: str, sig2: str) -> float:
-    """
-    Calculate similarity between two issue signatures.
-
-    Returns a score between 0 and 1.
-    """
-    if not sig1 or not sig2:
-        return 0.0
-
-    # Simple word overlap similarity
-    words1 = set(sig1.split())
-    words2 = set(sig2.split())
-
-    if not words1 or not words2:
-        return 0.0
-
-    intersection = words1 & words2
-    union = words1 | words2
-
-    return len(intersection) / len(union) if union else 0.0
+    # Return best match if it's "similar enough"
+    # Threshold 0.2 catches semantically related but differently phrased issues
+    return best_match if best_similarity >= 0.2 else None
 
 
 @app.post("/webhook")
@@ -330,15 +308,23 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks) ->
                     f"- {waiting} review(s) currently running"
                 )
 
+                # Cancel redundant review if one exists
+                cancel_existing_review(repo_name, pr_number)
+
                 # Process PR review in background
-                background_tasks.add_task(
-                    process_pr_review,
-                    webhook_payload.repository.full_name,
-                    pr_number,
-                    webhook_payload.installation.id,
-                    f"pull_request:{action}",
-                    True,
+                task = asyncio.create_task(
+                    process_pr_review(
+                        webhook_payload.repository.full_name,
+                        pr_number,
+                        webhook_payload.installation.id,
+                        f"pull_request:{action}",
+                        True,
+                    )
                 )
+                active_reviews[(repo_name, pr_number)] = task
+
+                # Add to FastAPI background tasks so it isn't garbage collected early
+                background_tasks.add_task(lambda: None)
 
                 return {"status": "queued", "queue_depth": waiting}
             else:
@@ -373,7 +359,7 @@ async def _run_fidelity_analysis(
     github_client: GitHubAPIClient,
     repo_full_name: str,
     pr_context,
-) -> tuple[str, FidelityResult | None]:
+) -> tuple[str, Any | None]:
     """
     Run fidelity analysis comparing PR changes to design plan.
 
@@ -452,29 +438,29 @@ async def process_pr_review(
     """
     # Acquire semaphore to limit concurrent reviews
     semaphore = get_review_semaphore()
-    async with semaphore:
-        waiting = settings.max_concurrent_reviews - semaphore._value - 1
-        logger.info(
-            f"Starting review for {repo_full_name}#{pr_number} "
-            f"(trigger={trigger_reason}, {waiting} other review(s) in progress)"
-        )
+    review_start_time = time.time()
+    db_review_id: int | None = None
+    progress_comment_id: int | None = None
 
-        progress_comment_id: int | None = None
-        review_start_time = time.time()
-        db_review_id: int | None = None
-
-        # Create in-progress review row in database
-        if settings.database_enabled:
-            db_review_id = await ReviewService.start_review(
-                repo_full_name=repo_full_name,
-                pr_number=pr_number,
-                trigger_reason=trigger_reason,
-                started_at=datetime.fromtimestamp(
-                    review_start_time, tz=timezone.utc
-                ),
+    try:
+        async with semaphore:
+            waiting = settings.max_concurrent_reviews - semaphore._value - 1
+            logger.info(
+                f"Starting review for {repo_full_name}#{pr_number} "
+                f"(trigger={trigger_reason}, {waiting} other review(s) in progress)"
             )
 
-        try:
+            # Create in-progress review row in database
+            if settings.database_enabled:
+                db_review_id = await ReviewService.start_review(
+                    repo_full_name=repo_full_name,
+                    pr_number=pr_number,
+                    trigger_reason=trigger_reason,
+                    started_at=datetime.fromtimestamp(
+                        review_start_time, tz=timezone.utc
+                    ),
+                )
+
             # Initialize GitHub client
             github_client = GitHubAPIClient(installation_id)
 
@@ -789,73 +775,62 @@ async def process_pr_review(
                     data=complete_data,
                 )
 
-        except Exception as e:
-            logger.error(f"Error during PR review: {e}", exc_info=True)
-
-            # Update review row with error status and partial cost if available
-            if settings.database_enabled and db_review_id:
-                # Extract partial metadata from review_result or the exception
-                review_metadata = {}
-                if "review_result" in locals():
-                    review_metadata = getattr(locals()["review_result"], "metadata", {})
-                elif hasattr(e, "metadata"):
-                    review_metadata = getattr(e, "metadata", {})
-
-                # Extract fidelity metadata if available
-                fidelity_metadata = {}
-                if "fidelity_result" in locals() and locals()["fidelity_result"]:
-                    fidelity_metadata = getattr(locals()["fidelity_result"], "metadata", {})
-
-                # Total cost and tokens (even for failed reviews)
-                total_input_tokens = (review_metadata.get("input_tokens") or 0) + (
-                    fidelity_metadata.get("input_tokens") or 0
-                )
-                total_output_tokens = (review_metadata.get("output_tokens") or 0) + (
-                    fidelity_metadata.get("output_tokens") or 0
-                )
-                total_cost_usd = (review_metadata.get("cost_usd") or 0.0) + (
-                    fidelity_metadata.get("cost_usd") or 0.0
-                )
-
-                # Classify the exception error
-                from baloo.agent.client import BalooAgent
-                exc_category = BalooAgent._classify_error(str(e))
-
+    except asyncio.CancelledError:
+        logger.info(f"Review for {repo_full_name}#{pr_number} was cancelled")
+        if settings.database_enabled and db_review_id:
+            try:
+                # Update DB with cancelled status
                 complete_data = ReviewCompleteDTO(
-                    review_status="error",
+                    review_status="cancelled",
                     completed_at=datetime.now(timezone.utc),
                     duration_seconds=time.time() - review_start_time,
-                    tokens_input=total_input_tokens,
-                    tokens_output=total_output_tokens,
-                    cost_usd=total_cost_usd,
-                    error_message=str(e),
-                    error_category=exc_category,
+                    error_message="Review cancelled due to new commit",
                 )
-
                 await ReviewService.complete_review(
                     review_id=db_review_id,
                     data=complete_data,
                 )
+            except Exception as db_err:
+                logger.warning(f"Failed to mark review as cancelled in DB: {db_err}")
 
-            # Try to update progress comment with error
-            review_duration = int(time.time() - review_start_time)
-            error_msg = str(e)
-
-            # Check for "Prompt is too long" error and provide helpful message
-            if "Prompt is too long" in error_msg or "prompt is too long" in error_msg.lower():
-                user_msg = (
-                    f"🐻 Baloo couldn't review this PR - the diff is too large ({review_duration}s).\n\n"
-                    "**Tip:** Consider breaking this PR into smaller changes, or Baloo will review "
-                    "on subsequent commits when the diff is smaller."
-                )
-            else:
-                user_msg = f"🐻 Baloo encountered an error during review ({review_duration}s): {error_msg}"
-
+        # Update progress comment if possible
+        if progress_comment_id:
             try:
                 github_client = GitHubAPIClient(installation_id)
-                if progress_comment_id:
-                    await github_client.edit_comment(repo_full_name, progress_comment_id, user_msg)
-                else:
-                    await github_client.post_comment(repo_full_name, pr_number, user_msg)
+                await github_client.edit_comment(
+                    repo_full_name,
+                    progress_comment_id,
+                    "👋 This review was cancelled because a new commit was pushed. Baloo is starting a new review!"
+                )
             except Exception:
-                logger.error("Failed to post/update error comment", exc_info=True)
+                pass
+        raise  # Re-raise so asyncio knows it was cancelled
+
+    except Exception as e:
+        logger.error(f"Critical error in process_pr_review: {e}", exc_info=True)
+        # Update review row with error status
+        if settings.database_enabled and db_review_id:
+            try:
+                complete_data = ReviewCompleteDTO(
+                    review_status="error",
+                    completed_at=datetime.now(timezone.utc),
+                    duration_seconds=time.time() - review_start_time,
+                    error_message=str(e),
+                )
+                await ReviewService.complete_review(review_id=db_review_id, data=complete_data)
+            except Exception:
+                pass
+
+        # Try to update progress comment with error
+        if progress_comment_id:
+            try:
+                github_client = GitHubAPIClient(installation_id)
+                user_msg = f"🐻 Baloo encountered an error during review: {str(e)}"
+                await github_client.edit_comment(repo_full_name, progress_comment_id, user_msg)
+            except Exception:
+                pass
+    finally:
+        # Clean up the task registry
+        key = (repo_full_name, pr_number)
+        if active_reviews.get(key) == asyncio.current_task():
+            del active_reviews[key]
