@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/baloo-banner.png" alt="Baloo — AI Code Review Agent" width="600">
+  <img src="assets/baloo-banner.png" alt="Baloo — AI Code Review Agent" width="600">
 </p>
 
 <p align="center">
@@ -84,7 +84,7 @@ docker compose up --build
 
 Install the GitHub App on your repositories. Open a PR — Baloo will review it automatically.
 
-📖 **Full setup guide**: [docs/getting-started.md](docs/getting-started.md)
+📖 **Full setup guide**: [getting-started.md](getting-started.md)
 
 ## Architecture
 
@@ -145,21 +145,21 @@ All settings are environment variables. Key ones:
 | `DASHBOARD_ENABLED` | `false` | Enable review dashboard UI |
 | `FIDELITY_ENABLED` | `true` | Compare PRs against plan docs |
 
-Full reference: [docs/configuration.md](docs/configuration.md)
+Full reference: [configuration.md](configuration.md)
 
 ## Documentation
 
-📖 **[Full documentation](docs/README.md)** — Feature guides, configuration reference, and more
+📖 **[Full documentation](./)** — Feature guides, configuration reference, and more
 
 Feature guides:
-- [Review Agent](docs/features/review-agent.md) — How the agentic review works
-- [Guidelines Enforcement](docs/features/guidelines.md) — Repo convention checking
-- [Fidelity Analysis](docs/features/fidelity.md) — Plan-vs-implementation scoring
-- [Models](docs/features/models.md) — Supported models and fallback
-- [Severity Routing](docs/features/severity-routing.md) — How findings reach developers
-- [Discussion Tracking](docs/features/discussions.md) — Thread follow-ups across iterations
-- [FP Verification](docs/features/fp-verification.md) — False-positive reduction
-- [Dashboard](docs/features/dashboard.md) — Review history UI
+- [Review Agent](features/review-agent.md) — How the agentic review works
+- [Guidelines Enforcement](features/guidelines.md) — Repo convention checking
+- [Fidelity Analysis](features/fidelity.md) — Plan-vs-implementation scoring
+- [Models](features/models.md) — Supported models and fallback
+- [Severity Routing](features/severity-routing.md) — How findings reach developers
+- [Discussion Tracking](features/discussions.md) — Thread follow-ups across iterations
+- [FP Verification](features/fp-verification.md) — False-positive reduction
+- [Dashboard](features/dashboard.md) — Review history UI
 
 ## Development
 
@@ -171,20 +171,20 @@ uv run ruff check baloo    # lint
 uv run black --check baloo # format check
 ```
 
-See [docs/development.md](docs/development.md) for the full contributor guide.
+See [development.md](development.md) for the full contributor guide.
 
 ## Roadmap
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features including multi-model review with judge, conversational thread replies, and AST-enriched context.
+See [ROADMAP.md](ROADMAP.md) for planned features including multi-model review with judge, conversational thread replies, and AST-enriched context.
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow and conventions, and [AGENTS.md](AGENTS.md) for AI-agent-specific guidance.
+Contributions are welcome! See [CONTRIBUTING.md](contributing.md) for workflow and conventions, and [AGENTS.md](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/AGENTS.md) for AI-agent-specific guidance.
 
 ## Security
 
-Please read [SECURITY.md](SECURITY.md) before reporting vulnerabilities.
+Please read [SECURITY.md](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/SECURITY.md) before reporting vulnerabilities.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/LICENSE).

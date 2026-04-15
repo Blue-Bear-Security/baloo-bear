@@ -249,4 +249,4 @@ After the canary repository works:
 
 For direct code-level development and test commands, see [docs/development.md](development.md).
 
-For more container details, see [DOCKER.md](../DOCKER.md).
+For more container details, see [DOCKER.md](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/DOCKER.md).
