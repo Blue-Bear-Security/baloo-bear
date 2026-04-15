@@ -107,11 +107,18 @@ class DashboardService:
 
             # Reviews per hour (last 24h)
             last_24h = now - timedelta(hours=24)
-            # Use SQLite-compatible strftime
+            
+            # Dialect-aware hour grouping
+            if "postgresql" in settings.database_url:
+                hour_label = func.to_char(func.date_trunc("hour", Review.started_at), "YYYY-MM-DD HH24:00")
+            else:
+                # Default to SQLite
+                hour_label = func.strftime("%Y-%m-%d %H:00", Review.started_at)
+
             hourly_rows = (
                 await session.execute(
                     select(
-                        func.strftime("%Y-%m-%d %H:00", Review.started_at).label("hour"),
+                        hour_label.label("hour"),
                         func.count(Review.id),
                     )
                     .where(Review.started_at >= last_24h)
