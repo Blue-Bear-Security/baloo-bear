@@ -500,10 +500,12 @@ async def process_pr_review(
             # Initialize agent and perform review
             from baloo.agent.client import BalooAgent
             agent = BalooAgent()
-            review_result = await agent.review_pr(pr_context)
+            agent_result = await agent.review_pr(pr_context)
+            agent_metadata = agent_result.metadata
+            review_result = agent_result
 
             findings_filter = FindingsFilter()
-            filtered_comments = findings_filter.filter_findings(review_result.comments)
+            filtered_comments = findings_filter.filter_findings(agent_result.comments)
 
             thread_lookup = _build_thread_lookup(pr_context.discussion_threads)
             fresh_comments: list[ReviewComment] = []
@@ -534,7 +536,7 @@ async def process_pr_review(
 
             decision_summary = DecisionEngine.get_decision_summary(approve, request_changes)
 
-            summary_text = review_result.summary
+            summary_text = agent_result.summary
             summary_text = f"{summary_text}\n\n{decision_summary}"
 
             if follow_up_comments:
@@ -555,6 +557,7 @@ async def process_pr_review(
                 comments=fresh_comments,
                 approve=approve,
                 request_changes=request_changes,
+                metadata=agent_metadata,
             )
 
             severity_counts = count_by_severity(decision_comments)
