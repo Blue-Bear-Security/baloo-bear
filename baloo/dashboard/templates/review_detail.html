@@ -36,7 +36,7 @@
   </div>
   <div class="bg-white rounded-lg shadow p-4">
     <p class="text-xs text-gray-500 uppercase">Duration</p>
-    <p class="text-sm font-semibold">{{ "%.1f"|format(review.duration_seconds) if review.duration_seconds else "-" }}s</p>
+    <p class="text-sm font-semibold">{{ "%.1fs"|format(review.duration_seconds) if review.duration_seconds else "-" }}</p>
   </div>
   <div class="bg-white rounded-lg shadow p-4">
     <p class="text-xs text-gray-500 uppercase">Model</p>
