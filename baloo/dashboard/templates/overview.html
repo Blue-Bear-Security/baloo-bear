@@ -7,24 +7,61 @@
 <h1 class="text-2xl font-bold text-gray-900 mb-6">Overview</h1>
 
 <!-- Stat cards -->
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-  <div class="bg-white rounded-lg shadow p-5">
-    <p class="text-sm text-gray-500">Total Reviews</p>
-    <p class="text-3xl font-bold text-gray-900">{{ total_reviews }}</p>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+  <div class="lg:col-span-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div class="bg-white rounded-lg shadow p-5">
+      <p class="text-sm text-gray-500">Total Reviews</p>
+      <p class="text-3xl font-bold text-gray-900">{{ total_reviews }}</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+      <p class="text-sm text-gray-500">Reviews Today</p>
+      <p class="text-3xl font-bold text-gray-900">{{ reviews_today }}</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+      <p class="text-sm text-gray-500">Avg Duration</p>
+      <p class="text-3xl font-bold text-gray-900">{{ avg_duration }}s</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-5">
+      <p class="text-sm text-gray-500">Approval Rate</p>
+      <p class="text-3xl font-bold text-gray-900">{{ approval_rate }}%</p>
+    </div>
   </div>
-  <div class="bg-white rounded-lg shadow p-5">
-    <p class="text-sm text-gray-500">Reviews Today</p>
-    <p class="text-3xl font-bold text-gray-900">{{ reviews_today }}</p>
-  </div>
-  <div class="bg-white rounded-lg shadow p-5">
-    <p class="text-sm text-gray-500">Avg Duration</p>
-    <p class="text-3xl font-bold text-gray-900">{{ avg_duration }}s</p>
-  </div>
-  <div class="bg-white rounded-lg shadow p-5">
-    <p class="text-sm text-gray-500">Approval Rate</p>
-    <p class="text-3xl font-bold text-gray-900">{{ approval_rate }}%</p>
+  <div class="lg:col-span-2 bg-white rounded-lg shadow p-5">
+    <h2 class="text-sm font-semibold text-gray-500 mb-2">Recent Activity (Last 24h)</h2>
+    <div class="h-40">
+      <canvas id="activityChart"></canvas>
+    </div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+  const hourly = {{ hourly_activity | tojson }};
+  new Chart(document.getElementById('activityChart'), {
+    type: 'line',
+    data: {
+      labels: hourly.map(d => d.hour.split(' ')[1]),
+      datasets: [{
+        label: 'Reviews',
+        data: hourly.map(d => d.count),
+        borderColor: '#6366f1',
+        backgroundColor: 'rgba(99,102,241,0.1)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1 } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+</script>
 
 <!-- Error alert banner -->
 {% if errors_today > 0 or error_rate > 10 %}
