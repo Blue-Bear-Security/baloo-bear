@@ -36,7 +36,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
-  const hourly = {{ hourly_activity | tojson }};
+  const hourly = {{ (hourly_activity or []) | tojson }};
   new Chart(document.getElementById('activityChart'), {
     type: 'line',
     data: {
