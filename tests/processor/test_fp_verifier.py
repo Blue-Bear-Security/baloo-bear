@@ -118,6 +118,37 @@ class TestFPPrompts:
     def test_extract_diff_for_file_empty_diff(self):
         assert extract_diff_for_file("", "anything.py") == ""
 
+    def test_extract_diff_for_file_suffix_path_not_matched(self):
+        # Asking for "lib/auth.py" must not capture "tests/lib/auth.py"
+        diff = (
+            "diff --git a/tests/lib/auth.py b/tests/lib/auth.py\n"
+            "--- a/tests/lib/auth.py\n"
+            "+++ b/tests/lib/auth.py\n"
+            "@@ -1,1 +1,2 @@\n"
+            "+test_line\n"
+            "diff --git a/other.py b/other.py\n"
+            "+other\n"
+        )
+        # No real lib/auth.py block exists — should return empty, not the tests/ one
+        result = extract_diff_for_file(diff, "lib/auth.py")
+        assert result == ""
+
+    def test_extract_diff_for_file_rename_header(self):
+        # Rename diffs still use `a/<old> b/<new>`; extracting by the new
+        # path should find the block when `b/<path>` appears in the header.
+        diff = (
+            "diff --git a/old.py b/new.py\n"
+            "similarity index 90%\n"
+            "rename from old.py\n"
+            "rename to new.py\n"
+            "--- a/old.py\n"
+            "+++ b/new.py\n"
+            "@@ -1,1 +1,1 @@\n"
+            "+renamed\n"
+        )
+        result = extract_diff_for_file(diff, "new.py")
+        assert "+renamed" in result
+
 
 # ---------------------------------------------------------------------------
 # Verifier tests
@@ -173,7 +204,7 @@ class TestFPVerifier:
 
     @pytest.mark.asyncio
     async def test_verification_error_keeps_finding(self):
-        """Fail-open: errors should keep the finding."""
+        """Fail-open: errors keep the finding, count it under kept, and log errors."""
         verifier = FPVerifier()
         comment = _make_comment()
         pr_ctx = _make_pr_context()
@@ -184,6 +215,35 @@ class TestFPVerifier:
         assert len(result.verified) == 1
         assert len(result.rejected) == 0
         assert result.stats.errors == 1
+        # Error-retained findings must also count toward `kept` so that
+        # len(verified) == stats.kept is always true.
+        assert result.stats.kept == 1
+        assert len(result.verified) == result.stats.kept
+
+    @pytest.mark.asyncio
+    async def test_verification_error_writes_audit_entry(self):
+        """Errors must produce an audit entry with verdict='error' (observability)."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            audit_path = f.name
+
+        try:
+            verifier = FPVerifier()
+            verifier.audit_log_path = audit_path
+            comment = _make_comment()
+            pr_ctx = _make_pr_context()
+
+            with patch.object(verifier, "_verify_single", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+                await verifier.verify([comment], pr_ctx)
+
+            with open(audit_path) as f:
+                lines = f.readlines()
+            assert len(lines) == 1
+            entry = json.loads(lines[0])
+            assert entry["verdict"] == "error"
+            assert "boom" in entry["reason"]
+            assert entry["cost_usd"] == 0.0
+        finally:
+            os.unlink(audit_path)
 
     @pytest.mark.asyncio
     async def test_mixed_verdicts(self):

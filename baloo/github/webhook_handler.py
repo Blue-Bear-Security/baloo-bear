@@ -510,21 +510,31 @@ async def process_pr_review(
 
                 verifier = FPVerifier()
                 fp_result = await verifier.verify(review_result.comments, pr_context)
+                # Build a fresh metadata dict rather than mutating the agent
+                # result's dict via aliasing — keeps provenance explicit and
+                # avoids breakage if ReviewResult ever copies its metadata.
+                merged_metadata = {
+                    **review_result.metadata,
+                    "fp_verification": {
+                        "total": fp_result.stats.total_verified,
+                        "kept": fp_result.stats.kept,
+                        "rejected": fp_result.stats.rejected,
+                        "errors": fp_result.stats.errors,
+                        "cost_usd": fp_result.stats.total_cost_usd,
+                        "duration_seconds": fp_result.stats.duration_seconds,
+                    },
+                }
                 review_result = ReviewResult(
                     summary=review_result.summary,
                     comments=fp_result.verified,
                     approve=review_result.approve,
                     request_changes=review_result.request_changes,
-                    metadata=review_result.metadata,
+                    metadata=merged_metadata,
                 )
-                review_result.metadata["fp_verification"] = {
-                    "total": fp_result.stats.total_verified,
-                    "kept": fp_result.stats.kept,
-                    "rejected": fp_result.stats.rejected,
-                    "errors": fp_result.stats.errors,
-                    "cost_usd": fp_result.stats.total_cost_usd,
-                    "duration_seconds": fp_result.stats.duration_seconds,
-                }
+                # Keep `agent_metadata` in sync so the final ReviewResult
+                # built below (which re-uses agent_metadata) still carries
+                # the fp_verification stats forward to the DB row.
+                agent_metadata = merged_metadata
                 logger.info(
                     "FP verification: %d/%d findings kept (rejected %d)",
                     fp_result.stats.kept,

@@ -91,13 +91,23 @@ def extract_diff_for_file(full_diff: str, file_path: str) -> str:
     result: list[str] = []
     capturing = False
 
+    # Exact-boundary match: diff headers are "diff --git a/<path> b/<path>",
+    # so look for the full tokens to avoid suffix-substring false matches
+    # (e.g. "lib/auth.py" matching "tests/lib/auth.py").
+    a_token = f"a/{file_path}"
+    b_token = f"b/{file_path}"
+
+    def _header_is_for_file(header: str) -> bool:
+        # Header form: diff --git a/<pathA> b/<pathB>.  For renames, pathA
+        # and pathB differ, so match if either side's token is present.
+        parts = header.split()
+        return a_token in parts or b_token in parts
+
     for line in lines:
         if line.startswith("diff --git"):
-            # Check if this diff block is for our file
             if capturing:
                 break  # We were capturing and hit a new file — done
-            # Match both a/path and b/path
-            capturing = file_path in line
+            capturing = _header_is_for_file(line)
             if capturing:
                 result.append(line)
         elif capturing:

@@ -131,7 +131,22 @@ class FPVerifier:
                     res,
                 )
                 result.verified.append(comment)
+                # The finding is kept and passed downstream, so it counts
+                # toward `kept`. `errors` is an orthogonal counter tracking
+                # how many were kept via the error path vs. a clean verdict.
+                stats.kept += 1
                 stats.errors += 1
+                # Record the error in the audit log so systemic verification
+                # failures are observable (otherwise every finding appears
+                # "correctly kept" while the pass is silently a no-op).
+                self._write_audit_entry(
+                    comment=comment,
+                    verdict="error",
+                    reason=str(res),
+                    model=self.model,
+                    cost_usd=0.0,
+                    pr_context=pr_context,
+                )
                 continue
 
             verified_comment, verdict_data = res
@@ -176,11 +191,11 @@ class FPVerifier:
         result.stats = stats
 
         logger.info(
-            "FP verification complete: %d verified, %d rejected, %d errors, "
-            "cost=$%.4f, duration=%.1fs",
+            "FP verification complete: %d kept (of which %d via error fail-open), "
+            "%d rejected, cost=$%.4f, duration=%.1fs",
             stats.kept,
-            stats.rejected,
             stats.errors,
+            stats.rejected,
             stats.total_cost_usd,
             stats.duration_seconds,
         )
@@ -212,7 +227,12 @@ class FPVerifier:
             thinking_level="off",
         )
         options.system_prompt = FP_SYSTEM_PROMPT
-        options.max_turns = 1  # Single-turn, no tool use
+        # The PI subprocess is always launched with read-only tools enabled
+        # (see pi_runtime), so if the model chooses to call `read`/`grep` to
+        # fetch more context, we must leave room for a tool-use turn plus a
+        # final answer turn — otherwise the session is aborted and we fall
+        # through to the "unparseable response" path with a misleading reason.
+        options.max_turns = 3
 
         agent = _FPVerifierAgent(options)
 
@@ -235,13 +255,21 @@ class FPVerifier:
                     "model": model_used,
                 }
 
-            # Could not parse response — fail-open
+            # Could not parse response — fail-open.  Distinguish the
+            # common "empty response" case (usually a tool-use cycle that
+            # hit max_turns) from a genuine format error so the audit log
+            # is actionable.
+            if not structured:
+                reason = "empty response (possible tool-use abort)"
+            else:
+                reason = "unparseable response"
             logger.warning(
-                "FP verifier returned unparseable response for %s:%s — keeping",
+                "FP verifier got %s for %s:%s — keeping",
+                reason,
                 comment.path,
                 comment.line,
             )
-            return comment, {"verdict": "real", "reason": "unparseable response", "cost_usd": cost, "model": model_used}
+            return comment, {"verdict": "real", "reason": reason, "cost_usd": cost, "model": model_used}
 
         except Exception as exc:
             logger.warning(
