@@ -35,11 +35,12 @@ async def reviews_list(
     page: int = Query(1, ge=1),
     repo: str | None = Query(None),
     status: str | None = Query(None),
+    search: str | None = Query(None),
 ):
     data = await DashboardService.list_reviews(
-        page=page, repo_filter=repo, status_filter=status,
+        page=page, repo_filter=repo, status_filter=status, search_filter=search,
     )
-    ctx = {"repo": repo, "status": status, **data}
+    ctx = {"repo": repo, "status": status, "search": search, **data}
     # HTMX partial swap
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(

@@ -54,7 +54,7 @@
   <div class="flex space-x-2">
     {% if page > 1 %}
     <button
-      hx-get="/dashboard/reviews?page={{ page - 1 }}{% if repo %}&repo={{ repo }}{% endif %}{% if status %}&status={{ status }}{% endif %}"
+      hx-get="/dashboard/reviews?page={{ page - 1 }}{% if repo %}&repo={{ repo }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
       hx-target="#reviews-table"
       hx-swap="innerHTML"
       class="px-3 py-1 text-sm border rounded hover:bg-gray-50"
@@ -62,7 +62,7 @@
     {% endif %}
     {% if page < total_pages %}
     <button
-      hx-get="/dashboard/reviews?page={{ page + 1 }}{% if repo %}&repo={{ repo }}{% endif %}{% if status %}&status={{ status }}{% endif %}"
+      hx-get="/dashboard/reviews?page={{ page + 1 }}{% if repo %}&repo={{ repo }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if search %}&search={{ search }}{% endif %}"
       hx-target="#reviews-table"
       hx-swap="innerHTML"
       class="px-3 py-1 text-sm border rounded hover:bg-gray-50"

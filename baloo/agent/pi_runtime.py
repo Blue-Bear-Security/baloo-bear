@@ -245,11 +245,13 @@ class PIAgentBase:
 
         if structured_output is None and result.assistant_text:
             logger.warning(
-                "%s: could not parse JSON from assistant response (%d chars), "
-                "requesting JSON retry",
+                "%s: could not parse JSON from assistant response (%d chars). "
+                "Raw text: %s...",
                 self.agent_name,
                 len(result.assistant_text),
+                result.assistant_text[:1000].replace("\n", " "),
             )
+            logger.info("%s: requesting JSON retry", self.agent_name)
             structured_output, retry_metadata = await self._retry_json(proc_cwd=cwd)
             if retry_metadata:
                 # Accumulate retry costs into the main metadata

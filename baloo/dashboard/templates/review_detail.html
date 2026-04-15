@@ -7,7 +7,8 @@
 <div class="mb-6">
   <a href="/dashboard/reviews" class="text-indigo-600 hover:underline text-sm">&larr; Back to reviews</a>
   <h1 class="text-2xl font-bold text-gray-900 mt-2">
-    {{ review.repo_full_name }} #{{ review.pr_number }}
+    <a href="https://github.com/{{ review.repo_full_name }}" target="_blank" class="hover:underline text-indigo-600">{{ review.repo_full_name }}</a>
+    <a href="https://github.com/{{ review.repo_full_name }}/pull/{{ review.pr_number }}" target="_blank" class="hover:underline text-indigo-600">#{{ review.pr_number }}</a>
     <span class="text-lg font-normal text-gray-500">{{ review.pr_title }}</span>
   </h1>
 </div>
@@ -32,11 +33,21 @@
   </div>
   <div class="bg-white rounded-lg shadow p-4">
     <p class="text-xs text-gray-500 uppercase">Author</p>
-    <p class="text-sm font-semibold">{{ review.pr_author or "-" }}</p>
+    <p class="text-sm font-semibold">
+      {% if review.pr_author %}
+        <a href="https://github.com/{{ review.pr_author }}" target="_blank" class="text-indigo-600 hover:underline">{{ review.pr_author }}</a>
+      {% else %}
+        -
+      {% endif %}
+    </p>
   </div>
   <div class="bg-white rounded-lg shadow p-4">
-    <p class="text-xs text-gray-500 uppercase">Duration</p>
-    <p class="text-sm font-semibold">{{ "%.1fs"|format(review.duration_seconds) if review.duration_seconds else "-" }}</p>
+    <p class="text-xs text-gray-500 uppercase">Commit</p>
+    <p class="text-sm font-semibold font-mono text-xs">
+      <a href="https://github.com/{{ review.repo_full_name }}/commit/{{ review.commit_sha }}" target="_blank" class="text-indigo-600 hover:underline">
+        {{ review.commit_sha[:7] if review.commit_sha else "-" }}
+      </a>
+    </p>
   </div>
   <div class="bg-white rounded-lg shadow p-4">
     <p class="text-xs text-gray-500 uppercase">Model</p>
@@ -147,7 +158,16 @@
           {% endif %}
         </td>
         <td class="px-4 py-3 text-sm text-gray-500">{{ f.category }}</td>
-        <td class="px-4 py-3 text-sm text-gray-900 font-mono text-xs">{{ f.file_path }}</td>
+        <td class="px-4 py-3 text-sm text-gray-900 font-mono text-xs">
+          {% if review.commit_sha %}
+            <a href="https://github.com/{{ review.repo_full_name }}/blob/{{ review.commit_sha }}/{{ f.file_path }}{% if f.line_number %}#L{{ f.line_number }}{% endif %}"
+               target="_blank" class="text-indigo-600 hover:underline">
+              {{ f.file_path }}
+            </a>
+          {% else %}
+            {{ f.file_path }}
+          {% endif %}
+        </td>
         <td class="px-4 py-3 text-sm text-gray-500">{{ f.line_number if f.line_number else "-" }}</td>
         <td class="px-4 py-3 text-sm text-gray-700 max-w-md truncate">{{ f.body }}</td>
       </tr>
