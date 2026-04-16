@@ -15,7 +15,7 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from baloo.config.settings import get_settings
@@ -41,6 +41,7 @@ class PIRunResult:
     """Result of a PI agent run."""
 
     assistant_text: str = ""
+    all_assistant_texts: list[str] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
@@ -143,6 +144,7 @@ class PIAgentBase:
             "cost_usd": result.cost_usd,
             "num_turns": result.num_turns,
             "duration_seconds": result.duration_seconds,
+            "is_error": result.is_error,
         }
 
     # -----------------------------------------------------------------
@@ -248,9 +250,26 @@ class PIAgentBase:
         # Parse structured JSON from assistant text
         structured_output = _extract_json_from_text(result.assistant_text)
 
+        # If the last message didn't contain parseable JSON (common after an
+        # error stop reason), try earlier assistant messages — the review JSON
+        # is often emitted in a turn before the one that errored.
+        if structured_output is None and len(result.all_assistant_texts) > 1:
+            for i, earlier_text in enumerate(reversed(result.all_assistant_texts[:-1])):
+                candidate = _extract_json_from_text(earlier_text)
+                if candidate is not None:
+                    logger.info(
+                        "%s: recovered structured output from assistant message %d/%d",
+                        self.agent_name,
+                        len(result.all_assistant_texts) - 1 - i,
+                        len(result.all_assistant_texts),
+                    )
+                    structured_output = candidate
+                    metadata["recovered_from_earlier_turn"] = True
+                    break
+
         if structured_output is None and result.assistant_text:
             logger.warning(
-                "%s: could not parse JSON from assistant response (%d chars). " "Raw text: %s...",
+                "%s: could not parse JSON from assistant response (%d chars). Raw text: %s...",
                 self.agent_name,
                 len(result.assistant_text),
                 result.assistant_text[:1000].replace("\n", " "),
@@ -394,6 +413,7 @@ class PIAgentBase:
 
         # 3. Stream events until agent_end
         last_assistant_text = ""
+        all_assistant_texts: list[str] = []
         turn_count = 0
 
         while True:
@@ -433,6 +453,7 @@ class PIAgentBase:
                             text_parts.append(block)
                     if text_parts:
                         last_assistant_text = "\n".join(text_parts)
+                        all_assistant_texts.append(last_assistant_text)
 
                     # Accumulate usage
                     usage = msg.get("usage", {})
@@ -465,6 +486,7 @@ class PIAgentBase:
                 pass
 
         result.assistant_text = last_assistant_text
+        result.all_assistant_texts = all_assistant_texts
         result.num_turns = turn_count
 
         return result

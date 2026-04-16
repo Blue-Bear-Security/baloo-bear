@@ -54,7 +54,14 @@ class BalooAgent(PIAgentBase):
             if structured_data is not None:
                 comments = findings_to_comments(structured_data)
             else:
-                logger.warning("No structured output received from agent")
+                logger.warning(
+                    "No structured output received from agent "
+                    "(model: %s, turns: %s, tokens_out: %s, is_error: %s)",
+                    metadata.get("model"),
+                    metadata.get("num_turns"),
+                    metadata.get("output_tokens"),
+                    metadata.get("is_error"),
+                )
                 metadata["agent_error"] = True
                 metadata["error_category"] = metadata.get("error_category", "no_output")
 
