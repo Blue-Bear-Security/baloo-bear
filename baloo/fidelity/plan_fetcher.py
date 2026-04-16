@@ -53,10 +53,7 @@ async def fetch_plan_content(
 
         # Find files that start with the ticket ID
         ticket_prefix = f"{ticket_id}-"
-        matching_files = [
-            f for f in files
-            if f.startswith(ticket_prefix) and f.endswith(".md")
-        ]
+        matching_files = [f for f in files if f.startswith(ticket_prefix) and f.endswith(".md")]
 
         if not matching_files:
             logger.info(f"No plan file found for {ticket_id} at {exact_path}")
@@ -67,13 +64,9 @@ async def fetch_plan_content(
         plan_path = f"{plans_dir}/{plan_file}"
         logger.debug(f"Found matching plan file: {plan_path}")
 
-        content = await github_client.get_file_content(
-            repo_full_name, plan_path, ref
-        )
+        content = await github_client.get_file_content(repo_full_name, plan_path, ref)
         if content:
-            logger.info(
-                f"Found plan file for {ticket_id} ({plan_file}): {len(content)} chars"
-            )
+            logger.info(f"Found plan file for {ticket_id} ({plan_file}): {len(content)} chars")
             return content
 
         return None

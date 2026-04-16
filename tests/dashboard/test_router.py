@@ -42,6 +42,7 @@ def test_dashboard_overview_renders() -> None:
         "error_rate": 0.0,
         "error_categories": {},
         "recent_failures": [],
+        "hourly_activity": [],
     }
 
     with patch(

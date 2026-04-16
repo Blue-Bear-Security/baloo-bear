@@ -15,8 +15,8 @@ import logging
 import re
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 from baloo.config.settings import get_settings
 
@@ -132,7 +132,7 @@ class PIAgentBase:
     # Helpers
     # -----------------------------------------------------------------
 
-    def _build_metadata(self, result: PIRunResult) -> Dict[str, Any]:
+    def _build_metadata(self, result: PIRunResult) -> dict[str, Any]:
         """Build metadata dict from a PIRunResult."""
         return {
             "model": result.model or self.options.model,
@@ -149,7 +149,7 @@ class PIAgentBase:
     # Main query interface
     # -----------------------------------------------------------------
 
-    async def run_query(self, query: str) -> Tuple[Any, Dict[str, Any]]:
+    async def run_query(self, query: str) -> tuple[Any, dict[str, Any]]:
         """Run a query through the PI agent and return structured output + metadata.
 
         Returns:
@@ -164,14 +164,19 @@ class PIAgentBase:
 
         cmd = [
             pi_binary,
-            "--mode", "rpc",
+            "--mode",
+            "rpc",
             "--no-session",
-            "--provider", self.options.provider,
-            "--model", f"{self.options.provider}/{self.options.model}",
+            "--provider",
+            self.options.provider,
+            "--model",
+            f"{self.options.provider}/{self.options.model}",
             # Read-only tools only — no bash, no write, no edit
-            "--tools", "read,grep,find,ls",
+            "--tools",
+            "read,grep,find,ls",
             # Inject system prompt
-            "--system-prompt", self.options.system_prompt,
+            "--system-prompt",
+            self.options.system_prompt,
         ]
 
         logger.info(
@@ -245,11 +250,12 @@ class PIAgentBase:
 
         if structured_output is None and result.assistant_text:
             logger.warning(
-                "%s: could not parse JSON from assistant response (%d chars), "
-                "requesting JSON retry",
+                "%s: could not parse JSON from assistant response (%d chars). " "Raw text: %s...",
                 self.agent_name,
                 len(result.assistant_text),
+                result.assistant_text[:1000].replace("\n", " "),
             )
+            logger.info("%s: requesting JSON retry", self.agent_name)
             structured_output, retry_metadata = await self._retry_json(proc_cwd=cwd)
             if retry_metadata:
                 # Accumulate retry costs into the main metadata
@@ -269,12 +275,10 @@ class PIAgentBase:
         "Your previous response could not be parsed as JSON. "
         "Please re-emit ONLY the JSON object matching the output schema "
         "from your analysis. No markdown fences, no explanation — just "
-        "the raw JSON object with \"findings\" and \"summary\" keys."
+        'the raw JSON object with "findings" and "summary" keys.'
     )
 
-    async def _retry_json(
-        self, *, proc_cwd: str | None
-    ) -> Tuple[Any, Dict[str, Any] | None]:
+    async def _retry_json(self, *, proc_cwd: str | None) -> tuple[Any, dict[str, Any] | None]:
         """Spawn a cheap follow-up session to ask the model to fix its JSON.
 
         Uses the same model but with thinking off and max 2 turns to keep
@@ -285,12 +289,17 @@ class PIAgentBase:
 
         cmd = [
             pi_binary,
-            "--mode", "rpc",
+            "--mode",
+            "rpc",
             "--no-session",
-            "--provider", self.options.provider,
-            "--model", f"{self.options.provider}/{self.options.model}",
-            "--tools", "read,grep,find,ls",
-            "--system-prompt", self.options.system_prompt,
+            "--provider",
+            self.options.provider,
+            "--model",
+            f"{self.options.provider}/{self.options.model}",
+            "--tools",
+            "read,grep,find,ls",
+            "--system-prompt",
+            self.options.system_prompt,
         ]
 
         start = time.time()
@@ -315,9 +324,7 @@ class PIAgentBase:
             original_opts = self.options
             self.options = retry_opts
             try:
-                result = await self._drive_session(
-                    proc, self._JSON_RETRY_PROMPT, start
-                )
+                result = await self._drive_session(proc, self._JSON_RETRY_PROMPT, start)
             finally:
                 self.options = original_opts
                 if proc.returncode is None:

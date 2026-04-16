@@ -132,13 +132,15 @@ class TestReviewOutput:
     def test_finding_with_extra_fields_ignored(self):
         """Test that unknown finding fields are ignored."""
         data = {
-            "findings": [{
-                "file": "a.py",
-                "line": 1,
-                "title": "X",
-                "confidence": 0.95,
-                "suggested_fix": "do something",
-            }]
+            "findings": [
+                {
+                    "file": "a.py",
+                    "line": 1,
+                    "title": "X",
+                    "confidence": 0.95,
+                    "suggested_fix": "do something",
+                }
+            ]
         }
         output = ReviewOutput.model_validate(data)
         assert len(output.findings) == 1
@@ -352,14 +354,16 @@ class TestNormalizeCategory:
     def test_findings_with_uppercase_category(self):
         """End-to-end: agent returns UPPERCASE category, parsed correctly."""
         data = {
-            "findings": [{
-                "file": "test.py",
-                "line": 1,
-                "severity": "MEDIUM",
-                "category": "QUALITY",
-                "title": "Test",
-                "description": "Desc",
-            }]
+            "findings": [
+                {
+                    "file": "test.py",
+                    "line": 1,
+                    "severity": "MEDIUM",
+                    "category": "QUALITY",
+                    "title": "Test",
+                    "description": "Desc",
+                }
+            ]
         }
         comments = findings_to_comments(data)
         assert len(comments) == 1

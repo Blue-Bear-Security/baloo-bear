@@ -1,0 +1,60 @@
+site_name: Baloo
+site_description: AI-powered code review agent for GitHub pull requests
+site_url: https://blue-bear-security.github.io/baloo-bear
+repo_url: https://github.com/Blue-Bear-Security/baloo-bear
+repo_name: Blue-Bear-Security/baloo-bear
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Features:
+    - Review Agent: features/review-agent.md
+    - Guidelines Enforcement: features/guidelines.md
+    - Fidelity Analysis: features/fidelity.md
+    - Model Configuration: features/models.md
+    - Severity Routing: features/severity-routing.md
+    - Discussion Tracking: features/discussions.md
+    - FP Verification: features/fp-verification.md
+    - Dashboard: features/dashboard.md
+  - Configuration: configuration.md
+  - Development: development.md
+  - Roadmap: ROADMAP.md
+  - Contributing: contributing.md

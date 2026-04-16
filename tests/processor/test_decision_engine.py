@@ -146,8 +146,10 @@ class TestMakeDecisionWithFidelity:
         comments = []
         fidelity = _make_fidelity_result(70)  # Below threshold
 
-        with patch("baloo.config.settings.settings.fidelity_approval_threshold", 90), \
-             patch("baloo.config.settings.settings.review_auto_approve", False):
+        with (
+            patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
+            patch("baloo.config.settings.settings.review_auto_approve", False),
+        ):
             approve, request_changes = DecisionEngine.make_decision(
                 comments, fidelity_result=fidelity
             )
@@ -171,8 +173,10 @@ class TestMakeDecisionWithFidelity:
         comments = []
         fidelity = _make_fidelity_result(89)  # Just below threshold
 
-        with patch("baloo.config.settings.settings.fidelity_approval_threshold", 90), \
-             patch("baloo.config.settings.settings.review_auto_approve", True):
+        with (
+            patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
+            patch("baloo.config.settings.settings.review_auto_approve", True),
+        ):
             approve, request_changes = DecisionEngine.make_decision(
                 comments, fidelity_result=fidelity
             )
@@ -185,9 +189,7 @@ class TestMakeDecisionWithFidelity:
         comments = []
 
         with patch("baloo.config.settings.settings.review_auto_approve", True):
-            approve, request_changes = DecisionEngine.make_decision(
-                comments, fidelity_result=None
-            )
+            approve, request_changes = DecisionEngine.make_decision(comments, fidelity_result=None)
             assert approve is True
             assert request_changes is False
 

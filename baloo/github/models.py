@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class ReviewSeverity(str, Enum):
     """Standard severity levels for review findings."""
+
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
@@ -19,6 +20,7 @@ class ReviewSeverity(str, Enum):
 
 class FindingCategory(str, Enum):
     """Standard categories for review findings."""
+
     SECURITY = "Security"
     BUGS = "Bugs"
     SILENT_FAILURES = "Silent Failures"

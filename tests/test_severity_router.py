@@ -8,24 +8,27 @@ def test_route_findings_splits_by_severity():
     """Test that findings are correctly routed by severity."""
     findings = [
         ReviewComment(
-            path="a.py", line=1, body="Critical security issue",
-            severity="CRITICAL", category="Security"
+            path="a.py",
+            line=1,
+            body="Critical security issue",
+            severity="CRITICAL",
+            category="Security",
         ),
         ReviewComment(
-            path="b.py", line=2, body="High priority bug",
-            severity="HIGH", category="Bugs"
+            path="b.py", line=2, body="High priority bug", severity="HIGH", category="Bugs"
         ),
         ReviewComment(
-            path="c.py", line=3, body="Medium quality issue",
-            severity="MEDIUM", category="Quality"
+            path="c.py", line=3, body="Medium quality issue", severity="MEDIUM", category="Quality"
         ),
         ReviewComment(
-            path="d.py", line=4, body="Medium performance issue",
-            severity="MEDIUM", category="Performance"
+            path="d.py",
+            line=4,
+            body="Medium performance issue",
+            severity="MEDIUM",
+            category="Performance",
         ),
         ReviewComment(
-            path="e.py", line=5, body="Low style issue",
-            severity="LOW", category="Quality"
+            path="e.py", line=5, body="Low style issue", severity="LOW", category="Quality"
         ),
     ]
 
@@ -56,12 +59,10 @@ def test_route_findings_only_critical():
     """Test routing with only CRITICAL findings."""
     findings = [
         ReviewComment(
-            path="a.py", line=1, body="Critical issue 1",
-            severity="CRITICAL", category="Security"
+            path="a.py", line=1, body="Critical issue 1", severity="CRITICAL", category="Security"
         ),
         ReviewComment(
-            path="b.py", line=2, body="Critical issue 2",
-            severity="CRITICAL", category="Security"
+            path="b.py", line=2, body="Critical issue 2", severity="CRITICAL", category="Security"
         ),
     ]
 
@@ -75,12 +76,10 @@ def test_route_findings_only_medium():
     """Test routing with only MEDIUM findings."""
     findings = [
         ReviewComment(
-            path="a.py", line=1, body="Medium issue 1",
-            severity="MEDIUM", category="Quality"
+            path="a.py", line=1, body="Medium issue 1", severity="MEDIUM", category="Quality"
         ),
         ReviewComment(
-            path="b.py", line=2, body="Medium issue 2",
-            severity="MEDIUM", category="Performance"
+            path="b.py", line=2, body="Medium issue 2", severity="MEDIUM", category="Performance"
         ),
     ]
 
@@ -97,7 +96,7 @@ def test_route_findings_preserves_finding_data():
         line=42,
         body="Test issue with detailed description",
         severity="HIGH",
-        category="Bugs"
+        category="Bugs",
     )
 
     routed = route_findings([finding])

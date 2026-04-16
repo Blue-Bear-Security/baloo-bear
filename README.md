@@ -1,179 +1,185 @@
-# Baloo
+<p align="center">
+  <img src="docs/assets/baloo-banner.png" alt="Baloo — AI Code Review Agent" width="600">
+</p>
 
-Baloo is a FastAPI-based GitHub App that reviews pull requests with Anthropic models. It fetches full pull request context, reads repository guidelines from `AGENTS.md` and `CONTRIBUTING.md`, and posts review comments, approvals, and optional dashboard or fidelity output back to GitHub.
+<p align="center">
+  <strong>AI-powered code reviews for every pull request</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Blue-Bear-Security/baloo-bear/actions/workflows/ci.yml"><img src="https://github.com/Blue-Bear-Security/baloo-bear/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
+  <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
+</p>
+
+---
+
+Baloo is a **GitHub App** that automatically reviews pull requests using LLMs. It installs on your repos, reads every PR diff, and posts actionable review comments — catching bugs, security issues, and guideline violations before humans look at the code.
+
+## Why Baloo?
+
+- **Catches what linters can't** — logic errors, silent failures, security antipatterns, missing error handling
+- **Respects your conventions** — reads `AGENTS.md` and `CONTRIBUTING.md` from your repo and enforces them
+- **Posts like a teammate** — inline comments on specific lines, severity labels, approval/request-changes decisions
+- **Runs on every push** — new commits get reviewed automatically, with discussion thread tracking across iterations
+- **Self-hosted & private** — your code never leaves your infrastructure; bring your own API keys
+
+## What It Looks Like
+
+When a PR is opened or updated, Baloo posts a review:
+
+```
+🐻 Baloo review completed in 45s.
+Found 2 issue(s): 0 critical, 1 high, 1 medium, 0 low.
+```
+
+Inline comments appear on the exact lines:
+
+> **[HIGH] Security** — `src/auth.py:55`
+>
+> SQL query uses string concatenation instead of parameterized bindings.
+> This is vulnerable to SQL injection.
+>
+> **Recommendation:** Use parameterized queries: `cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))`
 
 ## Features
 
-- Agentic pull request review for opened, reopened, and updated PRs
-- Severity-based routing for inline comments, review summaries, and Checks API annotations
-- Repository-specific guideline enforcement from the target repository's `AGENTS.md` and `CONTRIBUTING.md`
-- Optional fidelity analysis against plan documents
-- Optional PostgreSQL-backed review history dashboard
+| Feature | Description |
+|---|---|
+| **Agentic review** | Uses [PI](https://github.com/mariozechner/pi-coding-agent) to read files, grep patterns, and explore the repo — not just the diff |
+| **Multi-model** | Supports Claude (Sonnet, Haiku, Opus) and Gemini (Flash, Pro) with automatic fallback |
+| **Severity routing** | CRITICAL/HIGH → request changes; MEDIUM → Checks API annotations; LOW → filtered |
+| **Guideline enforcement** | Reads repo-level `AGENTS.md` / `CONTRIBUTING.md` and flags violations |
+| **Discussion tracking** | Follows up on existing threads, skips duplicates, detects addressed feedback |
+| **Fidelity analysis** | Optionally compares PR against design plan documents |
+| **FP reduction** | Optional second LLM pass to verify findings and drop false positives |
+| **Dashboard** | Optional PostgreSQL-backed review history UI with cost tracking |
+| **Dependabot-aware** | Specialized review logic for dependency update PRs |
+
+## Quick Start
+
+### 1. Create a GitHub App
+
+Go to **GitHub Settings → Developer settings → GitHub Apps → New GitHub App**:
+- **Webhook URL**: Your public HTTPS endpoint (e.g. `https://baloo.example.com/webhook`)
+- **Permissions**: Pull requests (read/write), Contents (read), Checks (read/write)
+- **Events**: Pull request
+- Download the private key `.pem` file
+
+### 2. Deploy with Docker
+
+```bash
+git clone https://github.com/Blue-Bear-Security/baloo-bear.git
+cd baloo-bear
+cp .env.example .env
+# Edit .env with your GitHub App ID, private key path, webhook secret, and API keys
+```
+
+```bash
+docker compose up --build
+```
+
+### 3. Install the App
+
+Install the GitHub App on your repositories. Open a PR — Baloo will review it automatically.
+
+📖 **Full setup guide**: [docs/getting-started.md](docs/getting-started.md)
 
 ## Architecture
 
 ```text
-GitHub webhook -> FastAPI handler -> Claude agent -> findings processor -> GitHub review/checks APIs
+┌──────────────┐     webhook      ┌──────────────────┐
+│   GitHub      │ ───────────────→ │   FastAPI         │
+│   (PR event)  │                  │   webhook_handler │
+└──────────────┘                  └────────┬─────────┘
+                                           │
+                                  ┌────────▼─────────┐
+                                  │   PI Agent (RPC)  │
+                                  │   read / grep /   │
+                                  │   find / ls       │
+                                  └────────┬─────────┘
+                                           │
+                                  ┌────────▼─────────┐
+                                  │   Processor       │
+                                  │   filter → route  │
+                                  │   → decide        │
+                                  └────────┬─────────┘
+                                           │
+                              ┌────────────┼────────────┐
+                              ▼            ▼            ▼
+                        ┌──────────┐ ┌──────────┐ ┌──────────┐
+                        │ Review   │ │ Checks   │ │ Dashboard│
+                        │ comments │ │ API      │ │ (opt.)   │
+                        └──────────┘ └──────────┘ └──────────┘
 ```
-
-Key modules:
-
-- `baloo/github/`: webhook handling, GitHub API access, review thread parsing
-- `baloo/agent/`: prompt construction, Claude runtime, structured review output
-- `baloo/processor/`: filtering, routing, approval decisions, formatting
-- `baloo/fidelity/`: optional plan-vs-implementation analysis
-- `baloo/db/` and `baloo/dashboard/`: optional persistence and review history UI
-
-## Prerequisites
-
-- A GitHub App with pull request and contents access
-- An Anthropic API key
-- A public HTTPS endpoint for GitHub webhooks in non-local environments
-
-## Quick Start
-
-The fastest path is the end-to-end guide in [docs/getting-started.md](docs/getting-started.md).
-
-## Docker
-
-Baloo ships with a local-friendly `docker-compose.yml` that builds the application image from this repository.
-
-```bash
-cp .env.docker .env
-docker compose up --build
-```
-
-If you keep the GitHub App private key as a file, place it under `.secrets/` and set `GITHUB_PRIVATE_KEY=.secrets/<your-key>.pem` in `.env`.
-
-`GITHUB_APP_ID` must be the numeric GitHub App ID, not the Client ID.
-
-If you want to use an alternate env file without copying over `.env`, run:
-
-```bash
-BALOO_ENV_FILE=.env.local docker compose up --build
-```
-
-Useful endpoints:
-
-- Health check: `http://localhost:8000/health`
-- Dashboard: `http://localhost:8000/dashboard/` when `DASHBOARD_ENABLED=true`
-
-See [DOCKER.md](DOCKER.md) for container details and deployment notes.
-
-## Container Publishing
-
-The repository includes a GitHub Actions workflow at [.github/workflows/deploy.yml](.github/workflows/deploy.yml) that builds and publishes a container image to GitHub Container Registry on pushes to `main`. If you use a different registry or deploy process, adapt that workflow before relying on it.
-
-## Configuration
-
-Baloo is configured through environment variables. Common settings:
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `GITHUB_APP_ID` | - | Numeric GitHub App ID |
-| `GITHUB_PRIVATE_KEY` | - | Path to a PEM file, typically under `.secrets/`, or inline PEM contents |
-| `GITHUB_WEBHOOK_SECRET` | - | GitHub webhook secret |
-| `ANTHROPIC_API_KEY` | - | Anthropic API key |
-| `APP_HOST` | `0.0.0.0` | Bind host |
-| `APP_PORT` | `8000` | Bind port |
-| `LOG_LEVEL` | `INFO` | Log level |
-| `MAX_CONCURRENT_REVIEWS` | `3` | Maximum reviews processed at once |
-| `AGENT_MODEL` | `claude-sonnet-4-6` | Anthropic model to use |
-| `REVIEW_AUTO_APPROVE` | `true` | Auto-approve PRs with no blocking findings |
-| `REVIEW_MIN_SEVERITY` | `MEDIUM` | Minimum severity to report |
-| `DATABASE_ENABLED` | `false` | Persist review history to PostgreSQL |
-| `DASHBOARD_ENABLED` | `true` | Serve the dashboard UI |
-| `FIDELITY_ENABLED` | `true` | Compare PRs against plan documents |
-
-## Development
-
-For contributor setup, direct local execution, tests, and hooks, see [docs/development.md](docs/development.md).
-
-### Common commands
-
-```bash
-uv sync
-npm install
-uv run python main.py
-uv run pytest
-uv run pytest --cov=baloo --cov-report=term-missing
-uv run ruff check baloo tests
-uv run black --check baloo tests
-```
-
-### Git hooks
-
-The repository uses Husky for local Git hooks and `gitleaks` for staged secret scanning on `pre-commit`.
-
-Hook setup:
-
-```bash
-brew install gitleaks
-npm install
-```
-
-The installed pre-commit hook runs:
-
-```bash
-gitleaks git --staged --pre-commit --no-banner --redact
-```
-
-### Project structure
 
 ```text
 baloo/
-├── baloo/
-│   ├── agent/
-│   ├── config/
-│   ├── db/
-│   ├── fidelity/
-│   ├── github/
-│   └── processor/
-├── tests/
-├── main.py
-└── pyproject.toml
+├── agent/       # PI runtime, prompts, structured output parsing
+├── config/      # Environment-based settings
+├── db/          # PostgreSQL models + migrations (optional)
+├── dashboard/   # Review history UI (optional)
+├── fidelity/    # Plan-vs-implementation analysis (optional)
+├── github/      # Webhooks, API client, auth, Checks API
+└── processor/   # Findings filter, severity routing, decisions, FP verification
 ```
 
-## How It Works
+## Configuration
 
-1. GitHub sends a `pull_request` webhook when a PR is opened or updated.
-2. Baloo verifies the webhook signature and loads PR metadata, diffs, and discussion context.
-3. Baloo fetches `AGENTS.md` and `CONTRIBUTING.md` from the reviewed repository when present.
-4. The Claude agent performs a structured review and emits findings.
-5. Findings are filtered, routed, and posted back to GitHub as review comments, summaries, and checks.
+All settings are environment variables. Key ones:
 
-## Retrieving Review Comments
+| Variable | Default | Description |
+|---|---|---|
+| `GITHUB_APP_ID` | — | Numeric GitHub App ID |
+| `GITHUB_PRIVATE_KEY` | — | Path to `.pem` file or inline PEM |
+| `GITHUB_WEBHOOK_SECRET` | — | Webhook signature secret |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `GEMINI_API_KEY` | — | Google Gemini API key (for fallback/multi-model) |
+| `AGENT_MODEL` | `sonnet` | Model short name: `flash`, `haiku`, `sonnet`, `gemini-pro`, `opus` |
+| `AGENT_FALLBACK_MODEL` | `google/gemini-2.5-flash` | Fallback on primary failure |
+| `REVIEW_AUTO_APPROVE` | `true` | Auto-approve PRs with no blocking findings |
+| `REVIEW_MIN_SEVERITY` | `MEDIUM` | Minimum severity to post |
+| `FP_VERIFICATION_ENABLED` | `false` | Enable LLM false-positive verification |
+| `DATABASE_ENABLED` | `false` | Enable PostgreSQL review history |
+| `DASHBOARD_ENABLED` | `false` | Enable review dashboard UI |
+| `FIDELITY_ENABLED` | `true` | Compare PRs against plan docs |
 
-You can query Baloo's review comments with the GitHub CLI:
+Full reference: [docs/configuration.md](docs/configuration.md)
+
+## Documentation
+
+📖 **[Full documentation](docs/README.md)** — Feature guides, configuration reference, and more
+
+Feature guides:
+- [Review Agent](docs/features/review-agent.md) — How the agentic review works
+- [Guidelines Enforcement](docs/features/guidelines.md) — Repo convention checking
+- [Fidelity Analysis](docs/features/fidelity.md) — Plan-vs-implementation scoring
+- [Models](docs/features/models.md) — Supported models and fallback
+- [Severity Routing](docs/features/severity-routing.md) — How findings reach developers
+- [Discussion Tracking](docs/features/discussions.md) — Thread follow-ups across iterations
+- [FP Verification](docs/features/fp-verification.md) — False-positive reduction
+- [Dashboard](docs/features/dashboard.md) — Review history UI
+
+## Development
 
 ```bash
-gh api /repos/{owner}/{repo}/pulls/{pr_number}/comments \
-  --jq '.[] | select(.user.login=="baloo-code-reviewer[bot]") | {path, line, body, created_at}'
+uv sync && npm install     # install deps
+uv run python main.py      # run locally
+uv run pytest              # test
+uv run ruff check baloo    # lint
+uv run black --check baloo # format check
 ```
 
-## Troubleshooting
+See [docs/development.md](docs/development.md) for the full contributor guide.
 
-### Webhook not receiving events
+## Roadmap
 
-- Verify the GitHub App webhook URL is correct and publicly reachable.
-- Verify `GITHUB_WEBHOOK_SECRET` matches your GitHub App configuration.
-- Check webhook delivery logs in GitHub.
-
-### Authentication errors
-
-- Verify the app ID and private key belong to the same GitHub App.
-- Ensure the app has been installed on the target repository.
-- Confirm required GitHub App permissions are granted.
-
-### Agent failures
-
-- Verify `ANTHROPIC_API_KEY` is valid in the running environment.
-- Check application logs with `LOG_LEVEL=DEBUG`.
-- Confirm the configured model is available to your Anthropic account.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features including multi-model review with judge, conversational thread replies, and AST-enriched context.
 
 ## Contributing
 
-Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and [AGENTS.md](AGENTS.md) for repository-specific guidance for coding agents.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow and conventions, and [AGENTS.md](AGENTS.md) for AI-agent-specific guidance.
 
 ## Security
 
@@ -181,4 +187,4 @@ Please read [SECURITY.md](SECURITY.md) before reporting vulnerabilities.
 
 ## License
 
-Baloo is released under the MIT license. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

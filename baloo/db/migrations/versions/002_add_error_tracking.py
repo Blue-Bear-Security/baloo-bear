@@ -8,6 +8,7 @@ Adds error_category to classify failure modes (agent_error, buffer_overflow,
 json_parse_error, fallback_used, prompt_too_long, etc.) and fallback_model
 to record when a secondary model was used.
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa

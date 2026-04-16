@@ -9,6 +9,16 @@
 
   <!-- Filters -->
   <form class="flex space-x-3" hx-get="/dashboard/reviews" hx-target="#reviews-table" hx-swap="innerHTML" hx-push-url="true">
+    <div class="relative">
+      <input type="text" name="search" value="{{ search or '' }}" placeholder="Search PR title or author..."
+             class="border rounded px-3 py-1.5 text-sm w-64 pr-10 focus:ring-indigo-500 focus:border-indigo-500">
+      {% if search %}
+      <a href="/dashboard/reviews?repo={{ repo or '' }}&status={{ status or '' }}"
+         class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600">
+        &times;
+      </a>
+      {% endif %}
+    </div>
     <select name="status" class="border rounded px-3 py-1.5 text-sm">
       <option value="">All statuses</option>
       {% for s in ["approved", "changes_requested", "commented", "error", "agent_error", "in_progress"] %}

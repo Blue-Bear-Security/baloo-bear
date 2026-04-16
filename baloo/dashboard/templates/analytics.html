@@ -23,19 +23,51 @@
 <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-lg shadow p-5">
     <p class="text-sm text-gray-500">Total Cost ({{ days }}d)</p>
-    <p class="text-3xl font-bold text-gray-900">${{ "%.2f"|format(total_cost) }}</p>
+    <div class="flex items-baseline space-x-2">
+      <p class="text-3xl font-bold text-gray-900">${{ "%.2f"|format(total_cost) }}</p>
+      {% if prev_total_cost > 0 %}
+        {% set cost_change = ((total_cost - prev_total_cost) / prev_total_cost * 100) | round(1) %}
+        <span class="text-xs font-medium {% if cost_change > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+          {{ "↑" if cost_change > 0 else "↓" }}{{ cost_change | abs }}%
+        </span>
+      {% endif %}
+    </div>
   </div>
   <div class="bg-white rounded-lg shadow p-5">
     <p class="text-sm text-gray-500">Success Rate</p>
-    <p class="text-3xl font-bold {% if success_rate < 75 %}text-red-600{% elif success_rate < 90 %}text-yellow-600{% else %}text-green-600{% endif %}">{{ success_rate }}%</p>
+    <div class="flex items-baseline space-x-2">
+      <p class="text-3xl font-bold {% if success_rate < 75 %}text-red-600{% elif success_rate < 90 %}text-yellow-600{% else %}text-green-600{% endif %}">{{ success_rate }}%</p>
+      {% if prev_total_in_period > 0 %}
+        {% set sr_change = (success_rate - prev_success_rate) | round(1) %}
+        <span class="text-xs font-medium {% if sr_change >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+          {{ "↑" if sr_change >= 0 else "↓" }}{{ sr_change | abs }}%
+        </span>
+      {% endif %}
+    </div>
   </div>
   <div class="bg-white rounded-lg shadow p-5">
     <p class="text-sm text-gray-500">Failed Reviews ({{ days }}d)</p>
-    <p class="text-3xl font-bold {% if error_total > 0 %}text-red-600{% else %}text-green-600{% endif %}">{{ error_total }}</p>
+    <div class="flex items-baseline space-x-2">
+      <p class="text-3xl font-bold {% if error_total > 0 %}text-red-600{% else %}text-green-600{% endif %}">{{ error_total }}</p>
+      {% if prev_total_in_period > 0 %}
+        {% set err_change = (error_total - prev_error_total) %}
+        <span class="text-xs font-medium {% if err_change > 0 %}text-red-600{% else %}text-green-600{% endif %}">
+          {{ "↑" if err_change > 0 else "↓" }}{{ err_change | abs }}
+        </span>
+      {% endif %}
+    </div>
   </div>
   <div class="bg-white rounded-lg shadow p-5">
     <p class="text-sm text-gray-500">Total Reviews ({{ days }}d)</p>
-    <p class="text-3xl font-bold text-gray-900">{{ total_in_period }}</p>
+    <div class="flex items-baseline space-x-2">
+      <p class="text-3xl font-bold text-gray-900">{{ total_in_period }}</p>
+      {% if prev_total_in_period > 0 %}
+        {% set count_change = (total_in_period - prev_total_in_period) %}
+        <span class="text-xs font-medium {% if count_change >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+          {{ "↑" if count_change >= 0 else "↓" }}{{ count_change | abs }}
+        </span>
+      {% endif %}
+    </div>
   </div>
 </div>
 
@@ -84,12 +116,12 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script>
-  const daily = {{ daily | tojson }};
-  const statuses = {{ statuses | tojson }};
-  const severities = {{ severities | tojson }};
-  const repos = {{ repos | tojson }};
-  const dailyErrors = {{ daily_errors | tojson }};
-  const errorCategories = {{ error_categories | tojson }};
+  const daily = {{ (daily or []) | tojson }};
+  const statuses = {{ (statuses or {}) | tojson }};
+  const severities = {{ (severities or {}) | tojson }};
+  const repos = {{ (repos or []) | tojson }};
+  const dailyErrors = {{ (daily_errors or []) | tojson }};
+  const errorCategories = {{ (error_categories or {}) | tojson }};
 
   // Daily line chart
   new Chart(document.getElementById('dailyChart'), {

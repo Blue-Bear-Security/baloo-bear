@@ -221,3 +221,4 @@ node_modules/
 
 # Private deployment configs (entire folder – instance-specific)
 deploy/
+site/

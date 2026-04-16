@@ -1,7 +1,6 @@
 """Fidelity analyzer using PI agent."""
 
 import logging
-from typing import Optional
 
 from baloo.agent.pi_runtime import PIAgentBase, PIAgentOptions
 from baloo.fidelity.models import (
@@ -33,7 +32,7 @@ class FidelityAgent(PIAgentBase):
         pr_title: str,
         diff: str,
         ticket_id: str,
-    ) -> Optional[FidelityResult]:
+    ) -> FidelityResult | None:
         """
         Run fidelity analysis comparing PR changes to design plan.
 
@@ -75,7 +74,7 @@ class FidelityAgent(PIAgentBase):
 
     def _parse_structured_fidelity(
         self, data: dict | None, ticket_id: str
-    ) -> Optional[FidelityResult]:
+    ) -> FidelityResult | None:
         """Validate structured output and convert to FidelityResult."""
         if data is None:
             logger.warning("No structured output received from fidelity agent")
@@ -102,7 +101,7 @@ async def analyze_fidelity(
     pr_title: str,
     diff: str,
     ticket_id: str,
-) -> Optional[FidelityResult]:
+) -> FidelityResult | None:
     """Legacy wrapper for FidelityAgent (maintains compatibility)."""
     agent = FidelityAgent()
     return await agent.analyze(plan_content, pr_title, diff, ticket_id)

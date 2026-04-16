@@ -1,0 +1,59 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install MkDocs
+        run: pip install mkdocs-material
+
+      - name: Sync root files to docs/
+        run: |
+          # Copy and fix links for MkDocs context (docs/ is the root)
+          sed -e 's|docs/||g' -e 's|(README.md)|(./)|g' -e 's|(CONTRIBUTING.md)|(contributing.md)|g' -e 's|(AGENTS.md)|(https://github.com/Blue-Bear-Security/baloo-bear/blob/main/AGENTS.md)|g' -e 's|(SECURITY.md)|(https://github.com/Blue-Bear-Security/baloo-bear/blob/main/SECURITY.md)|g' -e 's|(LICENSE)|(https://github.com/Blue-Bear-Security/baloo-bear/blob/main/LICENSE)|g' -e 's|(DOCKER.md)|(https://github.com/Blue-Bear-Security/baloo-bear/blob/main/DOCKER.md)|g' -e 's|(\.env.example)|(https://github.com/Blue-Bear-Security/baloo-bear/blob/main/.env.example)|g' README.md > docs/index.md
+          sed -e 's|(SECURITY.md)|(https://github.com/Blue-Bear-Security/baloo-bear/blob/main/SECURITY.md)|g' CONTRIBUTING.md > docs/contributing.md
+
+      - name: Build docs
+        run: mkdocs build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

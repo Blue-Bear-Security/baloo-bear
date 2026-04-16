@@ -37,7 +37,7 @@ async def test_updates_progress_comment_when_no_actionable_findings():
                 line=1,
                 body="Low severity observation",
                 severity="LOW",
-                category="Quality"
+                category="Quality",
             )
         ],
         approve=True,
@@ -45,10 +45,12 @@ async def test_updates_progress_comment_when_no_actionable_findings():
     )
     mock_agent.review_pr = AsyncMock(return_value=mock_review_result)
 
-    with patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client), \
-         patch("baloo.agent.client.BalooAgent", return_value=mock_agent), \
-         patch("baloo.config.settings.settings.review_auto_approve", False), \
-         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"):
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.review_auto_approve", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
 
         await process_pr_review(
             repo_full_name="test/repo",
@@ -96,10 +98,12 @@ async def test_posts_approval_when_auto_approve_enabled():
     )
     mock_agent.review_pr = AsyncMock(return_value=mock_review_result)
 
-    with patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client), \
-         patch("baloo.agent.client.BalooAgent", return_value=mock_agent), \
-         patch("baloo.config.settings.settings.review_auto_approve", True), \
-         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"):
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.review_auto_approve", True),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
 
         await process_pr_review(
             repo_full_name="test/repo",
@@ -161,14 +165,21 @@ async def test_approves_clean_review_with_high_fidelity_score():
         discrepancies=[],
     )
 
-    with patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client), \
-         patch("baloo.agent.client.BalooAgent", return_value=mock_agent), \
-         patch("baloo.config.settings.settings.review_auto_approve", False), \
-         patch("baloo.config.settings.settings.fidelity_enabled", True), \
-         patch("baloo.config.settings.settings.fidelity_approval_threshold", 90), \
-         patch("baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)), \
-         patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"), \
-         patch("baloo.github.webhook_handler.fetch_plan_content", AsyncMock(return_value="# Plan content")):
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.review_auto_approve", False),
+        patch("baloo.config.settings.settings.fidelity_enabled", True),
+        patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
+        patch(
+            "baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)
+        ),
+        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch(
+            "baloo.github.webhook_handler.fetch_plan_content",
+            AsyncMock(return_value="# Plan content"),
+        ),
+    ):
 
         await process_pr_review(
             repo_full_name="test/repo",
@@ -219,7 +230,7 @@ async def test_approves_with_medium_issues_when_high_fidelity():
                 line=10,
                 body="This function has a performance issue that should be addressed",
                 severity="MEDIUM",
-                category="Performance"
+                category="Performance",
             )
         ],
         approve=False,
@@ -237,16 +248,23 @@ async def test_approves_with_medium_issues_when_high_fidelity():
         discrepancies=[],
     )
 
-    with patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client), \
-         patch("baloo.agent.client.BalooAgent", return_value=mock_agent), \
-         patch("baloo.config.settings.settings.review_auto_approve", False), \
-         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"), \
-         patch("baloo.config.settings.settings.fidelity_enabled", True), \
-         patch("baloo.config.settings.settings.fidelity_approval_threshold", 90), \
-         patch("baloo.config.settings.settings.review_use_checks_api", False), \
-         patch("baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)), \
-         patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"), \
-         patch("baloo.github.webhook_handler.fetch_plan_content", AsyncMock(return_value="# Plan content")):
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.review_auto_approve", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+        patch("baloo.config.settings.settings.fidelity_enabled", True),
+        patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
+        patch("baloo.config.settings.settings.review_use_checks_api", False),
+        patch(
+            "baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)
+        ),
+        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch(
+            "baloo.github.webhook_handler.fetch_plan_content",
+            AsyncMock(return_value="# Plan content"),
+        ),
+    ):
 
         await process_pr_review(
             repo_full_name="test/repo",
@@ -259,7 +277,8 @@ async def test_approves_with_medium_issues_when_high_fidelity():
         # Verify approval review was posted (MEDIUM issues don't prevent fidelity-based approval)
         mock_github_client.post_review.assert_called()
         approval_calls = [
-            call for call in mock_github_client.post_review.call_args_list
+            call
+            for call in mock_github_client.post_review.call_args_list
             if call[0][2].approve is True
         ]
         assert len(approval_calls) == 1, "Should approve when high fidelity despite MEDIUM issues"
@@ -307,14 +326,21 @@ async def test_does_not_approve_with_low_fidelity_score():
         discrepancies=[],
     )
 
-    with patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client), \
-         patch("baloo.agent.client.BalooAgent", return_value=mock_agent), \
-         patch("baloo.config.settings.settings.review_auto_approve", False), \
-         patch("baloo.config.settings.settings.fidelity_enabled", True), \
-         patch("baloo.config.settings.settings.fidelity_approval_threshold", 90), \
-         patch("baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)), \
-         patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"), \
-         patch("baloo.github.webhook_handler.fetch_plan_content", AsyncMock(return_value="# Plan content")):
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.review_auto_approve", False),
+        patch("baloo.config.settings.settings.fidelity_enabled", True),
+        patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
+        patch(
+            "baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)
+        ),
+        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch(
+            "baloo.github.webhook_handler.fetch_plan_content",
+            AsyncMock(return_value="# Plan content"),
+        ),
+    ):
 
         await process_pr_review(
             repo_full_name="test/repo",
