@@ -493,8 +493,46 @@ async def process_pr_review(
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
+            # FP verification pass (LLM-powered, before heuristic filter)
+            if settings.fp_verification_enabled and review_result.comments:
+                from baloo.processor.fp_verifier import FPVerifier
+
+                verifier = FPVerifier()
+                fp_result = await verifier.verify(review_result.comments, pr_context)
+                # Build a fresh metadata dict rather than mutating the agent
+                # result's dict via aliasing — keeps provenance explicit and
+                # avoids breakage if ReviewResult ever copies its metadata.
+                merged_metadata = {
+                    **review_result.metadata,
+                    "fp_verification": {
+                        "total": fp_result.stats.total_verified,
+                        "kept": fp_result.stats.kept,
+                        "rejected": fp_result.stats.rejected,
+                        "errors": fp_result.stats.errors,
+                        "cost_usd": fp_result.stats.total_cost_usd,
+                        "duration_seconds": fp_result.stats.duration_seconds,
+                    },
+                }
+                review_result = ReviewResult(
+                    summary=review_result.summary,
+                    comments=fp_result.verified,
+                    approve=review_result.approve,
+                    request_changes=review_result.request_changes,
+                    metadata=merged_metadata,
+                )
+                # Keep `agent_metadata` in sync so the final ReviewResult
+                # built below (which re-uses agent_metadata) still carries
+                # the fp_verification stats forward to the DB row.
+                agent_metadata = merged_metadata
+                logger.info(
+                    "FP verification: %d/%d findings kept (rejected %d)",
+                    fp_result.stats.kept,
+                    fp_result.stats.total_verified,
+                    fp_result.stats.rejected,
+                )
+
             findings_filter = FindingsFilter()
-            filtered_comments = findings_filter.filter_findings(agent_result.comments)
+            filtered_comments = findings_filter.filter_findings(review_result.comments)
 
             thread_lookup = _build_thread_lookup(pr_context.discussion_threads)
             fresh_comments: list[ReviewComment] = []
