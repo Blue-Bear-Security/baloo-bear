@@ -16,10 +16,9 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from baloo.agent.config import get_agent_options
-from baloo.agent.pi_runtime import PIAgentBase, PIAgentOptions, _extract_json_from_text
+from baloo.agent.pi_runtime import PIAgentBase, PIAgentOptions
 from baloo.config.settings import get_settings
 from baloo.github.models import PRContext, ReviewComment
 from baloo.processor.fp_prompts import (
@@ -269,7 +268,12 @@ class FPVerifier:
                 comment.path,
                 comment.line,
             )
-            return comment, {"verdict": "real", "reason": reason, "cost_usd": cost, "model": model_used}
+            return comment, {
+                "verdict": "real",
+                "reason": reason,
+                "cost_usd": cost,
+                "model": model_used,
+            }
 
         except Exception as exc:
             logger.warning(

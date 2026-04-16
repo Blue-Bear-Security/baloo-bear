@@ -47,7 +47,7 @@ def build_verification_prompt(
         Prompt string for the verification model.
     """
     parts = [
-        f"## Finding to verify",
+        "## Finding to verify",
         f"**File**: {comment.path}, line {comment.line}",
         f"**Severity**: {comment.severity}",
         f"**Category**: {comment.category}",
@@ -57,22 +57,26 @@ def build_verification_prompt(
     ]
 
     if file_context:
-        parts.extend([
-            "## File context (around flagged line)",
-            "```",
-            file_context,
+        parts.extend(
+            [
+                "## File context (around flagged line)",
+                "```",
+                file_context,
+                "```",
+                "",
+            ]
+        )
+
+    parts.extend(
+        [
+            "## Diff",
+            "```diff",
+            diff_context,
             "```",
             "",
-        ])
-
-    parts.extend([
-        "## Diff",
-        "```diff",
-        diff_context,
-        "```",
-        "",
-        'Is this finding real or a false positive? Respond with JSON: {"verdict": "real"|"fp", "reason": "..."}',
-    ])
+            'Is this finding real or a false positive? Respond with JSON: {"verdict": "real"|"fp", "reason": "..."}',
+        ]
+    )
 
     return "\n".join(parts)
 

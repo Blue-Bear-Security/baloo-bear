@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -21,12 +21,9 @@ from baloo.processor.fp_prompts import (
     extract_diff_for_file,
 )
 from baloo.processor.fp_verifier import (
-    FPRejection,
-    FPVerificationResult,
     FPVerifier,
     _extract_title,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -40,9 +37,7 @@ def _make_comment(
     category: str = "Security",
     body: str = "**SQL injection risk**\n**Category:** Security\n**Severity:** HIGH\n\nString concatenation in query.",
 ) -> ReviewComment:
-    return ReviewComment(
-        path=path, line=line, body=body, severity=severity, category=category
-    )
+    return ReviewComment(path=path, line=line, body=body, severity=severity, category=category)
 
 
 def _make_pr_context(
@@ -61,7 +56,14 @@ def _make_pr_context(
             head_branch="feat/test",
             head_sha="abc123",
             files_changed=[
-                FileChange(filename="src/auth.py", status="modified", additions=2, deletions=0, changes=2, patch="")
+                FileChange(
+                    filename="src/auth.py",
+                    status="modified",
+                    additions=2,
+                    deletions=0,
+                    changes=2,
+                    patch="",
+                )
             ],
         ),
         discussion=PRDiscussionContext(),
@@ -176,12 +178,20 @@ class TestFPVerifier:
         comment = _make_comment()
         pr_ctx = _make_pr_context()
 
-        mock_result = (
-            {"verdict": "real", "reason": "SQL injection is real"},
-            {"cost_usd": 0.001, "model": "haiku"},
-        )
-
-        with patch.object(verifier, "_verify_single", new_callable=AsyncMock, return_value=(comment, {"verdict": "real", "reason": "SQL injection is real", "cost_usd": 0.001, "model": "haiku"})):
+        with patch.object(
+            verifier,
+            "_verify_single",
+            new_callable=AsyncMock,
+            return_value=(
+                comment,
+                {
+                    "verdict": "real",
+                    "reason": "SQL injection is real",
+                    "cost_usd": 0.001,
+                    "model": "haiku",
+                },
+            ),
+        ):
             result = await verifier.verify([comment], pr_ctx)
 
         assert len(result.verified) == 1
@@ -194,7 +204,20 @@ class TestFPVerifier:
         comment = _make_comment()
         pr_ctx = _make_pr_context()
 
-        with patch.object(verifier, "_verify_single", new_callable=AsyncMock, return_value=(comment, {"verdict": "fp", "reason": "Uses parameterized query", "cost_usd": 0.001, "model": "haiku"})):
+        with patch.object(
+            verifier,
+            "_verify_single",
+            new_callable=AsyncMock,
+            return_value=(
+                comment,
+                {
+                    "verdict": "fp",
+                    "reason": "Uses parameterized query",
+                    "cost_usd": 0.001,
+                    "model": "haiku",
+                },
+            ),
+        ):
             result = await verifier.verify([comment], pr_ctx)
 
         assert len(result.verified) == 0
@@ -209,7 +232,12 @@ class TestFPVerifier:
         comment = _make_comment()
         pr_ctx = _make_pr_context()
 
-        with patch.object(verifier, "_verify_single", new_callable=AsyncMock, side_effect=RuntimeError("model timeout")):
+        with patch.object(
+            verifier,
+            "_verify_single",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("model timeout"),
+        ):
             result = await verifier.verify([comment], pr_ctx)
 
         assert len(result.verified) == 1
@@ -232,7 +260,9 @@ class TestFPVerifier:
             comment = _make_comment()
             pr_ctx = _make_pr_context()
 
-            with patch.object(verifier, "_verify_single", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
+            with patch.object(
+                verifier, "_verify_single", new_callable=AsyncMock, side_effect=RuntimeError("boom")
+            ):
                 await verifier.verify([comment], pr_ctx)
 
             with open(audit_path) as f:
@@ -255,8 +285,18 @@ class TestFPVerifier:
 
         async def mock_verify(comment, ctx):
             if comment.path == "b.py":
-                return comment, {"verdict": "fp", "reason": "not real", "cost_usd": 0.001, "model": "haiku"}
-            return comment, {"verdict": "real", "reason": "legit", "cost_usd": 0.001, "model": "haiku"}
+                return comment, {
+                    "verdict": "fp",
+                    "reason": "not real",
+                    "cost_usd": 0.001,
+                    "model": "haiku",
+                }
+            return comment, {
+                "verdict": "real",
+                "reason": "legit",
+                "cost_usd": 0.001,
+                "model": "haiku",
+            }
 
         with patch.object(verifier, "_verify_single", side_effect=mock_verify):
             result = await verifier.verify([c1, c2, c3], pr_ctx)
@@ -276,7 +316,20 @@ class TestFPVerifier:
             comment = _make_comment()
             pr_ctx = _make_pr_context()
 
-            with patch.object(verifier, "_verify_single", new_callable=AsyncMock, return_value=(comment, {"verdict": "fp", "reason": "false alarm", "cost_usd": 0.0003, "model": "haiku"})):
+            with patch.object(
+                verifier,
+                "_verify_single",
+                new_callable=AsyncMock,
+                return_value=(
+                    comment,
+                    {
+                        "verdict": "fp",
+                        "reason": "false alarm",
+                        "cost_usd": 0.0003,
+                        "model": "haiku",
+                    },
+                ),
+            ):
                 await verifier.verify([comment], pr_ctx)
 
             with open(audit_path) as f:
