@@ -1,8 +1,10 @@
 """Tests for schemas module (Pydantic models and conversion logic)."""
 
 from baloo.agent.schemas import (
+    ReviewFinding,
     ReviewOutput,
     _normalize_category,
+    enforce_severity,
     findings_to_comments,
     review_output_schema,
 )
@@ -189,7 +191,7 @@ class TestFindingsToComments:
         assert len(comments) == 1
         assert comments[0].path == "test.py"
         assert comments[0].line == 10
-        assert comments[0].severity == "HIGH"
+        assert comments[0].severity == "CRITICAL"  # Security enforced to CRITICAL
         assert comments[0].category == "Security"
         assert "SQL Injection Risk" in comments[0].body
         assert "Data breach possible" in comments[0].body
@@ -217,16 +219,16 @@ class TestFindingsToComments:
         assert comments == []
 
     def test_severity_normalization(self):
-        """Test that severity is uppercased."""
+        """Test that severity is normalized and enforcement is applied."""
         data = {
             "findings": [
-                {"file": "a.py", "severity": "critical"},
-                {"file": "b.py", "severity": "MeDiUm"},
+                {"file": "a.py", "severity": "critical", "category": "Security"},
+                {"file": "b.py", "severity": "MeDiUm", "category": "Quality"},
             ]
         }
         comments = findings_to_comments(data)
-        assert comments[0].severity == "CRITICAL"
-        assert comments[1].severity == "MEDIUM"
+        assert comments[0].severity == "CRITICAL"  # Security → CRITICAL
+        assert comments[1].severity == "MEDIUM"  # Quality MEDIUM stays MEDIUM
 
     def test_optional_fields_missing(self):
         """Test that missing optional fields don't appear in body."""
@@ -384,6 +386,82 @@ class TestNormalizeCategory:
         assert comments[1].category == "Bugs"
         assert comments[2].category == "Silent Failures"
         assert comments[3].category == "Performance"
+
+
+class TestEnforceSeverity:
+    """Tests for rule-based severity enforcement by category."""
+
+    def test_security_always_critical(self):
+        """Security findings should always be CRITICAL regardless of LLM severity."""
+        finding = ReviewFinding(file="a.py", line=1, severity="MEDIUM", category="Security")
+        assert enforce_severity(finding) == "CRITICAL"
+
+    def test_security_low_escalated(self):
+        finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Security")
+        assert enforce_severity(finding) == "CRITICAL"
+
+    def test_bugs_enforced_to_high(self):
+        """Bugs category should be enforced to HIGH."""
+        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Bugs")
+        assert enforce_severity(finding) == "HIGH"
+
+    def test_silent_failures_enforced_to_high(self):
+        finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Silent Failures")
+        assert enforce_severity(finding) == "HIGH"
+
+    def test_guidelines_enforced_to_high(self):
+        finding = ReviewFinding(file="a.py", line=1, severity="MEDIUM", category="Guidelines")
+        assert enforce_severity(finding) == "HIGH"
+
+    def test_performance_enforced_to_medium(self):
+        finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Performance")
+        assert enforce_severity(finding) == "MEDIUM"
+
+    def test_quality_capped_at_medium(self):
+        """Quality findings should be capped at MEDIUM even if LLM says CRITICAL."""
+        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Quality")
+        assert enforce_severity(finding) == "MEDIUM"
+
+    def test_quality_low_stays_low(self):
+        """Quality LOW should stay LOW (cap, not floor)."""
+        finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Quality")
+        assert enforce_severity(finding) == "LOW"
+
+    def test_quality_medium_stays_medium(self):
+        finding = ReviewFinding(file="a.py", line=1, severity="MEDIUM", category="Quality")
+        assert enforce_severity(finding) == "MEDIUM"
+
+    def test_unknown_category_defaults_medium(self):
+        finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Unknown")
+        assert enforce_severity(finding) == "MEDIUM"
+
+    def test_findings_to_comments_uses_enforcement(self):
+        """End-to-end: findings_to_comments should apply severity enforcement."""
+        data = {
+            "findings": [
+                {
+                    "file": "a.py",
+                    "line": 1,
+                    "severity": "MEDIUM",
+                    "category": "Security",
+                    "title": "SQL Injection",
+                    "description": "Unsafe query",
+                },
+                {
+                    "file": "b.py",
+                    "line": 2,
+                    "severity": "CRITICAL",
+                    "category": "Quality",
+                    "title": "Naming",
+                    "description": "Bad name",
+                },
+            ]
+        }
+        comments = findings_to_comments(data)
+        # Security MEDIUM should be escalated to CRITICAL
+        assert comments[0].severity == "CRITICAL"
+        # Quality CRITICAL should be capped to MEDIUM
+        assert comments[1].severity == "MEDIUM"
 
 
 class TestFidelityOutput:
