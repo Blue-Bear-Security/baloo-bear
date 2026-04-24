@@ -62,7 +62,8 @@ def _extract_json_from_text(text: str) -> dict | None:
     fences or surrounding text.  We try multiple strategies:
     1. Direct JSON parse
     2. Extract from ```json ... ``` fences
-    3. Find the outermost { ... } block
+    3. Reverse-scan: find the last complete JSON object from the tail
+    4. Outermost { ... } block (last resort)
     """
     stripped = text.strip()
 
@@ -80,7 +81,12 @@ def _extract_json_from_text(text: str) -> dict | None:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Strategy 3: find outermost braces
+    # Strategy 3: reverse-scan — find the last complete JSON object
+    result = _reverse_scan_json(stripped)
+    if result is not None:
+        return result
+
+    # Strategy 4: outermost braces (last resort)
     first_brace = stripped.find("{")
     last_brace = stripped.rfind("}")
     if first_brace != -1 and last_brace > first_brace:
@@ -88,6 +94,61 @@ def _extract_json_from_text(text: str) -> dict | None:
             return json.loads(stripped[first_brace : last_brace + 1])
         except (json.JSONDecodeError, ValueError):
             pass
+
+    return None
+
+
+def _reverse_scan_json(text: str) -> dict | None:
+    """Scan backwards from the end of text to find the last complete JSON object.
+
+    Walks backwards from the last '}', counting brace depth while respecting
+    string literals, to find the matching '{'. This handles the common pattern
+    where the model emits a long reasoning preamble before the JSON output.
+    """
+    # Find the last closing brace
+    end = len(text) - 1
+    while end >= 0 and text[end] != "}":
+        end -= 1
+    if end < 0:
+        return None
+
+    # Walk backwards counting brace depth, respecting strings
+    depth = 0
+    i = end
+    in_string = False
+    escape = False
+
+    while i >= 0:
+        ch = text[i]
+
+        if escape:
+            escape = False
+            i -= 1
+            continue
+
+        if in_string:
+            if ch == '"':
+                in_string = False
+            elif ch == "\\" and i > 0 and text[i - 1] == "\\":
+                escape = True
+            i -= 1
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "}":
+            depth += 1
+        elif ch == "{":
+            depth -= 1
+            if depth == 0:
+                # Found the matching opening brace
+                candidate = text[i : end + 1]
+                try:
+                    return json.loads(candidate)
+                except (json.JSONDecodeError, ValueError):
+                    return None
+
+        i -= 1
 
     return None
 
