@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
-from baloo.db.models import Finding, Review
+from baloo.db.models import Finding, Review, ReviewLog
 
 
 class DashboardService:
@@ -215,6 +215,19 @@ class DashboardService:
                 select(Review).options(selectinload(Review.findings)).where(Review.id == review_id)
             )
             return result.scalars().first()
+
+    @staticmethod
+    async def get_review_logs(review_id: int) -> list[ReviewLog]:
+        settings = get_settings()
+        factory = get_session_factory(settings.database_url)
+
+        async with factory() as session:
+            result = await session.execute(
+                select(ReviewLog)
+                .where(ReviewLog.review_id == review_id)
+                .order_by(ReviewLog.created_at.asc())
+            )
+            return result.scalars().all()
 
     @staticmethod
     async def get_analytics_data(days: int = 30) -> dict:
