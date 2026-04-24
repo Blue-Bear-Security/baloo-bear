@@ -1,0 +1,36 @@
+{% if logs %}
+<div class="space-y-3">
+  {% for log in logs %}
+  <div class="flex items-start gap-3">
+    <!-- Timestamp -->
+    <span class="text-xs text-gray-400 font-mono whitespace-nowrap mt-0.5">
+      {{ log.created_at.strftime("%H:%M:%S") }}
+    </span>
+
+    <!-- Event badge -->
+    {% if log.event_type in ["agent_error", "json_parse_failed", "json_retry_failed"] %}
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 whitespace-nowrap">{{ log.event_type }}</span>
+    {% elif log.event_type in ["fallback_triggered", "json_retry_started"] %}
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 whitespace-nowrap">{{ log.event_type }}</span>
+    {% elif log.event_type == "agent_completed" %}
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 whitespace-nowrap">{{ log.event_type }}</span>
+    {% else %}
+      <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 whitespace-nowrap">{{ log.event_type }}</span>
+    {% endif %}
+
+    <!-- Message -->
+    <div class="flex-1 min-w-0">
+      <p class="text-sm text-gray-700">{{ log.message }}</p>
+      {% if log.raw_text %}
+      <details class="mt-1">
+        <summary class="text-xs text-indigo-600 cursor-pointer hover:underline">Show raw response ({{ log.raw_text | length }} chars)</summary>
+        <pre class="mt-1 text-xs text-gray-600 bg-gray-50 border rounded p-2 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">{{ log.raw_text }}</pre>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-sm text-gray-400 text-center py-4">No execution logs for this review</p>
+{% endif %}
