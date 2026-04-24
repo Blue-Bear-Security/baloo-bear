@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models for review persistence."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -50,6 +50,9 @@ class Review(Base):
     findings: Mapped[list["Finding"]] = relationship(
         "Finding", back_populates="review", cascade="all, delete-orphan"
     )
+    logs: Mapped[list["ReviewLog"]] = relationship(
+        "ReviewLog", back_populates="review", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         Index("ix_reviews_repo_pr", "repo_full_name", "pr_number"),
@@ -74,3 +77,26 @@ class Finding(Base):
     review: Mapped["Review"] = relationship("Review", back_populates="findings")
 
     __table_args__ = (Index("ix_findings_review_id", "review_id"),)
+
+
+class ReviewLog(Base):
+    __tablename__ = "review_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    review_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    review: Mapped["Review"] = relationship("Review", back_populates="logs")
+
+    __table_args__ = (
+        Index("ix_review_logs_review_created", "review_id", "created_at"),
+        Index("ix_review_logs_created_at", "created_at"),
+    )

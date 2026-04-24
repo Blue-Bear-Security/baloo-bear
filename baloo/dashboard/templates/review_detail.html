@@ -178,4 +178,17 @@
   <p class="px-5 py-8 text-center text-gray-400">No findings for this review</p>
   {% endif %}
 </div>
+
+<!-- Execution Log -->
+<div class="bg-white rounded-lg shadow overflow-hidden mt-8">
+  <div class="px-5 py-4 border-b border-gray-200">
+    <h2 class="text-lg font-semibold text-gray-900">Execution Log</h2>
+  </div>
+  <div class="px-5 py-4"
+       hx-get="/dashboard/reviews/{{ review.id }}/logs"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p class="text-sm text-gray-400 text-center py-4">Loading logs...</p>
+  </div>
+</div>
 {% endblock %}

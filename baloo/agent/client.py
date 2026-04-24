@@ -1,6 +1,7 @@
 """PI-based agent client for code review."""
 
 import logging
+from typing import Any
 
 from baloo.agent.config import get_agent_options
 from baloo.agent.pi_runtime import PIAgentBase
@@ -46,8 +47,25 @@ class BalooAgent(PIAgentBase):
             # Build review prompt
             review_query = build_pr_review_prompt(pr_context)
 
+            # Create execution logger if database is enabled
+            review_logger = None
+            logger_session = None
+            review_id = getattr(pr_context, "_review_id", None)
+            if review_id:
+                from baloo.agent.logger import ReviewLogger
+                from baloo.config.settings import get_settings
+                from baloo.db.engine import get_session_factory
+
+                settings = get_settings()
+                if settings.database_enabled:
+                    factory = get_session_factory(settings.database_url)
+                    logger_session = factory()
+                    review_logger = ReviewLogger(review_id=review_id, session=logger_session)
+
             # Run agent using base class
-            structured_data, metadata = await self._run_with_fallback(review_query)
+            structured_data, metadata = await self._run_with_fallback(
+                review_query, review_logger=review_logger
+            )
 
             # Convert structured output to review comments
             comments = []
@@ -78,6 +96,14 @@ class BalooAgent(PIAgentBase):
                 request_changes=request_changes,
                 metadata=metadata,
             )
+
+            # Flush and close the logger session
+            if logger_session is not None:
+                try:
+                    await logger_session.commit()
+                    await logger_session.close()
+                except Exception:
+                    pass
 
             return result
 
@@ -114,12 +140,12 @@ class BalooAgent(PIAgentBase):
             return "auth_error"
         return "agent_error"
 
-    async def _run_with_fallback(self, query: str):
+    async def _run_with_fallback(self, query: str, review_logger: Any = None):
         """Run query with automatic fallback to secondary model on failure."""
         from baloo.config.settings import get_settings
 
         try:
-            return await self.run_query(query)
+            return await self.run_query(query, review_logger=review_logger)
         except Exception as primary_err:
             settings = get_settings()
             fallback = settings.agent_fallback_model
@@ -140,6 +166,13 @@ class BalooAgent(PIAgentBase):
                 fallback,
             )
 
+            if review_logger:
+                await review_logger.fallback_triggered(
+                    primary_model=f"{self.options.provider}/{self.options.model}",
+                    fallback_model=fallback,
+                    error=str(primary_err),
+                )
+
             # Swap to fallback model
             original_provider = self.options.provider
             original_model = self.options.model
@@ -147,7 +180,7 @@ class BalooAgent(PIAgentBase):
             self.options.model = fallback_model
 
             try:
-                result = await self.run_query(query)
+                result = await self.run_query(query, review_logger=review_logger)
                 # Tag metadata so callers know fallback was used
                 result[1]["fallback_used"] = True
                 result[1]["primary_model"] = f"{original_provider}/{original_model}"

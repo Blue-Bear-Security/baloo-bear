@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from baloo.db.models import Base, Finding, Review
+from baloo.db.models import Base, Finding, Review, ReviewLog
 
 
 @pytest.fixture
@@ -140,6 +140,23 @@ async def test_cascade_delete(async_session: AsyncSession):
 
     result = await async_session.execute(select(Finding).where(Finding.review_id == review_id))
     assert result.scalars().all() == []
+
+
+def test_review_log_model_fields():
+    """ReviewLog has all expected columns."""
+    from sqlalchemy import inspect
+
+    mapper = inspect(ReviewLog)
+    columns = {c.key for c in mapper.columns}
+    assert columns == {
+        "id",
+        "review_id",
+        "created_at",
+        "event_type",
+        "message",
+        "raw_text",
+        "metadata_json",
+    }
 
 
 async def test_review_optional_fields(async_session: AsyncSession):

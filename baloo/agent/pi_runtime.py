@@ -62,7 +62,8 @@ def _extract_json_from_text(text: str) -> dict | None:
     fences or surrounding text.  We try multiple strategies:
     1. Direct JSON parse
     2. Extract from ```json ... ``` fences
-    3. Find the outermost { ... } block
+    3. Reverse-scan: find the last complete JSON object from the tail
+    4. Outermost { ... } block (last resort)
     """
     stripped = text.strip()
 
@@ -80,7 +81,12 @@ def _extract_json_from_text(text: str) -> dict | None:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Strategy 3: find outermost braces
+    # Strategy 3: reverse-scan — find the last complete JSON object
+    result = _reverse_scan_json(stripped)
+    if result is not None:
+        return result
+
+    # Strategy 4: outermost braces (last resort)
     first_brace = stripped.find("{")
     last_brace = stripped.rfind("}")
     if first_brace != -1 and last_brace > first_brace:
@@ -88,6 +94,61 @@ def _extract_json_from_text(text: str) -> dict | None:
             return json.loads(stripped[first_brace : last_brace + 1])
         except (json.JSONDecodeError, ValueError):
             pass
+
+    return None
+
+
+def _reverse_scan_json(text: str) -> dict | None:
+    """Scan backwards from the end of text to find the last complete JSON object.
+
+    Walks backwards from the last '}', counting brace depth while respecting
+    string literals, to find the matching '{'. This handles the common pattern
+    where the model emits a long reasoning preamble before the JSON output.
+    """
+    # Find the last closing brace
+    end = len(text) - 1
+    while end >= 0 and text[end] != "}":
+        end -= 1
+    if end < 0:
+        return None
+
+    # Walk backwards counting brace depth, respecting strings
+    depth = 0
+    i = end
+    in_string = False
+    escape = False
+
+    while i >= 0:
+        ch = text[i]
+
+        if escape:
+            escape = False
+            i -= 1
+            continue
+
+        if in_string:
+            if ch == '"':
+                in_string = False
+            elif ch == "\\" and i > 0 and text[i - 1] == "\\":
+                escape = True
+            i -= 1
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "}":
+            depth += 1
+        elif ch == "{":
+            depth -= 1
+            if depth == 0:
+                # Found the matching opening brace
+                candidate = text[i : end + 1]
+                try:
+                    return json.loads(candidate)
+                except (json.JSONDecodeError, ValueError):
+                    return None
+
+        i -= 1
 
     return None
 
@@ -151,7 +212,7 @@ class PIAgentBase:
     # Main query interface
     # -----------------------------------------------------------------
 
-    async def run_query(self, query: str) -> tuple[Any, dict[str, Any]]:
+    async def run_query(self, query: str, review_logger: Any = None) -> tuple[Any, dict[str, Any]]:
         """Run a query through the PI agent and return structured output + metadata.
 
         Returns:
@@ -160,6 +221,15 @@ class PIAgentBase:
         settings = get_settings()
         start_time = time.time()
         result = PIRunResult()
+
+        from baloo.agent.logger import ReviewLogger
+
+        if review_logger is None:
+            review_logger = ReviewLogger(review_id=None)
+
+        await review_logger.agent_started(
+            model=self.options.model, thinking_level=self.options.thinking_level
+        )
 
         pi_binary = settings.pi_binary_path or "pi"
         cwd = self.options.cwd or None
@@ -198,7 +268,7 @@ class PIAgentBase:
         )
 
         try:
-            result = await self._drive_session(proc, query, start_time)
+            result = await self._drive_session(proc, query, start_time, review_logger)
         except Exception as exc:
             logger.error("%s: PI session error: %s", self.agent_name, exc)
             result.is_error = True
@@ -274,7 +344,11 @@ class PIAgentBase:
                 len(result.assistant_text),
                 result.assistant_text[:1000].replace("\n", " "),
             )
+            await review_logger.json_parse_failed(
+                raw_text=result.assistant_text, char_count=len(result.assistant_text)
+            )
             logger.info("%s: requesting JSON retry", self.agent_name)
+            await review_logger.json_retry_started()
             structured_output, retry_metadata = await self._retry_json(proc_cwd=cwd)
             if retry_metadata:
                 # Accumulate retry costs into the main metadata
@@ -283,6 +357,21 @@ class PIAgentBase:
                 metadata["cost_usd"] += retry_metadata.get("cost_usd", 0)
                 metadata["num_turns"] += retry_metadata.get("num_turns", 0)
                 metadata["json_retry"] = True
+                if structured_output is None:
+                    await review_logger.json_retry_failed(raw_text=result.assistant_text)
+
+        if result.is_error:
+            await review_logger.agent_error(
+                error_message=result.error_message,
+                error_category="agent_error",
+            )
+        else:
+            await review_logger.agent_completed(
+                tokens_in=metadata.get("input_tokens", 0),
+                tokens_out=metadata.get("output_tokens", 0),
+                cost=metadata.get("cost_usd", 0),
+                duration=metadata.get("duration_seconds", 0),
+            )
 
         return structured_output, metadata
 
@@ -375,6 +464,7 @@ class PIAgentBase:
         proc: asyncio.subprocess.Process,
         query: str,
         start_time: float,
+        review_logger: Any = None,
     ) -> PIRunResult:
         """Drive the RPC session: configure → prompt → collect events."""
         assert proc.stdin is not None
@@ -429,6 +519,12 @@ class PIAgentBase:
 
             if etype == "turn_end":
                 turn_count += 1
+                if review_logger:
+                    await review_logger.turn_completed(
+                        turn_number=turn_count,
+                        tokens_in=result.input_tokens,
+                        tokens_out=result.output_tokens,
+                    )
                 # Enforce max turns
                 if turn_count >= self.options.max_turns:
                     logger.warning(
@@ -477,6 +573,13 @@ class PIAgentBase:
             elif etype == "tool_execution_start":
                 tool = event.get("toolName", "?")
                 logger.debug("%s: tool call → %s", self.agent_name, tool)
+                if review_logger:
+                    tool_file = (
+                        event.get("input", {}).get("path")
+                        if isinstance(event.get("input"), dict)
+                        else None
+                    )
+                    await review_logger.tool_use(tool_name=tool, file_path=tool_file)
 
             elif etype == "agent_end":
                 break

@@ -67,7 +67,9 @@ Only flag a violation if the target repo's guidelines explicitly require a diffe
 
 {REVIEW_SEVERITY_GUIDELINES}
 Be specific (file:line), constructive, balanced.
-You MUST return ONLY valid JSON matching the Output Schema above. No markdown fences, no commentary — just the raw JSON object."""
+You MUST return ONLY valid JSON matching the Output Schema above. No markdown fences, no commentary — just the raw JSON object.
+
+REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON."""
 
 
 def _ctx_get(pr_context: PRContext | dict[str, Any], key: str, default: Any = None) -> Any:
@@ -371,7 +373,9 @@ If YES: This PR may be fixing a constraint or addressing feedback. Understand WH
 
 **Output immediately**: After reading and analyzing, provide your findings as JSON matching the schema.
 You MUST return ONLY valid JSON matching the Output Schema. No markdown fences, no commentary — just the raw JSON object.
-If no issues found, return empty findings array. Be practical and focus on real risks."""
+If no issues found, return empty findings array. Be practical and focus on real risks.
+
+REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON."""
 
 
 def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
@@ -491,4 +495,6 @@ For each issue you identify:
 4. Suggest a specific fix with code examples
 
 Focus on issues that truly matter for security, correctness, and maintainability. Be thorough but practical.
+
+REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON.
 """

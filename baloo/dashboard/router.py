@@ -70,6 +70,16 @@ async def review_detail(request: Request, review_id: int):
     )
 
 
+@router.get("/reviews/{review_id}/logs", response_class=HTMLResponse)
+async def review_logs(request: Request, review_id: int):
+    logs = await DashboardService.get_review_logs(review_id)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/review_logs.html",
+        context={"logs": logs, "review_id": review_id},
+    )
+
+
 @router.get("/analytics", response_class=HTMLResponse)
 async def analytics(
     request: Request,
