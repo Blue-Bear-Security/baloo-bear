@@ -25,6 +25,7 @@ from baloo.fidelity.ticket_extractor import extract_ticket_id
 from baloo.github.api_client import GitHubAPIClient
 from baloo.github.auth import verify_webhook_signature
 from baloo.github.models import (
+    DiscussionComment,
     DiscussionThread,
     PullRequestWebhookPayload,
     ReviewComment,
@@ -138,6 +139,55 @@ def _build_thread_lookup(threads: list[DiscussionThread]) -> dict[str, list[Disc
         lookup[path].sort(key=lambda t: t.line if t.line is not None else 0)
 
     return lookup
+
+
+# Regex for the header Baloo writes when falling back to issue comments:
+#   **[SEVERITY] Category** - path/to/file.py:42
+_ISSUE_COMMENT_LOCATION_RE = re.compile(
+    r"\*\*\[(?:CRITICAL|HIGH|MEDIUM|LOW)\]\s+\S+\*\*\s*-\s*(\S+?):(\d+)"
+)
+
+
+def _threads_from_issue_comments(
+    issue_comments: list[DiscussionComment],
+) -> list[DiscussionThread]:
+    """Build synthetic DiscussionThread objects from Baloo issue comments.
+
+    When GitHub rejects inline review comments (422), Baloo falls back to
+    posting findings as issue-level comments.  These contain the file path
+    and line number in the body (``**[SEV] Cat** - path:line``).  Without
+    this conversion the dedup logic cannot see prior findings and will
+    re-flag the same issues on every review run.
+    """
+    threads: list[DiscussionThread] = []
+    for comment in issue_comments:
+        if not comment.is_baloo:
+            continue
+        m = _ISSUE_COMMENT_LOCATION_RE.search(comment.body)
+        if not m:
+            continue
+        path = m.group(1)
+        try:
+            line = int(m.group(2))
+        except ValueError:
+            continue
+
+        threads.append(
+            DiscussionThread(
+                id=comment.id,
+                path=path,
+                line=line,
+                comments=[comment],
+                is_baloo_thread=True,
+                # Issue comments have no thread reply mechanism, so treat
+                # them as awaiting response (dedup will skip re-flagging).
+                awaiting_response=True,
+                resolved=False,
+                last_activity=comment.updated_at,
+                root_comment_id=comment.id,
+            )
+        )
+    return threads
 
 
 def _extract_issue_signature(body: str) -> str:
@@ -535,7 +585,14 @@ async def process_pr_review(
             findings_filter = FindingsFilter()
             filtered_comments = findings_filter.filter_findings(review_result.comments)
 
-            thread_lookup = _build_thread_lookup(pr_context.discussion_threads)
+            # Merge inline review threads with synthetic threads built from
+            # issue-level comments (the 422-fallback path).  Without this,
+            # findings posted as issue comments are invisible to dedup.
+            all_threads = list(pr_context.discussion_threads)
+            all_threads.extend(
+                _threads_from_issue_comments(pr_context.issue_comments)
+            )
+            thread_lookup = _build_thread_lookup(all_threads)
             fresh_comments: list[ReviewComment] = []
             follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = []
             skipped_duplicates = 0

@@ -8,6 +8,7 @@ from baloo.github.webhook_handler import (
     _calculate_similarity,
     _extract_issue_signature,
     _match_thread,
+    _threads_from_issue_comments,
 )
 
 
@@ -396,3 +397,81 @@ class TestResolvedThreadMatching:
         matched = _match_thread(lookup, comment)
         assert matched is not None
         assert matched.resolved is True
+
+
+class TestThreadsFromIssueComments:
+    """Tests for _threads_from_issue_comments (422 fallback dedup)."""
+
+    def _make_issue_comment(
+        self, comment_id: int, body: str, is_baloo: bool = True
+    ) -> DiscussionComment:
+        now = datetime.now(timezone.utc)
+        return DiscussionComment(
+            id=comment_id,
+            author="baloo-reviewer[bot]" if is_baloo else "developer",
+            body=body,
+            created_at=now,
+            updated_at=now,
+            source="issue_comment",
+            is_baloo=is_baloo,
+        )
+
+    def test_extracts_path_and_line(self):
+        comment = self._make_issue_comment(
+            1, "**[HIGH] Bugs** - src/auth.py:42\n\nSQL injection risk."
+        )
+        threads = _threads_from_issue_comments([comment])
+        assert len(threads) == 1
+        assert threads[0].path == "src/auth.py"
+        assert threads[0].line == 42
+        assert threads[0].is_baloo_thread is True
+        assert threads[0].awaiting_response is True
+
+    def test_skips_non_baloo_comments(self):
+        comment = self._make_issue_comment(
+            1, "**[HIGH] Bugs** - src/auth.py:42\n\nIssue.", is_baloo=False
+        )
+        threads = _threads_from_issue_comments([comment])
+        assert threads == []
+
+    def test_skips_comments_without_location(self):
+        comment = self._make_issue_comment(
+            1, "🐻 Baloo review completed in 30s. No issues found!"
+        )
+        threads = _threads_from_issue_comments([comment])
+        assert threads == []
+
+    def test_multiple_findings(self):
+        comments = [
+            self._make_issue_comment(
+                1, "**[CRITICAL] Security** - lib/db.py:10\n\nSQL injection."
+            ),
+            self._make_issue_comment(
+                2, "**[MEDIUM] Quality** - lib/utils.py:55\n\nDead code."
+            ),
+        ]
+        threads = _threads_from_issue_comments(comments)
+        assert len(threads) == 2
+        paths = {t.path for t in threads}
+        assert paths == {"lib/db.py", "lib/utils.py"}
+
+    def test_matched_by_thread_lookup(self):
+        """Synthetic threads should be matchable by _match_thread."""
+        comment = self._make_issue_comment(
+            1,
+            "**[HIGH] Bugs** - src/handler.py:50\n\n"
+            "**[HIGH] Bugs** - Race condition in request handling.",
+        )
+        threads = _threads_from_issue_comments([comment])
+        lookup = _build_thread_lookup(threads)
+
+        new_finding = ReviewComment(
+            path="src/handler.py",
+            line=50,
+            body="**[HIGH] Bugs** - Race condition in request handling.",
+            severity="HIGH",
+            category="Bugs",
+        )
+        matched = _match_thread(lookup, new_finding)
+        assert matched is not None
+        assert matched.id == 1
