@@ -29,7 +29,8 @@ class CommentFormatter:
         """
         severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
         for comment in comments:
-            severity_counts[comment.severity] = severity_counts.get(comment.severity, 0) + 1
+            sev = comment.severity.value if hasattr(comment.severity, "value") else comment.severity
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
 
         critical = severity_counts["CRITICAL"]
         high = severity_counts["HIGH"]

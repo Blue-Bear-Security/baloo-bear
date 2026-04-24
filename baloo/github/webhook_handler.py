@@ -656,7 +656,7 @@ async def process_pr_review(
                     logger.warning("Falling back to posting MEDIUM findings as issue comments")
                     for finding in routed["checks"]:
                         comment_body = (
-                            f"**[{finding.severity}] {finding.category}** - {finding.path}:{finding.line}\n\n"
+                            f"**[{finding.severity.value}] {finding.category.value}** - {finding.path}:{finding.line}\n\n"
                             f"{finding.body}"
                         )
                         await github_client.post_comment(repo_full_name, pr_number, comment_body)

@@ -49,8 +49,8 @@ def build_verification_prompt(
     parts = [
         "## Finding to verify",
         f"**File**: {comment.path}, line {comment.line}",
-        f"**Severity**: {comment.severity}",
-        f"**Category**: {comment.category}",
+        f"**Severity**: {comment.severity.value}",
+        f"**Category**: {comment.category.value}",
         "",
         comment.body,
         "",
