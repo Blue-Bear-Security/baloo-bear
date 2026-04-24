@@ -128,9 +128,14 @@ def _reverse_scan_json(text: str) -> dict | None:
 
         if in_string:
             if ch == '"':
-                in_string = False
-            elif ch == "\\" and i > 0 and text[i - 1] == "\\":
-                escape = True
+                # Count preceding backslashes to check if quote is escaped
+                bs = 0
+                j = i - 1
+                while j >= 0 and text[j] == "\\":
+                    bs += 1
+                    j -= 1
+                if bs % 2 == 0:  # even backslashes = quote is not escaped
+                    in_string = False
             i -= 1
             continue
 

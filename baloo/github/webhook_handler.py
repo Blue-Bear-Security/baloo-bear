@@ -489,7 +489,7 @@ async def process_pr_review(
             from baloo.agent.client import BalooAgent
 
             agent = BalooAgent()
-            agent_result = await agent.review_pr(pr_context)
+            agent_result = await agent.review_pr(pr_context, review_id=db_review_id)
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
