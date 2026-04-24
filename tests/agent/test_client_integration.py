@@ -197,8 +197,8 @@ class TestBalooAgentSuccessPath:
 
             assert len(result.comments) == 1
             assert result.comments[0].path == "test.py"
-            assert result.comments[0].severity == "HIGH"
-            assert result.approve is False  # HIGH severity = request changes
+            assert result.comments[0].severity == "CRITICAL"  # Security enforced to CRITICAL
+            assert result.approve is False  # CRITICAL severity = request changes
             assert result.request_changes is True
 
     @pytest.mark.asyncio
@@ -338,7 +338,13 @@ class TestBalooAgentSeveritySummary:
         """Test that CRITICAL severity is included in summary."""
         structured = {
             "findings": [
-                {"file": "test.py", "line": 1, "severity": "CRITICAL", "title": "Critical issue"}
+                {
+                    "file": "test.py",
+                    "line": 1,
+                    "severity": "CRITICAL",
+                    "category": "Security",
+                    "title": "Critical issue",
+                }
             ],
         }
         events = _make_pi_events(structured)

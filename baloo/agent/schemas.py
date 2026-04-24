@@ -35,6 +35,18 @@ def _normalize_severity(raw: str) -> str:
     return _SEVERITY_LOOKUP.get(raw.upper().strip(), ReviewSeverity.MEDIUM.value)
 
 
+_SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
+
+# Category → fixed severity. Quality is special (capped, not fixed).
+_CATEGORY_SEVERITY: dict[str, str] = {
+    "SECURITY": "CRITICAL",
+    "BUGS": "HIGH",
+    "SILENT FAILURES": "HIGH",
+    "GUIDELINES": "HIGH",
+    "PERFORMANCE": "MEDIUM",
+}
+
+
 class ReviewFinding(BaseModel):
     """A single review finding from the agent.
 
@@ -107,6 +119,26 @@ class ReviewOutput(BaseModel):
         return super().model_validate(obj, **kwargs)
 
 
+def enforce_severity(finding: ReviewFinding) -> str:
+    """Derive severity from category using deterministic rules.
+
+    Security → CRITICAL, Bugs/Silent Failures/Guidelines → HIGH,
+    Performance → MEDIUM, Quality → capped at MEDIUM (keeps LOW if LOW).
+    Unknown categories → MEDIUM.
+    """
+    category = _normalize_category(finding.category).upper()
+    fixed = _CATEGORY_SEVERITY.get(category)
+    if fixed:
+        return fixed
+    # Quality: cap at MEDIUM, but don't escalate LOW
+    if category == "QUALITY":
+        llm_rank = _SEVERITY_ORDER.get(finding.severity.upper(), 2)
+        cap_rank = _SEVERITY_ORDER["MEDIUM"]
+        return finding.severity.upper() if llm_rank <= cap_rank else "MEDIUM"
+    # Unknown category
+    return "MEDIUM"
+
+
 def review_output_schema() -> dict:
     """Return the JSON schema for review output validation."""
     return {"type": "json_schema", "schema": ReviewOutput.model_json_schema()}
@@ -164,12 +196,13 @@ def findings_to_comments(data: dict) -> list[ReviewComment]:
         if finding.code_example:
             body_parts.extend(["", "```python", finding.code_example, "```"])
 
+        enforced_severity = enforce_severity(finding)
         comments.append(
             ReviewComment(
                 path=finding.file or "unknown",
                 line=finding.get_line(),
                 body="\n".join(body_parts),
-                severity=_normalize_severity(finding.severity),
+                severity=_normalize_severity(enforced_severity),
                 category=_normalize_category(finding.category),
             )
         )
