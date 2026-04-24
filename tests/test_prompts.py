@@ -206,3 +206,50 @@ def test_no_special_notice_for_regular_pr():
 
     assert "🔒 SECURITY PATCH DETECTED" not in prompt
     assert "🤖 DEPENDABOT PR DETECTED" not in prompt
+
+
+def test_exhaustive_reporting_in_system_prompt():
+    """System prompt instructs the model to report all findings in a single pass."""
+    from baloo.agent.prompts import REVIEW_SYSTEM_PROMPT
+
+    assert "Exhaustive Reporting" in REVIEW_SYSTEM_PROMPT
+    assert "drip-feeds" in REVIEW_SYSTEM_PROMPT
+    assert "completeness check" in REVIEW_SYSTEM_PROMPT
+    # "balanced" was removed to avoid self-limiting
+    assert "balanced" not in REVIEW_SYSTEM_PROMPT
+
+
+def test_exhaustive_reporting_in_code_review_prompt():
+    """Full code review prompt includes completeness check step."""
+    pr_context = {
+        "title": "Add auth module",
+        "author": "dev",
+        "description": "New auth",
+        "base_branch": "main",
+        "head_branch": "feat/auth",
+        "files_changed": [{"filename": "auth.py"}],
+        "changed_file_paths": ["auth.py"],
+        "diff": "--- a\n+++ b\n@@\n-old\n+new",
+    }
+
+    prompt = build_pr_review_prompt(pr_context)
+
+    assert "Step 6: Completeness Check" in prompt
+    assert 'skip any findings because you already had "enough"' in prompt
+
+
+def test_exhaustive_reporting_in_simple_pr_prompt():
+    """Simple PR prompt also includes exhaustive reporting instruction."""
+    pr_context = {
+        "title": "Update deps",
+        "author": "dev",
+        "description": "Dep update",
+        "files_changed": [{"filename": "requirements.txt"}],
+        "changed_file_paths": ["requirements.txt"],
+        "diff": "--- a\n+++ b\n@@\n-old\n+new",
+    }
+
+    prompt = build_pr_review_prompt(pr_context)
+
+    assert "Be exhaustive" in prompt
+    assert "completeness check" in prompt
