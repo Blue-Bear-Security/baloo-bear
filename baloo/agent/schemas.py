@@ -179,10 +179,11 @@ def findings_to_comments(data: dict) -> list[ReviewComment]:
 
     comments: list[ReviewComment] = []
     for finding in output.findings:
+        enforced_severity = enforce_severity(finding)
         body_parts = [
             f"**{finding.title}**",
             f"**Category:** {finding.category}",
-            f"**Severity:** {finding.severity.upper()}",
+            f"**Severity:** {enforced_severity}",
             "",
             finding.description,
         ]
@@ -195,8 +196,6 @@ def findings_to_comments(data: dict) -> list[ReviewComment]:
 
         if finding.code_example:
             body_parts.extend(["", "```python", finding.code_example, "```"])
-
-        enforced_severity = enforce_severity(finding)
         comments.append(
             ReviewComment(
                 path=finding.file or "unknown",
