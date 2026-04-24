@@ -226,12 +226,12 @@ class FPVerifier:
             thinking_level="off",
         )
         options.system_prompt = FP_SYSTEM_PROMPT
-        # The PI subprocess is always launched with read-only tools enabled
-        # (see pi_runtime), so if the model chooses to call `read`/`grep` to
-        # fetch more context, we must leave room for a tool-use turn plus a
-        # final answer turn — otherwise the session is aborted and we fall
-        # through to the "unparseable response" path with a misleading reason.
-        options.max_turns = 3
+        # Disable tools: all necessary context (diff hunks) is already
+        # embedded in the prompt. Without tools the model cannot waste
+        # turns on file reads (which fail for new files anyway) and a
+        # single turn is sufficient for the JSON verdict.
+        options.no_tools = True
+        options.max_turns = 1
 
         agent = _FPVerifierAgent(options)
 

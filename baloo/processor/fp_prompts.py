@@ -27,7 +27,16 @@ Rules:
 Be strict: only mark as false positive if you're confident the finding is wrong.
 When in doubt, mark as real.
 
-Respond with ONLY a JSON object: {"verdict": "real" or "fp", "reason": "one concise sentence"}
+IMPORTANT: You have NO tools. Do NOT attempt to read files, search, or call \
+any tools. All the context you need is provided in the prompt. Analyze the \
+provided diff and finding, then respond.
+
+Your response must be ONLY a raw JSON object, nothing else:
+{"verdict": "real", "reason": "one concise sentence"}
+or
+{"verdict": "fp", "reason": "one concise sentence"}
+
+No markdown fences, no explanation before or after — just the JSON object.
 """
 
 
@@ -74,7 +83,7 @@ def build_verification_prompt(
             diff_context,
             "```",
             "",
-            'Is this finding real or a false positive? Respond with JSON: {"verdict": "real"|"fp", "reason": "..."}',
+            'Is this finding real or a false positive? Respond with ONLY a raw JSON object (no markdown, no explanation): {"verdict": "real"|"fp", "reason": "one concise sentence"}',
         ]
     )
 

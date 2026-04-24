@@ -128,6 +128,18 @@ class GitHubAPIClient:
             reviews = await self._fetch_paginated_json(client, reviews_url, headers=headers)
 
             discussion_threads: list[DiscussionThread] = build_review_threads(review_comments)
+
+            # Overlay the authoritative isResolved state from GraphQL.
+            # The REST API doesn't expose thread resolution, so without
+            # this call we rely on a keyword heuristic which is unreliable.
+            resolved_ids = await self.fetch_resolved_thread_ids(
+                repo_full_name, pr_number
+            )
+            if resolved_ids:
+                for thread in discussion_threads:
+                    if thread.root_comment_id in resolved_ids:
+                        thread.resolved = True
+
             general_comments: list[DiscussionComment] = build_general_discussion(
                 issue_comments, reviews
             )
@@ -477,6 +489,89 @@ class GitHubAPIClient:
 
             except httpx.HTTPStatusError:
                 return []
+
+    async def fetch_resolved_thread_ids(
+        self, repo_full_name: str, pr_number: int
+    ) -> set[int]:
+        """Fetch the set of root comment database IDs for resolved review threads.
+
+        Uses the GraphQL API because the REST API does not expose the
+        ``isResolved`` state of review threads.
+
+        Returns:
+            Set of root-comment ``databaseId`` values for threads where
+            ``isResolved`` is True.  On error returns an empty set so
+            callers degrade gracefully (fail-open).
+        """
+        owner, repo = repo_full_name.split("/", 1)
+        query = """
+        query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $pr) {
+              reviewThreads(first: 100, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  isResolved
+                  comments(first: 1) {
+                    nodes { databaseId }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        resolved_ids: set[int] = set()
+        cursor: str | None = None
+
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = self._get_headers()
+                while True:
+                    variables: dict = {
+                        "owner": owner,
+                        "repo": repo,
+                        "pr": pr_number,
+                        "cursor": cursor,
+                    }
+                    resp = await client.post(
+                        "https://api.github.com/graphql",
+                        headers=headers,
+                        json={"query": query, "variables": variables},
+                    )
+                    resp.raise_for_status()
+                    body = resp.json()
+
+                    if "errors" in body:
+                        logger.warning(
+                            "GraphQL errors fetching resolved threads: %s",
+                            body["errors"],
+                        )
+                        break
+
+                    threads_data = (
+                        body.get("data", {})
+                        .get("repository", {})
+                        .get("pullRequest", {})
+                        .get("reviewThreads", {})
+                    )
+                    for node in threads_data.get("nodes", []):
+                        if node.get("isResolved"):
+                            comments = node.get("comments", {}).get("nodes", [])
+                            if comments and comments[0].get("databaseId"):
+                                resolved_ids.add(comments[0]["databaseId"])
+
+                    page_info = threads_data.get("pageInfo", {})
+                    if page_info.get("hasNextPage"):
+                        cursor = page_info["endCursor"]
+                    else:
+                        break
+
+        except Exception as exc:
+            logger.warning("Failed to fetch resolved thread state: %s", exc)
+
+        return resolved_ids
 
     async def _fetch_paginated_json(
         self,

@@ -18,6 +18,7 @@ def _make_thread(
     body: str,
     is_baloo: bool = True,
     awaiting: bool = True,
+    resolved: bool = False,
 ) -> DiscussionThread:
     """Helper to create a DiscussionThread for testing."""
     now = datetime.now(timezone.utc)
@@ -39,7 +40,7 @@ def _make_thread(
         comments=[comment],
         is_baloo_thread=is_baloo,
         awaiting_response=awaiting,
-        resolved=False,
+        resolved=resolved,
         last_activity=now,
         root_comment_id=thread_id,
     )
@@ -353,3 +354,45 @@ class TestRealWorldScenario:
         # 3. Both are HIGH/Bugs about req.body/handlePostMessage
         assert matched is not None
         assert matched.id == 1
+
+
+class TestResolvedThreadMatching:
+    """Resolved threads must still match so the caller can skip re-flagging."""
+
+    def test_resolved_thread_is_matched(self):
+        """A resolved thread should be returned by _match_thread."""
+        thread = _make_thread(
+            1, "file.py", 50,
+            "**[HIGH] Bugs** - Issue description",
+            resolved=True, awaiting=False,
+        )
+        lookup = _build_thread_lookup([thread])
+
+        comment = ReviewComment(
+            path="file.py", line=50,
+            body="**[HIGH] Bugs** - Issue description",
+            severity="HIGH", category="Bugs",
+        )
+
+        matched = _match_thread(lookup, comment)
+        assert matched is not None
+        assert matched.resolved is True
+
+    def test_resolved_thread_matched_with_fuzzy_line(self):
+        """Fuzzy line tolerance should still work for resolved threads."""
+        thread = _make_thread(
+            1, "file.py", 50,
+            "**[HIGH] Security** - SQL injection vulnerability",
+            resolved=True, awaiting=False,
+        )
+        lookup = _build_thread_lookup([thread])
+
+        comment = ReviewComment(
+            path="file.py", line=53,
+            body="**[HIGH] Security** - SQL injection vulnerability",
+            severity="HIGH", category="Security",
+        )
+
+        matched = _match_thread(lookup, comment)
+        assert matched is not None
+        assert matched.resolved is True

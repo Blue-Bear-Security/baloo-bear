@@ -209,8 +209,9 @@ def _match_thread(
     best_similarity = 0.0
 
     for thread in threads_in_file:
-        # 1. Skip non-Baloo threads or resolved threads
-        if not thread.is_baloo_thread or thread.resolved:
+        # 1. Skip non-Baloo threads (but keep resolved ones — the caller
+        #    decides whether to post a follow-up or drop the finding).
+        if not thread.is_baloo_thread:
             continue
 
         # 2. Check if line is within tolerance
@@ -538,6 +539,7 @@ async def process_pr_review(
             fresh_comments: list[ReviewComment] = []
             follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = []
             skipped_duplicates = 0
+            skipped_resolved = 0
 
             for comment in filtered_comments:
                 thread = _match_thread(thread_lookup, comment)
@@ -547,6 +549,18 @@ async def process_pr_review(
 
                 if thread.awaiting_response:
                     skipped_duplicates += 1
+                    continue
+
+                # Thread was resolved (GitHub "Resolve conversation").
+                # The developer explicitly marked it handled; don't re-flag.
+                if thread.resolved:
+                    skipped_resolved += 1
+                    logger.info(
+                        "Skipping resolved finding: %s:%s (thread %s)",
+                        comment.path,
+                        comment.line,
+                        thread.id,
+                    )
                     continue
 
                 follow_up_comments.append((thread, comment))
@@ -570,6 +584,8 @@ async def process_pr_review(
                 summary_text += f"\n\n↪️ Baloo added follow-ups to {len(follow_up_comments)} existing thread(s)."
             if skipped_duplicates:
                 summary_text += f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
+            if skipped_resolved:
+                summary_text += f"\n\n✅ Skipped {skipped_resolved} resolved thread(s)."
             if awaiting_threads:
                 summary_text += (
                     f"\n\n⏳ {awaiting_threads} Baloo thread(s) remain open from earlier reviews."
@@ -592,6 +608,7 @@ async def process_pr_review(
                 f"Medium: {severity_counts.get(ReviewSeverity.MEDIUM.value, 0)}, "
                 f"Low: {severity_counts.get(ReviewSeverity.LOW.value, 0)}), "
                 f"follow_ups={len(follow_up_comments)}, skipped_duplicates={skipped_duplicates}, "
+                f"skipped_resolved={skipped_resolved}, "
                 f"approve={approve}, request_changes={request_changes}"
             )
 
