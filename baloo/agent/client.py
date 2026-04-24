@@ -25,7 +25,9 @@ class BalooAgent(PIAgentBase):
         super().__init__(options)
         logger.info(f"Initialized BalooAgent with {self.options.model}")
 
-    async def review_pr(self, pr_context: PRContext, model_override: str = None) -> ReviewResult:
+    async def review_pr(
+        self, pr_context: PRContext, model_override: str = None, review_id: int | None = None
+    ) -> ReviewResult:
         """
         Perform a full code review for a pull request.
 
@@ -43,14 +45,14 @@ class BalooAgent(PIAgentBase):
             f"Starting review for {pr_context.repo_full_name}#{pr_context.pr_number} using {self.options.model}"
         )
 
+        review_logger = None
+        logger_session = None
+
         try:
             # Build review prompt
             review_query = build_pr_review_prompt(pr_context)
 
             # Create execution logger if database is enabled
-            review_logger = None
-            logger_session = None
-            review_id = getattr(pr_context, "_review_id", None)
             if review_id:
                 from baloo.agent.logger import ReviewLogger
                 from baloo.config.settings import get_settings
@@ -89,23 +91,13 @@ class BalooAgent(PIAgentBase):
             # Make approval decision using centralized engine
             approve, request_changes = DecisionEngine.make_decision(comments)
 
-            result = ReviewResult(
+            return ReviewResult(
                 summary=summary,
                 comments=comments,
                 approve=approve,
                 request_changes=request_changes,
                 metadata=metadata,
             )
-
-            # Flush and close the logger session
-            if logger_session is not None:
-                try:
-                    await logger_session.commit()
-                    await logger_session.close()
-                except Exception:
-                    pass
-
-            return result
 
         except Exception as e:
             logger.error(f"Error during review: {e}", exc_info=True)
@@ -121,6 +113,16 @@ class BalooAgent(PIAgentBase):
                 request_changes=False,
                 metadata=metadata,
             )
+        finally:
+            if logger_session is not None:
+                try:
+                    await logger_session.commit()
+                except Exception as exc:
+                    logger.debug("Failed to commit review log session: %s", exc)
+                try:
+                    await logger_session.close()
+                except Exception:
+                    pass
 
     @staticmethod
     def _classify_error(error_msg: str) -> str:

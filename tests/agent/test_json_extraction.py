@@ -80,6 +80,25 @@ class TestReverseScanExtraction:
         assert result is not None
         assert result["findings"][0]["details"]["nested"]["deep"] is True
 
+    def test_escaped_quotes_in_json_strings(self):
+        """Reverse scan handles escaped quotes inside JSON string values."""
+        json_part = (
+            '{"findings": [{"file": "a.py", "body": "said \\"hello\\" world"}], "summary": {}}'
+        )
+        text = "Some preamble text\n\n" + json_part
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["body"] == 'said "hello" world'
+
+    def test_escaped_backslash_before_quote(self):
+        """Reverse scan distinguishes escaped backslash from escaped quote."""
+        # String value ends with a literal backslash: "path\\"
+        json_part = '{"findings": [], "summary": {"path": "C:\\\\"}}'
+        text = "Preamble\n" + json_part
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["summary"]["path"] == "C:\\"
+
     def test_no_json_at_all(self):
         """Still returns None when there's no JSON."""
         text = "This is just a text response with no JSON at all."

@@ -202,7 +202,7 @@ class GitHubAPIClient:
                     {
                         "path": comment.path,
                         "line": comment.line,
-                        "body": f"**[{comment.severity}] {comment.category}** - {comment.body}",
+                        "body": f"**[{comment.severity.value}] {comment.category.value}** - {comment.body}",
                     }
                     for comment in review_result.comments
                 ],
@@ -235,7 +235,7 @@ class GitHubAPIClient:
                     # Post each finding as a separate comment
                     for i, comment in enumerate(review_result.comments):
                         comment_body = (
-                            f"**[{comment.severity}] {comment.category}** - {comment.path}:{comment.line}\n\n"
+                            f"**[{comment.severity.value}] {comment.category.value}** - {comment.path}:{comment.line}\n\n"
                             f"{comment.body}"
                         )
                         await self.post_comment(repo_full_name, pr_number, comment_body)
