@@ -82,7 +82,9 @@ class TestReverseScanExtraction:
 
     def test_escaped_quotes_in_json_strings(self):
         """Reverse scan handles escaped quotes inside JSON string values."""
-        json_part = '{"findings": [{"file": "a.py", "body": "said \\"hello\\" world"}], "summary": {}}'
+        json_part = (
+            '{"findings": [{"file": "a.py", "body": "said \\"hello\\" world"}], "summary": {}}'
+        )
         text = "Some preamble text\n\n" + json_part
         result = _extract_json_from_text(text)
         assert result is not None

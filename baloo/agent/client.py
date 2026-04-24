@@ -25,7 +25,9 @@ class BalooAgent(PIAgentBase):
         super().__init__(options)
         logger.info(f"Initialized BalooAgent with {self.options.model}")
 
-    async def review_pr(self, pr_context: PRContext, model_override: str = None, review_id: int | None = None) -> ReviewResult:
+    async def review_pr(
+        self, pr_context: PRContext, model_override: str = None, review_id: int | None = None
+    ) -> ReviewResult:
         """
         Perform a full code review for a pull request.
 
