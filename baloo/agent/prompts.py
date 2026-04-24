@@ -66,7 +66,19 @@ Only flag a violation if the target repo's guidelines explicitly require a diffe
 {REVIEW_JSON_RESPONSE_SCHEMA}
 
 {REVIEW_SEVERITY_GUIDELINES}
-Be specific (file:line), constructive, balanced.
+Be specific (file:line) and constructive.
+
+## Exhaustive Reporting
+Report **ALL** findings you discover in a single pass. Do not self-limit for brevity or "balance".
+A reviewer that surfaces 10 issues in one pass is far better than one that drip-feeds 3 issues
+across 4 review rounds. Developers should never push a fix only to discover that Baloo found
+additional issues that were present all along but weren't reported earlier.
+- If you find 2 issues or 20, report them all.
+- Group by severity so the developer can prioritize, but do not omit lower-severity findings
+  just because higher-severity ones exist.
+- After compiling your findings, do a completeness check: review your analysis notes and verify
+  you haven't left out any issues you noticed during file reads or grep searches.
+
 You MUST return ONLY valid JSON matching the Output Schema above. No markdown fences, no commentary — just the raw JSON object.
 
 REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON."""
@@ -371,6 +383,10 @@ If YES: This PR may be fixing a constraint or addressing feedback. Understand WH
 
 **Keep it focused**: Review only what's relevant to these specific changes.
 
+**Be exhaustive**: Report ALL issues you find in this single pass. Do not hold back findings for brevity.
+Before emitting JSON, do a completeness check — re-read your analysis notes and verify you haven't
+omitted any issues you noticed. The developer should not discover new pre-existing issues in a follow-up review.
+
 **Output immediately**: After reading and analyzing, provide your findings as JSON matching the schema.
 You MUST return ONLY valid JSON matching the Output Schema. No markdown fences, no commentary — just the raw JSON object.
 If no issues found, return empty findings array. Be practical and focus on real risks.
@@ -495,6 +511,13 @@ For each issue you identify:
 4. Suggest a specific fix with code examples
 
 Focus on issues that truly matter for security, correctness, and maintainability. Be thorough but practical.
+
+### Step 6: Completeness Check (REQUIRED)
+Before emitting your final JSON, review your analysis:
+- Re-read your notes from Steps 1-4. Did you notice any issues that you haven't included in your findings?
+- Check every file you read — did you skip any findings because you already had "enough"?
+- If you found issues of different severities, make sure ALL of them are included, not just the top few.
+- Report everything in this single pass. The developer should not discover new pre-existing issues in a follow-up review.
 
 REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON.
 """

@@ -92,7 +92,7 @@ class Settings(BaseSettings):
 
     # FP Verification Configuration
     fp_verification_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable LLM-powered false-positive verification pass",
     )
     fp_verification_model: str = Field(
