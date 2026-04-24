@@ -106,6 +106,41 @@ async def init_db(database_url: str) -> None:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables initialized via create_all")
 
+    # Clean up old execution logs
+    from baloo.config.settings import get_settings
+
+    settings = get_settings()
+    if settings.log_retention_days > 0:
+        await _cleanup_old_logs(engine, settings.log_retention_days)
+
+
+async def _cleanup_old_logs(engine, retention_days: int) -> None:
+    """Delete review_logs older than retention_days."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import delete
+
+    from baloo.db.models import ReviewLog
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            async with session.begin():
+                result = await session.execute(
+                    delete(ReviewLog).where(ReviewLog.created_at < cutoff)
+                )
+                deleted = result.rowcount
+                if deleted:
+                    logger.info(
+                        "Cleaned up %d review log entries older than %d days",
+                        deleted,
+                        retention_days,
+                    )
+    except Exception as exc:
+        # Table may not exist yet on first run
+        logger.debug("Log cleanup skipped: %s", exc)
+
 
 async def close_db() -> None:
     """Dispose of the engine connection pool."""

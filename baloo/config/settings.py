@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     dashboard_enabled: bool = Field(default=True, description="Enable the review history dashboard")
     dashboard_username: str = Field(default="", description="Dashboard basic auth username")
     dashboard_password: str = Field(default="", description="Dashboard basic auth password")
+    log_retention_days: int = Field(
+        default=30, description="Days to retain execution logs (0 to disable cleanup)"
+    )
 
     # FP Verification Configuration
     fp_verification_enabled: bool = Field(
