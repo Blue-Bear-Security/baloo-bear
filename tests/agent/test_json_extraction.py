@@ -11,9 +11,9 @@ class TestReverseScanExtraction:
         preamble = (
             "Based on my thorough analysis of the diff, I now have enough context "
             "to compile the review. Let me check one more specific pattern from the diff:\n\n"
-            'The key things I need to verify from the diff code:\n\n'
-            '1. In `openrouter/model.py`, `_build_prediction(self, severity, labels, '
-            'confidence, reason)` - the `reason` parameter is accepted but the return '
+            "The key things I need to verify from the diff code:\n\n"
+            "1. In `openrouter/model.py`, `_build_prediction(self, severity, labels, "
+            "confidence, reason)` - the `reason` parameter is accepted but the return "
             'dict {"result": result, "score": confidence, "model_version": config.OPENAI_MODEL} '
             "never includes it.\n\n"
             "2. Some other analysis text with braces { and } in it.\n\n"
@@ -28,9 +28,9 @@ class TestReverseScanExtraction:
     def test_preamble_with_code_blocks_and_braces(self):
         """Preamble containing code examples with braces."""
         preamble = (
-            'Looking at the function:\n'
+            "Looking at the function:\n"
             '```python\ndef foo():\n    return {"key": "value"}\n```\n\n'
-            'The issue is clear.\n\n'
+            "The issue is clear.\n\n"
         )
         json_part = '{"findings": [], "summary": {"total_issues": 0}}'
         text = preamble + json_part
@@ -72,7 +72,9 @@ class TestReverseScanExtraction:
 
     def test_deeply_nested_json_at_end(self):
         """Reverse scan handles nested braces correctly."""
-        json_part = '{"findings": [{"file": "a.py", "details": {"nested": {"deep": true}}}], "summary": {}}'
+        json_part = (
+            '{"findings": [{"file": "a.py", "details": {"nested": {"deep": true}}}], "summary": {}}'
+        )
         text = "Preamble with { braces }\n\n" + json_part
         result = _extract_json_from_text(text)
         assert result is not None

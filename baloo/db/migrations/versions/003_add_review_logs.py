@@ -37,9 +37,7 @@ def upgrade() -> None:
             sa.Column("raw_text", sa.Text, nullable=True),
             sa.Column("metadata_json", sa.Text, nullable=True),
         )
-        op.create_index(
-            "ix_review_logs_review_created", "review_logs", ["review_id", "created_at"]
-        )
+        op.create_index("ix_review_logs_review_created", "review_logs", ["review_id", "created_at"])
         op.create_index("ix_review_logs_created_at", "review_logs", ["created_at"])
 
 

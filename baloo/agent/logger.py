@@ -57,9 +57,7 @@ class ReviewLogger:
             metadata={"model": model, "thinking_level": thinking_level},
         )
 
-    async def turn_completed(
-        self, turn_number: int, tokens_in: int, tokens_out: int
-    ) -> None:
+    async def turn_completed(self, turn_number: int, tokens_in: int, tokens_out: int) -> None:
         await self._log(
             "turn_completed",
             f"Turn {turn_number} completed ({tokens_in} in / {tokens_out} out)",
@@ -98,9 +96,7 @@ class ReviewLogger:
             raw_text=raw_text,
         )
 
-    async def fallback_triggered(
-        self, primary_model: str, fallback_model: str, error: str
-    ) -> None:
+    async def fallback_triggered(self, primary_model: str, fallback_model: str, error: str) -> None:
         await self._log(
             "fallback_triggered",
             f"Falling back from {primary_model} to {fallback_model}: {error[:200]}",

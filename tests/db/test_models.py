@@ -149,8 +149,13 @@ def test_review_log_model_fields():
     mapper = inspect(ReviewLog)
     columns = {c.key for c in mapper.columns}
     assert columns == {
-        "id", "review_id", "created_at", "event_type",
-        "message", "raw_text", "metadata_json",
+        "id",
+        "review_id",
+        "created_at",
+        "event_type",
+        "message",
+        "raw_text",
+        "metadata_json",
     }
 
 

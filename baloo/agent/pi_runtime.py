@@ -574,7 +574,11 @@ class PIAgentBase:
                 tool = event.get("toolName", "?")
                 logger.debug("%s: tool call → %s", self.agent_name, tool)
                 if review_logger:
-                    tool_file = event.get("input", {}).get("path") if isinstance(event.get("input"), dict) else None
+                    tool_file = (
+                        event.get("input", {}).get("path")
+                        if isinstance(event.get("input"), dict)
+                        else None
+                    )
                     await review_logger.tool_use(tool_name=tool, file_path=tool_file)
 
             elif etype == "agent_end":

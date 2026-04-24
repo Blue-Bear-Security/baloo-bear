@@ -50,7 +50,7 @@ class BalooAgent(PIAgentBase):
             # Create execution logger if database is enabled
             review_logger = None
             logger_session = None
-            review_id = getattr(pr_context, '_review_id', None)
+            review_id = getattr(pr_context, "_review_id", None)
             if review_id:
                 from baloo.agent.logger import ReviewLogger
                 from baloo.config.settings import get_settings
@@ -63,7 +63,9 @@ class BalooAgent(PIAgentBase):
                     review_logger = ReviewLogger(review_id=review_id, session=logger_session)
 
             # Run agent using base class
-            structured_data, metadata = await self._run_with_fallback(review_query, review_logger=review_logger)
+            structured_data, metadata = await self._run_with_fallback(
+                review_query, review_logger=review_logger
+            )
 
             # Convert structured output to review comments
             comments = []

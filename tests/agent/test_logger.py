@@ -1,8 +1,7 @@
 """Tests for ReviewLogger."""
 
 import json
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -62,9 +61,7 @@ class TestReviewLoggerEvents:
         mock_session.add = MagicMock()
 
         logger = ReviewLogger(review_id=42, session=mock_session)
-        await logger.agent_completed(
-            tokens_in=1000, tokens_out=500, cost=0.05, duration=12.3
-        )
+        await logger.agent_completed(tokens_in=1000, tokens_out=500, cost=0.05, duration=12.3)
 
         log_row = mock_session.add.call_args[0][0]
         assert log_row.event_type == "agent_completed"
