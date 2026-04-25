@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
-from baloo.db.models import Finding, Review, ReviewLog
+from baloo.db.models import Finding, FindingOutcome, Review, ReviewLog
 
 
 class DashboardService:
@@ -382,4 +382,166 @@ class DashboardService:
             "prev_error_total": prev_error_total,
             "total_in_period": total_in_period,
             "prev_total_in_period": prev_total_in_period,
+        }
+
+    @staticmethod
+    async def get_outcomes_data(days: int = 90, repo_filter: str | None = None) -> dict:
+        settings = get_settings()
+        factory = get_session_factory(settings.database_url)
+
+        async with factory() as session:
+            now = datetime.now(timezone.utc)
+            since = now - timedelta(days=days)
+
+            def _base_filters():
+                filters = [FindingOutcome.labeled_at >= since]
+                if repo_filter:
+                    filters.append(FindingOutcome.repo_full_name == repo_filter)
+                return filters
+
+            # --- Totals and rates ---
+            total = (
+                await session.execute(select(func.count(FindingOutcome.id)).where(*_base_filters()))
+            ).scalar() or 0
+
+            outcome_rows = (
+                await session.execute(
+                    select(FindingOutcome.outcome, func.count(FindingOutcome.id))
+                    .where(*_base_filters())
+                    .group_by(FindingOutcome.outcome)
+                )
+            ).all()
+            outcomes = {r[0]: r[1] for r in outcome_rows}
+
+            actioned = outcomes.get("actioned", 0)
+            disputed = outcomes.get("disputed", 0)
+            ignored = outcomes.get("ignored", 0)
+
+            hit_rate = round(actioned / total * 100, 1) if total else 0.0
+            noise_rate = round((disputed + ignored) / total * 100, 1) if total else 0.0
+
+            # --- By severity ---
+            severity_rows = (
+                await session.execute(
+                    select(
+                        Finding.severity,
+                        FindingOutcome.outcome,
+                        func.count(FindingOutcome.id),
+                    )
+                    .join(Finding, FindingOutcome.finding_id == Finding.id)
+                    .where(*_base_filters())
+                    .group_by(Finding.severity, FindingOutcome.outcome)
+                )
+            ).all()
+
+            sev_map: dict[str, dict] = {}
+            for sev, outcome, cnt in severity_rows:
+                if sev not in sev_map:
+                    sev_map[sev] = {"total": 0, "actioned": 0}
+                sev_map[sev]["total"] += cnt
+                if outcome == "actioned":
+                    sev_map[sev]["actioned"] += cnt
+            severity_data = {
+                sev: {
+                    "total": v["total"],
+                    "actioned": v["actioned"],
+                    "hit_rate": round(v["actioned"] / v["total"] * 100, 1) if v["total"] else 0.0,
+                }
+                for sev, v in sev_map.items()
+            }
+
+            # --- By category ---
+            category_rows = (
+                await session.execute(
+                    select(
+                        Finding.category,
+                        FindingOutcome.outcome,
+                        func.count(FindingOutcome.id),
+                    )
+                    .join(Finding, FindingOutcome.finding_id == Finding.id)
+                    .where(*_base_filters())
+                    .group_by(Finding.category, FindingOutcome.outcome)
+                )
+            ).all()
+
+            cat_map: dict[str, dict] = {}
+            for cat, outcome, cnt in category_rows:
+                if cat not in cat_map:
+                    cat_map[cat] = {"total": 0, "actioned": 0}
+                cat_map[cat]["total"] += cnt
+                if outcome == "actioned":
+                    cat_map[cat]["actioned"] += cnt
+            category_data = {
+                cat: {
+                    "total": v["total"],
+                    "actioned": v["actioned"],
+                    "hit_rate": round(v["actioned"] / v["total"] * 100, 1) if v["total"] else 0.0,
+                }
+                for cat, v in cat_map.items()
+            }
+
+            # --- Weekly trends (dialect-aware) ---
+            if "postgres" in settings.database_url:
+                week_label = func.to_char(
+                    func.date_trunc("week", FindingOutcome.labeled_at), "IYYY-IW"
+                )
+            else:
+                week_label = func.strftime("%Y-%W", FindingOutcome.labeled_at)
+
+            weekly_rows = (
+                await session.execute(
+                    select(
+                        week_label.label("week"),
+                        FindingOutcome.outcome,
+                        func.count(FindingOutcome.id),
+                    )
+                    .where(*_base_filters())
+                    .group_by("week", FindingOutcome.outcome)
+                    .order_by("week")
+                )
+            ).all()
+
+            week_map: dict[str, dict] = {}
+            for week, outcome, cnt in weekly_rows:
+                if week not in week_map:
+                    week_map[week] = {"total": 0, "actioned": 0, "disputed": 0, "ignored": 0}
+                week_map[week]["total"] += cnt
+                if outcome in week_map[week]:
+                    week_map[week][outcome] += cnt
+            trends = [
+                {
+                    "week": w,
+                    "total": v["total"],
+                    "hit_rate": round(v["actioned"] / v["total"] * 100, 1) if v["total"] else 0.0,
+                    "noise_rate": (
+                        round((v["disputed"] + v["ignored"]) / v["total"] * 100, 1)
+                        if v["total"]
+                        else 0.0
+                    ),
+                }
+                for w, v in week_map.items()
+            ]
+
+            # --- Repos for filter dropdown ---
+            repos = (
+                (
+                    await session.execute(
+                        select(FindingOutcome.repo_full_name)
+                        .distinct()
+                        .order_by(FindingOutcome.repo_full_name)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        return {
+            "total": total,
+            "outcomes": outcomes,
+            "hit_rate": hit_rate,
+            "noise_rate": noise_rate,
+            "severity_data": severity_data,
+            "category_data": category_data,
+            "trends": trends,
+            "repos": repos,
         }
