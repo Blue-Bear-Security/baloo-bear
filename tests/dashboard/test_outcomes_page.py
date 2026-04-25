@@ -20,3 +20,37 @@ def _build_app() -> FastAPI:
     app.include_router(router)
     app.dependency_overrides[verify_credentials] = lambda: "tester"
     return app
+
+
+def test_outcomes_page_renders():
+    app = _build_app()
+    mock_data = {
+        "total": 50,
+        "outcomes": {"actioned": 20, "disputed": 5, "acknowledged": 10, "ignored": 15},
+        "hit_rate": 40.0,
+        "noise_rate": 40.0,
+        "severity_data": {
+            "HIGH": {"total": 20, "actioned": 15, "hit_rate": 75.0},
+            "MEDIUM": {"total": 30, "actioned": 5, "hit_rate": 16.7},
+        },
+        "category_data": {
+            "Security": {"total": 15, "actioned": 12, "hit_rate": 80.0},
+            "Style": {"total": 20, "actioned": 2, "hit_rate": 10.0},
+        },
+        "trends": [
+            {"week": "2026-16", "total": 25, "hit_rate": 44.0, "noise_rate": 36.0},
+            {"week": "2026-17", "total": 25, "hit_rate": 36.0, "noise_rate": 44.0},
+        ],
+        "repos": ["owner/repo-a", "owner/repo-b"],
+    }
+
+    with patch(
+        "baloo.dashboard.router.DashboardService.get_outcomes_data",
+        new=AsyncMock(return_value=mock_data),
+    ):
+        client = TestClient(app)
+        response = client.get("/dashboard/outcomes")
+
+    assert response.status_code == 200
+    assert "Outcomes" in response.text
+    assert "40.0" in response.text  # hit_rate
