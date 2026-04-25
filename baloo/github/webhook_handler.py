@@ -748,6 +748,7 @@ async def process_pr_review(
                         approve=False,
                         request_changes=True,
                     ),
+                    diff=pr_context.diff,
                 )
             elif request_changes and not has_new_feedback:
                 logger.info(
@@ -770,6 +771,7 @@ async def process_pr_review(
                         approve=True,
                         request_changes=False,
                     ),
+                    diff=pr_context.diff,
                 )
             # Update progress comment with completion status
             review_duration = int(time.time() - review_start_time)
