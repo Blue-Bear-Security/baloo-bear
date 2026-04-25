@@ -475,3 +475,13 @@ class TestThreadsFromIssueComments:
         matched = _match_thread(lookup, new_finding)
         assert matched is not None
         assert matched.id == 1
+
+    def test_multi_word_category_silent_failures(self):
+        """Regex must handle 'Silent Failures' (space in category name)."""
+        comment = self._make_issue_comment(
+            1, "**[CRITICAL] Silent Failures** - src/worker.py:88\n\nSwallowed exception."
+        )
+        threads = _threads_from_issue_comments([comment])
+        assert len(threads) == 1
+        assert threads[0].path == "src/worker.py"
+        assert threads[0].line == 88

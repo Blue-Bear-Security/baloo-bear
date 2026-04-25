@@ -143,8 +143,10 @@ def _build_thread_lookup(threads: list[DiscussionThread]) -> dict[str, list[Disc
 
 # Regex for the header Baloo writes when falling back to issue comments:
 #   **[SEVERITY] Category** - path/to/file.py:42
+# Category may contain spaces (e.g. "Silent Failures"), so use [^*]+?
+# to match up to the closing **.
 _ISSUE_COMMENT_LOCATION_RE = re.compile(
-    r"\*\*\[(?:CRITICAL|HIGH|MEDIUM|LOW)\]\s+\S+\*\*\s*-\s*(\S+?):(\d+)"
+    r"\*\*\[(?:CRITICAL|HIGH|MEDIUM|LOW)\]\s+[^*]+?\*\*\s*-\s*(\S+?):(\d+)"
 )
 
 
@@ -604,12 +606,9 @@ async def process_pr_review(
                     fresh_comments.append(comment)
                     continue
 
-                if thread.awaiting_response:
-                    skipped_duplicates += 1
-                    continue
-
                 # Thread was resolved (GitHub "Resolve conversation").
-                # The developer explicitly marked it handled; don't re-flag.
+                # Check before awaiting_response because a developer can
+                # resolve a thread without replying, leaving both flags set.
                 if thread.resolved:
                     skipped_resolved += 1
                     logger.info(
@@ -618,6 +617,10 @@ async def process_pr_review(
                         comment.line,
                         thread.id,
                     )
+                    continue
+
+                if thread.awaiting_response:
+                    skipped_duplicates += 1
                     continue
 
                 follow_up_comments.append((thread, comment))

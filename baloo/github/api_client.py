@@ -65,8 +65,8 @@ def _valid_diff_lines(diff: str) -> dict[str, set[int]]:
             line_no = int(m.group(1))
             continue
 
-        if line_no == 0 or raw == "":
-            # Before first hunk (file metadata lines) or trailing empty line
+        if line_no == 0:
+            # Before first hunk (file metadata lines)
             continue
 
         if raw.startswith("-"):
@@ -281,7 +281,7 @@ class GitHubAPIClient:
                     continue
                 if comment.line not in file_lines:
                     # Try to snap to the nearest valid line in the same file
-                    nearest = min(file_lines, key=lambda l: abs(l - comment.line), default=None)
+                    nearest = min(file_lines, key=lambda ln: abs(ln - comment.line), default=None)
                     if nearest is not None and abs(nearest - comment.line) <= 5:
                         logger.info(
                             "Snapping comment line %s:%d → %d (nearest in diff)",
@@ -651,6 +651,8 @@ class GitHubAPIClient:
                         .get("reviewThreads", {})
                     )
                     for node in threads_data.get("nodes", []):
+                        if node is None:
+                            continue
                         if node.get("isResolved"):
                             comments = node.get("comments", {}).get("nodes", [])
                             if comments and comments[0].get("databaseId"):

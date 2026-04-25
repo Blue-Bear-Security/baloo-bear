@@ -64,6 +64,15 @@ class FPVerificationResult:
 class _FPVerifierAgent(PIAgentBase):
     """Thin PI agent for single-turn FP verification calls."""
 
+    # Override the base retry prompt which asks for "findings"/"summary"
+    # keys — the FP verifier expects a different schema.
+    _JSON_RETRY_PROMPT = (
+        "Your previous response could not be parsed as JSON. "
+        "Respond with ONLY a raw JSON object, no markdown, no explanation: "
+        '{"verdict": "real", "reason": "one concise sentence"} '
+        'or {"verdict": "fp", "reason": "one concise sentence"}'
+    )
+
     def __init__(self, options: PIAgentOptions):
         super().__init__(options)
         self.agent_name = "FPVerifier"
