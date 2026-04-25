@@ -31,6 +31,7 @@ from baloo.github.models import (
     ReviewComment,
     ReviewResult,
 )
+from baloo.outcomes.labeler import label_pr_outcomes
 from baloo.processor.decision_engine import DecisionEngine
 from baloo.processor.findings_filter import FindingsFilter
 from baloo.processor.severity_router import (
@@ -381,6 +382,17 @@ async def handle_webhook(
                 background_tasks.add_task(lambda: None)
 
                 return {"status": "queued", "queue_depth": waiting}
+            elif action == "closed":
+                if webhook_payload.pull_request.merged:
+                    logger.info(f"PR merged: {repo_name}#{pr_number} — triggering outcome labeling")
+                    asyncio.create_task(
+                        label_pr_outcomes(repo_name, pr_number, webhook_payload.installation.id)
+                    )
+                    background_tasks.add_task(lambda: None)
+                    return {"status": "labeling_outcomes", "pr": pr_number}
+                else:
+                    logger.info(f"PR closed without merge: {repo_name}#{pr_number} — skipping")
+                    return {"status": "ignored", "action": "closed", "reason": "not merged"}
             else:
                 # Log ignored actions for visibility
                 logger.info(
