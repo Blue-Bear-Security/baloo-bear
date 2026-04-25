@@ -51,10 +51,10 @@
   <div class="bg-white rounded-lg shadow p-5">
     <p class="text-sm text-gray-500">Outcome Breakdown</p>
     <div class="flex flex-wrap gap-2 mt-2">
-      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">actioned: {{ outcomes.actioned }}</span>
-      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">acknowledged: {{ outcomes.acknowledged }}</span>
-      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">disputed: {{ outcomes.disputed }}</span>
-      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">ignored: {{ outcomes.ignored }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">actioned: {{ outcomes.get('actioned', 0) }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">acknowledged: {{ outcomes.get('acknowledged', 0) }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">disputed: {{ outcomes.get('disputed', 0) }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">ignored: {{ outcomes.get('ignored', 0) }}</span>
     </div>
   </div>
 </div>

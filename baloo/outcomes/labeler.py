@@ -111,35 +111,47 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
     2. Fetch merge signals (diff + threads)
     3. For each finding, determine outcome and persist
     """
-    settings = get_settings()
-    session_factory = get_session_factory(settings.database_url)
+    try:
+        settings = get_settings()
+        session_factory = get_session_factory(settings.database_url)
 
-    async with session_factory() as session:
-        # Find all findings for this PR
-        stmt = (
-            select(Finding)
-            .join(Review, Finding.review_id == Review.id)
-            .where(Review.repo_full_name == repo_full_name, Review.pr_number == pr_number)
-        )
-        result = await session.execute(stmt)
-        findings = result.scalars().all()
-
-        if not findings:
-            logger.info(
-                "No findings for %s#%d, skipping outcome labeling",
-                repo_full_name,
-                pr_number,
+        # Snapshot finding data from DB
+        async with session_factory() as session:
+            stmt = (
+                select(Finding)
+                .join(Review, Finding.review_id == Review.id)
+                .where(Review.repo_full_name == repo_full_name, Review.pr_number == pr_number)
             )
-            return
+            result = await session.execute(stmt)
+            findings = result.scalars().all()
 
-        # Check which findings already have outcomes (idempotency)
-        existing_stmt = select(FindingOutcome.finding_id).where(
-            FindingOutcome.finding_id.in_([f.id for f in findings])
-        )
-        existing_result = await session.execute(existing_stmt)
-        existing_finding_ids = set(existing_result.scalars().all())
+            if not findings:
+                logger.info(
+                    "No findings for %s#%d, skipping outcome labeling",
+                    repo_full_name,
+                    pr_number,
+                )
+                return
 
-        findings_to_label = [f for f in findings if f.id not in existing_finding_ids]
+            # Check which findings already have outcomes (idempotency)
+            existing_stmt = select(FindingOutcome.finding_id).where(
+                FindingOutcome.finding_id.in_([f.id for f in findings])
+            )
+            existing_result = await session.execute(existing_stmt)
+            existing_finding_ids = set(existing_result.scalars().all())
+
+            # Snapshot scalar data before session closes
+            findings_to_label = [
+                {
+                    "id": f.id,
+                    "review_id": f.review_id,
+                    "file_path": f.file_path,
+                    "line_number": f.line_number,
+                }
+                for f in findings
+                if f.id not in existing_finding_ids
+            ]
+
         if not findings_to_label:
             logger.info(
                 "All %d findings for %s#%d already labeled, skipping",
@@ -149,53 +161,60 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
             )
             return
 
-    # Fetch signals from GitHub (outside DB session)
-    diff_text, threads = await fetch_merge_signals(repo_full_name, pr_number, installation_id)
+        # Fetch signals from GitHub (outside DB session)
+        diff_text, threads = await fetch_merge_signals(repo_full_name, pr_number, installation_id)
 
-    # Label each finding
-    async with session_factory() as session:
-        async with session.begin():
-            for finding in findings_to_label:
-                # Detect code change near the finding
-                code_changed = detect_code_change(finding.file_path, finding.line_number, diff_text)
+        # Label each finding
+        async with session_factory() as session:
+            async with session.begin():
+                for finding in findings_to_label:
+                    code_changed = detect_code_change(
+                        finding["file_path"], finding["line_number"], diff_text
+                    )
 
-                # Match finding to a thread (±5 line tolerance)
-                matched_thread = None
-                for t in threads:
-                    if t["path"] == finding.file_path:
-                        t_line = t.get("line")
-                        if (
-                            t_line is not None
-                            and finding.line_number is not None
-                            and abs(t_line - finding.line_number) <= 5
-                        ):
-                            matched_thread = t
-                            break
+                    # Match finding to a thread (±5 line tolerance)
+                    matched_thread = None
+                    for t in threads:
+                        if t["path"] == finding["file_path"]:
+                            t_line = t.get("line")
+                            if (
+                                t_line is not None
+                                and finding["line_number"] is not None
+                                and abs(t_line - finding["line_number"]) <= 5
+                            ):
+                                matched_thread = t
+                                break
 
-                # Collect thread signals
-                thread_signals = collect_thread_signals(matched_thread)
+                    thread_signals = collect_thread_signals(matched_thread)
+                    signals = {
+                        "code_changed_near_line": code_changed,
+                        **thread_signals,
+                    }
+                    outcome = determine_outcome(signals)
 
-                # Combine all signals
-                signals = {
-                    "code_changed_near_line": code_changed,
-                    **thread_signals,
-                }
+                    session.add(
+                        FindingOutcome(
+                            finding_id=finding["id"],
+                            review_id=finding["review_id"],
+                            repo_full_name=repo_full_name,
+                            pr_number=pr_number,
+                            outcome=outcome,
+                            signals=signals,
+                        )
+                    )
 
-                outcome = determine_outcome(signals)
-
-                finding_outcome = FindingOutcome(
-                    finding_id=finding.id,
-                    review_id=finding.review_id,
-                    repo_full_name=repo_full_name,
-                    pr_number=pr_number,
-                    outcome=outcome,
-                    signals=signals,
+                logger.info(
+                    "Labeled %d findings for %s#%d",
+                    len(findings_to_label),
+                    repo_full_name,
+                    pr_number,
                 )
-                session.add(finding_outcome)
 
-            logger.info(
-                "Labeled %d findings for %s#%d",
-                len(findings_to_label),
-                repo_full_name,
-                pr_number,
-            )
+    except Exception as exc:
+        logger.error(
+            "Outcome labeling failed for %s#%d: %s",
+            repo_full_name,
+            pr_number,
+            exc,
+            exc_info=True,
+        )

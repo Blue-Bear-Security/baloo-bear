@@ -75,6 +75,9 @@ def detect_code_change(file_path: str, line_number: int | None, diff: str | None
         elif raw_line.startswith("-"):
             # Deleted lines don't advance new-file counter
             pass
+        elif raw_line.startswith("\\"):
+            # "\ No newline at end of file" — not a real diff line
+            pass
         else:
             # Context line
             new_line += 1

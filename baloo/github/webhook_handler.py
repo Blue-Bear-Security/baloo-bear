@@ -385,8 +385,15 @@ async def handle_webhook(
             elif action == "closed":
                 if webhook_payload.pull_request.merged:
                     logger.info(f"PR merged: {repo_name}#{pr_number} — triggering outcome labeling")
-                    asyncio.create_task(
+                    task = asyncio.create_task(
                         label_pr_outcomes(repo_name, pr_number, webhook_payload.installation.id)
+                    )
+                    task.add_done_callback(
+                        lambda t: (
+                            logger.error("label_pr_outcomes failed", exc_info=t.exception())
+                            if not t.cancelled() and t.exception()
+                            else None
+                        )
                     )
                     background_tasks.add_task(lambda: None)
                     return {"status": "labeling_outcomes", "pr": pr_number}
