@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# Lint
+uv run ruff check baloo tests || exit 1
+
+# Format
+uv run black --check baloo tests || exit 1
+
+# Secrets
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --staged --pre-commit --no-banner --redact || exit 1
+fi
