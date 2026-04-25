@@ -55,11 +55,13 @@ class TestFetchResolvedThreadIds:
 
     @pytest.mark.asyncio
     async def test_returns_resolved_ids(self):
-        body = _graphql_response([
-            _thread_node(100, is_resolved=True),
-            _thread_node(200, is_resolved=False),
-            _thread_node(300, is_resolved=True),
-        ])
+        body = _graphql_response(
+            [
+                _thread_node(100, is_resolved=True),
+                _thread_node(200, is_resolved=False),
+                _thread_node(300, is_resolved=True),
+            ]
+        )
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -75,12 +77,8 @@ class TestFetchResolvedThreadIds:
 
     @pytest.mark.asyncio
     async def test_paginates(self):
-        page1 = _graphql_response(
-            [_thread_node(10, True)], has_next=True, cursor="page2"
-        )
-        page2 = _graphql_response(
-            [_thread_node(20, True)], has_next=False
-        )
+        page1 = _graphql_response([_thread_node(10, True)], has_next=True, cursor="page2")
+        page2 = _graphql_response([_thread_node(20, True)], has_next=False)
 
         call_count = 0
 
@@ -138,10 +136,12 @@ class TestFetchResolvedThreadIds:
 
     @pytest.mark.asyncio
     async def test_no_resolved_threads(self):
-        body = _graphql_response([
-            _thread_node(100, is_resolved=False),
-            _thread_node(200, is_resolved=False),
-        ])
+        body = _graphql_response(
+            [
+                _thread_node(100, is_resolved=False),
+                _thread_node(200, is_resolved=False),
+            ]
+        )
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()

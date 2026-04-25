@@ -192,9 +192,7 @@ class GitHubAPIClient:
             # Overlay the authoritative isResolved state from GraphQL.
             # The REST API doesn't expose thread resolution, so without
             # this call we rely on a keyword heuristic which is unreliable.
-            resolved_ids = await self.fetch_resolved_thread_ids(
-                repo_full_name, pr_number
-            )
+            resolved_ids = await self.fetch_resolved_thread_ids(repo_full_name, pr_number)
             if resolved_ids:
                 for thread in discussion_threads:
                     if thread.root_comment_id in resolved_ids:
@@ -275,9 +273,7 @@ class GitHubAPIClient:
             for comment in review_result.comments:
                 file_lines = valid_lines.get(comment.path)
                 if file_lines is None:
-                    logger.warning(
-                        "Dropping comment: file %s not in diff", comment.path
-                    )
+                    logger.warning("Dropping comment: file %s not in diff", comment.path)
                     continue
                 if comment.line not in file_lines:
                     # Try to snap to the nearest valid line in the same file
@@ -285,7 +281,9 @@ class GitHubAPIClient:
                     if nearest is not None and abs(nearest - comment.line) <= 5:
                         logger.info(
                             "Snapping comment line %s:%d → %d (nearest in diff)",
-                            comment.path, comment.line, nearest,
+                            comment.path,
+                            comment.line,
+                            nearest,
                         )
                         # ReviewComment is a Pydantic model; create a copy
                         comment = comment.model_copy(update={"line": nearest})
@@ -293,7 +291,9 @@ class GitHubAPIClient:
                     else:
                         logger.warning(
                             "Dropping comment: %s:%d not in diff (nearest valid: %s)",
-                            comment.path, comment.line, nearest,
+                            comment.path,
+                            comment.line,
+                            nearest,
                         )
                     continue
                 valid_comments.append(comment)
@@ -302,7 +302,8 @@ class GitHubAPIClient:
             if dropped:
                 logger.warning(
                     "Dropped %d/%d comments with invalid diff lines",
-                    dropped, len(review_result.comments),
+                    dropped,
+                    len(review_result.comments),
                 )
 
         async with httpx.AsyncClient() as client:
@@ -347,8 +348,8 @@ class GitHubAPIClient:
                     # falling back to issue comments (which can't be resolved
                     # and break dedup).
                     logger.error(
-                        "GitHub rejected review despite line validation (422). "
-                        "Error: %s", e.response.text,
+                        "GitHub rejected review despite line validation (422). " "Error: %s",
+                        e.response.text,
                     )
                 else:
                     # Other HTTP error - re-raise
@@ -584,9 +585,7 @@ class GitHubAPIClient:
             except httpx.HTTPStatusError:
                 return []
 
-    async def fetch_resolved_thread_ids(
-        self, repo_full_name: str, pr_number: int
-    ) -> set[int]:
+    async def fetch_resolved_thread_ids(self, repo_full_name: str, pr_number: int) -> set[int]:
         """Fetch the set of root comment database IDs for resolved review threads.
 
         Uses the GraphQL API because the REST API does not expose the

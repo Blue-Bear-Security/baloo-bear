@@ -591,9 +591,7 @@ async def process_pr_review(
             # issue-level comments (the 422-fallback path).  Without this,
             # findings posted as issue comments are invisible to dedup.
             all_threads = list(pr_context.discussion_threads)
-            all_threads.extend(
-                _threads_from_issue_comments(pr_context.issue_comments)
-            )
+            all_threads.extend(_threads_from_issue_comments(pr_context.issue_comments))
             thread_lookup = _build_thread_lookup(all_threads)
             fresh_comments: list[ReviewComment] = []
             follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = []

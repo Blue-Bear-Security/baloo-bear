@@ -363,16 +363,21 @@ class TestResolvedThreadMatching:
     def test_resolved_thread_is_matched(self):
         """A resolved thread should be returned by _match_thread."""
         thread = _make_thread(
-            1, "file.py", 50,
+            1,
+            "file.py",
+            50,
             "**[HIGH] Bugs** - Issue description",
-            resolved=True, awaiting=False,
+            resolved=True,
+            awaiting=False,
         )
         lookup = _build_thread_lookup([thread])
 
         comment = ReviewComment(
-            path="file.py", line=50,
+            path="file.py",
+            line=50,
             body="**[HIGH] Bugs** - Issue description",
-            severity="HIGH", category="Bugs",
+            severity="HIGH",
+            category="Bugs",
         )
 
         matched = _match_thread(lookup, comment)
@@ -382,16 +387,21 @@ class TestResolvedThreadMatching:
     def test_resolved_thread_matched_with_fuzzy_line(self):
         """Fuzzy line tolerance should still work for resolved threads."""
         thread = _make_thread(
-            1, "file.py", 50,
+            1,
+            "file.py",
+            50,
             "**[HIGH] Security** - SQL injection vulnerability",
-            resolved=True, awaiting=False,
+            resolved=True,
+            awaiting=False,
         )
         lookup = _build_thread_lookup([thread])
 
         comment = ReviewComment(
-            path="file.py", line=53,
+            path="file.py",
+            line=53,
             body="**[HIGH] Security** - SQL injection vulnerability",
-            severity="HIGH", category="Security",
+            severity="HIGH",
+            category="Security",
         )
 
         matched = _match_thread(lookup, comment)
@@ -435,20 +445,14 @@ class TestThreadsFromIssueComments:
         assert threads == []
 
     def test_skips_comments_without_location(self):
-        comment = self._make_issue_comment(
-            1, "🐻 Baloo review completed in 30s. No issues found!"
-        )
+        comment = self._make_issue_comment(1, "🐻 Baloo review completed in 30s. No issues found!")
         threads = _threads_from_issue_comments([comment])
         assert threads == []
 
     def test_multiple_findings(self):
         comments = [
-            self._make_issue_comment(
-                1, "**[CRITICAL] Security** - lib/db.py:10\n\nSQL injection."
-            ),
-            self._make_issue_comment(
-                2, "**[MEDIUM] Quality** - lib/utils.py:55\n\nDead code."
-            ),
+            self._make_issue_comment(1, "**[CRITICAL] Security** - lib/db.py:10\n\nSQL injection."),
+            self._make_issue_comment(2, "**[MEDIUM] Quality** - lib/utils.py:55\n\nDead code."),
         ]
         threads = _threads_from_issue_comments(comments)
         assert len(threads) == 2
