@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 
 import httpx
 
@@ -25,6 +26,65 @@ from baloo.github.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Matches unified-diff hunk headers: @@ -old_start[,old_count] +new_start[,new_count] @@
+_HUNK_RE = re.compile(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+
+
+def _valid_diff_lines(diff: str) -> dict[str, set[int]]:
+    """Parse a unified diff and return the set of commentable line numbers per file.
+
+    GitHub only accepts review comments on lines that appear in a diff
+    hunk.  For each hunk we walk the lines and track the new-file line
+    counter (incremented for context and addition lines, skipped for
+    deletion lines).
+
+    Returns:
+        Mapping of file path → set of valid new-side line numbers.
+    """
+    result: dict[str, set[int]] = {}
+    current_file: str | None = None
+    current_lines: set[int] = set()
+    line_no = 0
+
+    for raw in diff.split("\n"):
+        if raw.startswith("diff --git"):
+            # Save previous file
+            if current_file is not None:
+                result[current_file] = current_lines
+            # Parse new file path from "diff --git a/... b/path"
+            parts = raw.split(" b/", 1)
+            current_file = parts[1] if len(parts) == 2 else None
+            current_lines = set()
+            line_no = 0
+            continue
+
+        m = _HUNK_RE.match(raw)
+        if m:
+            line_no = int(m.group(1))
+            continue
+
+        if line_no == 0:
+            # Before first hunk (file metadata lines)
+            continue
+
+        if raw.startswith("-"):
+            # Deletion — not in new file, don't increment
+            pass
+        elif raw.startswith("+"):
+            # Addition — valid commentable line
+            current_lines.add(line_no)
+            line_no += 1
+        else:
+            # Context line — also valid for comments
+            current_lines.add(line_no)
+            line_no += 1
+
+    if current_file is not None:
+        result[current_file] = current_lines
+
+    return result
 
 
 class GitHubAPIClient:
@@ -128,6 +188,16 @@ class GitHubAPIClient:
             reviews = await self._fetch_paginated_json(client, reviews_url, headers=headers)
 
             discussion_threads: list[DiscussionThread] = build_review_threads(review_comments)
+
+            # Overlay the authoritative isResolved state from GraphQL.
+            # The REST API doesn't expose thread resolution, so without
+            # this call we rely on a keyword heuristic which is unreliable.
+            resolved_ids = await self.fetch_resolved_thread_ids(repo_full_name, pr_number)
+            if resolved_ids:
+                for thread in discussion_threads:
+                    if thread.root_comment_id in resolved_ids:
+                        thread.resolved = True
+
             general_comments: list[DiscussionComment] = build_general_discussion(
                 issue_comments, reviews
             )
@@ -171,19 +241,70 @@ class GitHubAPIClient:
             )
 
     async def post_review(
-        self, repo_full_name: str, pr_number: int, review_result: ReviewResult
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        review_result: ReviewResult,
+        diff: str = "",
     ) -> None:
         """
         Post a review to a pull request.
+
+        When *diff* is provided, comments are validated against the diff
+        before posting.  Comments whose line numbers fall outside a diff
+        hunk are dropped (with a warning) so GitHub doesn't reject the
+        entire review with a 422.
 
         Args:
             repo_full_name: Repository full name (owner/repo)
             pr_number: Pull request number
             review_result: Review result to post
+            diff: Full unified diff of the PR (used for line validation)
         """
         import logging
 
         logger = logging.getLogger(__name__)
+
+        # ---- validate comment line numbers against the diff ----
+        valid_comments = list(review_result.comments)
+        if diff and review_result.comments:
+            valid_lines = _valid_diff_lines(diff)
+            valid_comments = []
+            for comment in review_result.comments:
+                file_lines = valid_lines.get(comment.path)
+                if file_lines is None:
+                    logger.warning("Dropping comment: file %s not in diff", comment.path)
+                    continue
+                if comment.line not in file_lines:
+                    # Try to snap to the nearest valid line in the same file
+                    nearest = min(file_lines, key=lambda ln: abs(ln - comment.line), default=None)
+                    if nearest is not None and abs(nearest - comment.line) <= 5:
+                        logger.info(
+                            "Snapping comment line %s:%d → %d (nearest in diff)",
+                            comment.path,
+                            comment.line,
+                            nearest,
+                        )
+                        # ReviewComment is a Pydantic model; create a copy
+                        comment = comment.model_copy(update={"line": nearest})
+                        valid_comments.append(comment)
+                    else:
+                        logger.warning(
+                            "Dropping comment: %s:%d not in diff (nearest valid: %s)",
+                            comment.path,
+                            comment.line,
+                            nearest,
+                        )
+                    continue
+                valid_comments.append(comment)
+
+            dropped = len(review_result.comments) - len(valid_comments)
+            if dropped:
+                logger.warning(
+                    "Dropped %d/%d comments with invalid diff lines",
+                    dropped,
+                    len(review_result.comments),
+                )
 
         async with httpx.AsyncClient() as client:
             # Determine review event
@@ -204,7 +325,7 @@ class GitHubAPIClient:
                         "line": comment.line,
                         "body": f"**[{comment.severity.value}] {comment.category.value}** - {comment.body}",
                     }
-                    for comment in review_result.comments
+                    for comment in valid_comments
                 ],
             }
 
@@ -217,32 +338,18 @@ class GitHubAPIClient:
                 )
                 response.raise_for_status()
                 logger.info(
-                    f"Successfully posted review with {len(review_result.comments)} inline comments"
+                    f"Successfully posted review with {len(valid_comments)} inline comments"
                 )
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 422:
-                    # GitHub rejected inline comments (line numbers don't match diff)
-                    # Fall back to posting summary + issue comments
-                    logger.warning(
-                        f"Failed to post inline comments (422 error). "
-                        f"Falling back to issue comments. Error: {e.response.text}"
-                    )
-
-                    # Post summary as general comment
-                    await self.post_comment(repo_full_name, pr_number, review_result.summary)
-
-                    # Post each finding as a separate comment
-                    for i, comment in enumerate(review_result.comments):
-                        comment_body = (
-                            f"**[{comment.severity.value}] {comment.category.value}** - {comment.path}:{comment.line}\n\n"
-                            f"{comment.body}"
-                        )
-                        await self.post_comment(repo_full_name, pr_number, comment_body)
-                        logger.info(f"Posted issue comment {i+1}/{len(review_result.comments)}")
-
-                    logger.info(
-                        f"Successfully posted review as {len(review_result.comments)} issue comments"
+                    # Validation should have prevented this, but if GitHub
+                    # still rejects the review, log and move on rather than
+                    # falling back to issue comments (which can't be resolved
+                    # and break dedup).
+                    logger.error(
+                        "GitHub rejected review despite line validation (422). " "Error: %s",
+                        e.response.text,
                     )
                 else:
                     # Other HTTP error - re-raise
@@ -477,6 +584,89 @@ class GitHubAPIClient:
 
             except httpx.HTTPStatusError:
                 return []
+
+    async def fetch_resolved_thread_ids(self, repo_full_name: str, pr_number: int) -> set[int]:
+        """Fetch the set of root comment database IDs for resolved review threads.
+
+        Uses the GraphQL API because the REST API does not expose the
+        ``isResolved`` state of review threads.
+
+        Returns:
+            Set of root-comment ``databaseId`` values for threads where
+            ``isResolved`` is True.  On error returns an empty set so
+            callers degrade gracefully (fail-open).
+        """
+        owner, repo = repo_full_name.split("/", 1)
+        query = """
+        query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
+          repository(owner: $owner, name: $repo) {
+            pullRequest(number: $pr) {
+              reviewThreads(first: 100, after: $cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  isResolved
+                  comments(first: 1) {
+                    nodes { databaseId }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        resolved_ids: set[int] = set()
+        cursor: str | None = None
+
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = self._get_headers()
+                while True:
+                    variables: dict = {
+                        "owner": owner,
+                        "repo": repo,
+                        "pr": pr_number,
+                        "cursor": cursor,
+                    }
+                    resp = await client.post(
+                        "https://api.github.com/graphql",
+                        headers=headers,
+                        json={"query": query, "variables": variables},
+                    )
+                    resp.raise_for_status()
+                    body = resp.json()
+
+                    if "errors" in body:
+                        logger.warning(
+                            "GraphQL errors fetching resolved threads: %s",
+                            body["errors"],
+                        )
+                        break
+
+                    threads_data = (
+                        body.get("data", {})
+                        .get("repository", {})
+                        .get("pullRequest", {})
+                        .get("reviewThreads", {})
+                    )
+                    for node in threads_data.get("nodes", []):
+                        if node is None:
+                            continue
+                        if node.get("isResolved"):
+                            comments = node.get("comments", {}).get("nodes", [])
+                            if comments and comments[0].get("databaseId"):
+                                resolved_ids.add(comments[0]["databaseId"])
+
+                    page_info = threads_data.get("pageInfo", {})
+                    if page_info.get("hasNextPage"):
+                        cursor = page_info["endCursor"]
+                    else:
+                        break
+
+        except Exception as exc:
+            logger.warning("Failed to fetch resolved thread state: %s", exc)
+
+        return resolved_ids
 
     async def _fetch_paginated_json(
         self,

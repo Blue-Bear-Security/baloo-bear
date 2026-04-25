@@ -64,6 +64,15 @@ class FPVerificationResult:
 class _FPVerifierAgent(PIAgentBase):
     """Thin PI agent for single-turn FP verification calls."""
 
+    # Override the base retry prompt which asks for "findings"/"summary"
+    # keys — the FP verifier expects a different schema.
+    _JSON_RETRY_PROMPT = (
+        "Your previous response could not be parsed as JSON. "
+        "Respond with ONLY a raw JSON object, no markdown, no explanation: "
+        '{"verdict": "real", "reason": "one concise sentence"} '
+        'or {"verdict": "fp", "reason": "one concise sentence"}'
+    )
+
     def __init__(self, options: PIAgentOptions):
         super().__init__(options)
         self.agent_name = "FPVerifier"
@@ -226,12 +235,12 @@ class FPVerifier:
             thinking_level="off",
         )
         options.system_prompt = FP_SYSTEM_PROMPT
-        # The PI subprocess is always launched with read-only tools enabled
-        # (see pi_runtime), so if the model chooses to call `read`/`grep` to
-        # fetch more context, we must leave room for a tool-use turn plus a
-        # final answer turn — otherwise the session is aborted and we fall
-        # through to the "unparseable response" path with a misleading reason.
-        options.max_turns = 3
+        # Disable tools: all necessary context (diff hunks) is already
+        # embedded in the prompt. Without tools the model cannot waste
+        # turns on file reads (which fail for new files anyway) and a
+        # single turn is sufficient for the JSON verdict.
+        options.no_tools = True
+        options.max_turns = 1
 
         agent = _FPVerifierAgent(options)
 

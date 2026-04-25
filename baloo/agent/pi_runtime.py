@@ -34,6 +34,10 @@ class PIAgentOptions:
     max_turns: int = 20
     # Working directory for the agent (where it can read files)
     cwd: str | None = None
+    # When True, launch PI with --no-tools (no file read/grep/etc).
+    # Useful for single-turn JSON-in/JSON-out tasks where all context
+    # is already embedded in the prompt.
+    no_tools: bool = False
 
 
 @dataclass
@@ -248,13 +252,14 @@ class PIAgentBase:
             self.options.provider,
             "--model",
             f"{self.options.provider}/{self.options.model}",
-            # Read-only tools only — no bash, no write, no edit
-            "--tools",
-            "read,grep,find,ls",
-            # Inject system prompt
-            "--system-prompt",
-            self.options.system_prompt,
         ]
+        if self.options.no_tools:
+            cmd.append("--no-tools")
+        else:
+            # Read-only tools only — no bash, no write, no edit
+            cmd.extend(["--tools", "read,grep,find,ls"])
+        # Inject system prompt
+        cmd.extend(["--system-prompt", self.options.system_prompt])
 
         logger.info(
             "%s: spawning PI process (model=%s, thinking=%s)",
@@ -409,11 +414,12 @@ class PIAgentBase:
             self.options.provider,
             "--model",
             f"{self.options.provider}/{self.options.model}",
-            "--tools",
-            "read,grep,find,ls",
-            "--system-prompt",
-            self.options.system_prompt,
         ]
+        if self.options.no_tools:
+            cmd.append("--no-tools")
+        else:
+            cmd.extend(["--tools", "read,grep,find,ls"])
+        cmd.extend(["--system-prompt", self.options.system_prompt])
 
         start = time.time()
         try:
