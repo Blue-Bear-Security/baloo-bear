@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Float,
@@ -99,4 +100,33 @@ class ReviewLog(Base):
     __table_args__ = (
         Index("ix_review_logs_review_created", "review_id", "created_at"),
         Index("ix_review_logs_created_at", "created_at"),
+    )
+
+
+class FindingOutcome(Base):
+    __tablename__ = "finding_outcomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    finding_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("findings.id", ondelete="CASCADE"), nullable=False
+    )
+    review_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("reviews.id", ondelete="CASCADE"), nullable=False
+    )
+    repo_full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    signals: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    labeled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    finding: Mapped["Finding"] = relationship("Finding")
+    review: Mapped["Review"] = relationship("Review")
+
+    __table_args__ = (
+        Index("ix_finding_outcomes_finding_id", "finding_id", unique=True),
+        Index("ix_finding_outcomes_review_id", "review_id"),
+        Index("ix_finding_outcomes_repo", "repo_full_name"),
+        Index("ix_finding_outcomes_outcome", "outcome"),
     )
