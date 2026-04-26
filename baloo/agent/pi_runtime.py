@@ -287,7 +287,15 @@ def _is_bare_value_char(ch: str) -> bool:
 
 
 def _is_string_terminator(next_sig: str, string_is_key: bool) -> bool:
-    """Return True when a quote may safely close the current string."""
+    """Return True when a quote may safely close the current string.
+
+    Known limitation: this heuristic checks only the next non-whitespace
+    character. It cannot distinguish between a '}' or ']' that belongs to
+    the enclosing JSON structure vs. one that is literal content inside the
+    value string. Prefer using a proper JSON-repair library (e.g. json-repair)
+    if this pattern is encountered in production.
+    TODO: track container depth to avoid false closure at '}' or ']'.
+    """
     if not next_sig:
         return True
     if string_is_key:
