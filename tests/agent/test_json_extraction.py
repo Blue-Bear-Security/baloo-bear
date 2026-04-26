@@ -1,6 +1,8 @@
 """Tests for improved JSON extraction — specifically the reverse-scan strategy."""
 
-from baloo.agent.pi_runtime import _extract_json_from_text
+from unittest.mock import patch
+
+from baloo.agent.pi_runtime import _extract_json_from_text, _load_json_with_repair
 
 
 class TestReverseScanExtraction:
@@ -98,6 +100,89 @@ class TestReverseScanExtraction:
         result = _extract_json_from_text(text)
         assert result is not None
         assert result["summary"]["path"] == "C:\\"
+
+    def test_repairs_unescaped_quotes_inside_string_values(self):
+        """Production-shaped JSON with naked quotes inside a description still parses."""
+        text = """{
+  "findings": [
+    {
+      "file": "docs/human-in-the-loop.md",
+      "line": 32,
+      "severity": "CRITICAL",
+      "category": "Security",
+      "title": "Fail-open backend-error path documented without security warning",
+      "description": "The timeout/failure table documents a convenience feature ("ensures a connectivity blip does not permanently stall the agent") rather than acknowledging the risk. This also conflicts with **"We prefer failing fast and loudly over silent fallbacks."**",
+      "impact": "A backend outage can silently bypass the gate."
+    }
+  ],
+  "summary": {
+    "total_issues": 1,
+    "critical": 1
+  }
+}"""
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["file"] == "docs/human-in-the-loop.md"
+        assert (
+            '("ensures a connectivity blip does not permanently stall the agent")'
+            in result["findings"][0]["description"]
+        )
+
+    def test_repairs_literal_newlines_inside_string_values(self):
+        """Literal newlines inside a string are escaped during repair."""
+        text = """{
+  "findings": [
+    {
+      "file": "a.py",
+      "line": 1,
+      "description": "First line
+Second line"
+    }
+  ],
+  "summary": {}
+}"""
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["description"] == "First line\nSecond line"
+
+    def test_repairs_inner_quote_followed_by_colon_inside_value_string(self):
+        """A colon after an inner quote should not terminate a value string."""
+        text = """{
+  "findings": [
+    {
+      "description": "Use "key": value to configure",
+      "impact": "High"
+    }
+  ],
+  "summary": {}
+}"""
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["description"] == 'Use "key": value to configure'
+        assert result["findings"][0]["impact"] == "High"
+
+    def test_logs_when_repair_attempt_still_fails(self):
+        """A failed repair attempt should emit a diagnostic warning."""
+        text = '{"description": "broken "term": still",, "impact": "High"}'
+        with patch("baloo.agent.pi_runtime.logger.warning") as mock_warning:
+            result = _load_json_with_repair(text)
+        assert result is None
+        mock_warning.assert_called_once()
+
+    def test_handles_bare_keys_without_corrupting_quoted_values(self):
+        """Bare keys should not cause the scanner to misidentify value strings as keys."""
+        # This is invalid JSON ({key: "value"}) that we try to "not make worse"
+        # during the string repair pass.
+        text = '{key: "This is a "quoted" value", next: "ok"}'
+        # _repair_json_string_literals should correctly see "This is a \"quoted\" value"
+        # as a value string and terminate it at the last quote before the comma.
+        from baloo.agent.pi_runtime import _repair_json_string_literals
+
+        repaired = _repair_json_string_literals(text)
+        # It should have escaped the inner quotes
+        assert '\\"quoted\\"' in repaired
+        # But it should NOT have escaped the closing quote of the value string
+        assert 'value", next:' in repaired
 
     def test_no_json_at_all(self):
         """Still returns None when there's no JSON."""
