@@ -121,9 +121,10 @@ class TestReverseScanExtraction:
         result = _extract_json_from_text(text)
         assert result is not None
         assert result["findings"][0]["file"] == "docs/human-in-the-loop.md"
-        assert '("ensures a connectivity blip does not permanently stall the agent")' in result[
-            "findings"
-        ][0]["description"]
+        assert (
+            '("ensures a connectivity blip does not permanently stall the agent")'
+            in result["findings"][0]["description"]
+        )
 
     def test_repairs_literal_newlines_inside_string_values(self):
         """Literal newlines inside a string are escaped during repair."""

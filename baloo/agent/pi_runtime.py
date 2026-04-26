@@ -444,7 +444,9 @@ class PIAgentBase:
                 metadata["num_turns"] += retry_metadata.get("num_turns", 0)
                 metadata["json_retry"] = True
                 if structured_output is None:
-                    await review_logger.json_retry_failed(raw_text=retry_raw_text or result.assistant_text)
+                    await review_logger.json_retry_failed(
+                        raw_text=retry_raw_text or result.assistant_text
+                    )
 
         if result.is_error:
             await review_logger.agent_error(
