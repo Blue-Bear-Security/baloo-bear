@@ -613,9 +613,12 @@ async def process_pr_review(
             all_threads.extend(_threads_from_issue_comments(pr_context.issue_comments))
             thread_lookup = _build_thread_lookup(all_threads)
             fresh_comments: list[ReviewComment] = []
-            follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = []
+            follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = (
+                []
+            )  # reserved for future conversational thread agent
             skipped_duplicates = 0
             skipped_resolved = 0
+            skipped_responded = 0
 
             for comment in filtered_comments:
                 thread = _match_thread(thread_lookup, comment)
@@ -640,7 +643,11 @@ async def process_pr_review(
                     skipped_duplicates += 1
                     continue
 
-                follow_up_comments.append((thread, comment))
+                # Developer responded (not resolved, not awaiting) — they've
+                # addressed the finding (fixed, declined, or discussed).
+                # Don't re-litigate; just note these threads exist.
+                skipped_responded += 1
+                continue
 
             decision_comments = fresh_comments + [comment for _, comment in follow_up_comments]
 
@@ -657,8 +664,8 @@ async def process_pr_review(
             summary_text = agent_result.summary
             summary_text = f"{summary_text}\n\n{decision_summary}"
 
-            if follow_up_comments:
-                summary_text += f"\n\n↪️ Baloo added follow-ups to {len(follow_up_comments)} existing thread(s)."
+            if skipped_responded:
+                summary_text += f"\n\n💬 Skipped {skipped_responded} thread(s) with developer responses (not re-reviewed)."
             if skipped_duplicates:
                 summary_text += f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
             if skipped_resolved:
@@ -684,8 +691,8 @@ async def process_pr_review(
                 f"High: {severity_counts.get(ReviewSeverity.HIGH.value, 0)}, "
                 f"Medium: {severity_counts.get(ReviewSeverity.MEDIUM.value, 0)}, "
                 f"Low: {severity_counts.get(ReviewSeverity.LOW.value, 0)}), "
-                f"follow_ups={len(follow_up_comments)}, skipped_duplicates={skipped_duplicates}, "
-                f"skipped_resolved={skipped_resolved}, "
+                f"follow_ups={len(follow_up_comments)}, skipped_responded={skipped_responded}, "
+                f"skipped_duplicates={skipped_duplicates}, skipped_resolved={skipped_resolved}, "
                 f"approve={approve}, request_changes={request_changes}"
             )
 
