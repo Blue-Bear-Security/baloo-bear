@@ -103,9 +103,10 @@ def _load_json_with_repair(text: str) -> Any | None:
     """Load JSON, then retry after repairing common string-literal mistakes."""
     try:
         return json.loads(text)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as initial_err:
         repaired = _repair_json_string_literals(text)
         if repaired == text:
+            logger.debug("JSON repair skipped (text unchanged): %s", initial_err)
             return None
         try:
             return json.loads(repaired)
@@ -235,7 +236,7 @@ def _next_string_is_object_key(context_stack: list[dict[str, str]]) -> bool:
 def _mark_colon_seen(context_stack: list[dict[str, str]]) -> None:
     """Advance an object from key-parsed state to value-expected state."""
     top = _top_context(context_stack)
-    if top and top["type"] == "object" and top["state"] == "colon":
+    if top and top["type"] == "object" and top["state"] in ("colon", "key_or_end"):
         top["state"] = "value"
 
 

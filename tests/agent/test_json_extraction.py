@@ -169,6 +169,21 @@ Second line"
         assert result is None
         mock_warning.assert_called_once()
 
+    def test_handles_bare_keys_without_corrupting_quoted_values(self):
+        """Bare keys should not cause the scanner to misidentify value strings as keys."""
+        # This is invalid JSON ({key: "value"}) that we try to "not make worse"
+        # during the string repair pass.
+        text = '{key: "This is a "quoted" value", next: "ok"}'
+        # _repair_json_string_literals should correctly see "This is a \"quoted\" value"
+        # as a value string and terminate it at the last quote before the comma.
+        from baloo.agent.pi_runtime import _repair_json_string_literals
+
+        repaired = _repair_json_string_literals(text)
+        # It should have escaped the inner quotes
+        assert '\\"quoted\\"' in repaired
+        # But it should NOT have escaped the closing quote of the value string
+        assert 'value", next:' in repaired
+
     def test_no_json_at_all(self):
         """Still returns None when there's no JSON."""
         text = "This is just a text response with no JSON at all."
