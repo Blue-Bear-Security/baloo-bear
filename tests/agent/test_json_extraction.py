@@ -99,6 +99,49 @@ class TestReverseScanExtraction:
         assert result is not None
         assert result["summary"]["path"] == "C:\\"
 
+    def test_repairs_unescaped_quotes_inside_string_values(self):
+        """Production-shaped JSON with naked quotes inside a description still parses."""
+        text = """{
+  "findings": [
+    {
+      "file": "docs/human-in-the-loop.md",
+      "line": 32,
+      "severity": "CRITICAL",
+      "category": "Security",
+      "title": "Fail-open backend-error path documented without security warning",
+      "description": "The timeout/failure table documents a convenience feature ("ensures a connectivity blip does not permanently stall the agent") rather than acknowledging the risk. This also conflicts with **"We prefer failing fast and loudly over silent fallbacks."**",
+      "impact": "A backend outage can silently bypass the gate."
+    }
+  ],
+  "summary": {
+    "total_issues": 1,
+    "critical": 1
+  }
+}"""
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["file"] == "docs/human-in-the-loop.md"
+        assert '("ensures a connectivity blip does not permanently stall the agent")' in result[
+            "findings"
+        ][0]["description"]
+
+    def test_repairs_literal_newlines_inside_string_values(self):
+        """Literal newlines inside a string are escaped during repair."""
+        text = """{
+  "findings": [
+    {
+      "file": "a.py",
+      "line": 1,
+      "description": "First line
+Second line"
+    }
+  ],
+  "summary": {}
+}"""
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["description"] == "First line\nSecond line"
+
     def test_no_json_at_all(self):
         """Still returns None when there's no JSON."""
         text = "This is just a text response with no JSON at all."

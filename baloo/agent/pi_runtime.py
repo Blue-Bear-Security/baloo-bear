@@ -72,18 +72,16 @@ def _extract_json_from_text(text: str) -> dict | None:
     stripped = text.strip()
 
     # Strategy 1: direct parse
-    try:
-        return json.loads(stripped)
-    except (json.JSONDecodeError, ValueError):
-        pass
+    parsed = _load_json_with_repair(stripped)
+    if parsed is not None:
+        return parsed
 
     # Strategy 2: extract from markdown fences
     fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", stripped, re.DOTALL)
     if fence_match:
-        try:
-            return json.loads(fence_match.group(1).strip())
-        except (json.JSONDecodeError, ValueError):
-            pass
+        parsed = _load_json_with_repair(fence_match.group(1).strip())
+        if parsed is not None:
+            return parsed
 
     # Strategy 3: reverse-scan — find the last complete JSON object
     result = _reverse_scan_json(stripped)
@@ -94,12 +92,90 @@ def _extract_json_from_text(text: str) -> dict | None:
     first_brace = stripped.find("{")
     last_brace = stripped.rfind("}")
     if first_brace != -1 and last_brace > first_brace:
-        try:
-            return json.loads(stripped[first_brace : last_brace + 1])
-        except (json.JSONDecodeError, ValueError):
-            pass
+        parsed = _load_json_with_repair(stripped[first_brace : last_brace + 1])
+        if parsed is not None:
+            return parsed
 
     return None
+
+
+def _load_json_with_repair(text: str) -> Any | None:
+    """Load JSON, then retry after repairing common string-literal mistakes."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        repaired = _repair_json_string_literals(text)
+        if repaired == text:
+            return None
+        try:
+            return json.loads(repaired)
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+
+def _repair_json_string_literals(text: str) -> str:
+    """Repair common LLM JSON mistakes inside string literals.
+
+    The most common production failure is an otherwise-valid JSON object with
+    unescaped double quotes inside string values, for example:
+    `("quoted phrase")` or `**"quoted phrase"**`.
+
+    This scanner repairs those quotes and normalizes raw control characters
+    inside strings without touching JSON structure outside of strings.
+    """
+    repaired: list[str] = []
+    in_string = False
+    escape = False
+
+    for i, ch in enumerate(text):
+        if not in_string:
+            repaired.append(ch)
+            if ch == '"':
+                in_string = True
+            continue
+
+        if escape:
+            repaired.append(ch)
+            escape = False
+            continue
+
+        if ch == "\\":
+            repaired.append(ch)
+            escape = True
+            continue
+
+        if ch == "\n":
+            repaired.append("\\n")
+            continue
+
+        if ch == "\r":
+            repaired.append("\\r")
+            continue
+
+        if ch == "\t":
+            repaired.append("\\t")
+            continue
+
+        if ch == '"':
+            next_sig = _next_non_whitespace_char(text, i + 1)
+            if next_sig in {",", "}", "]", ":"} or not next_sig:
+                repaired.append(ch)
+                in_string = False
+            else:
+                repaired.append('\\"')
+            continue
+
+        repaired.append(ch)
+
+    return "".join(repaired)
+
+
+def _next_non_whitespace_char(text: str, start: int) -> str:
+    """Return the next non-whitespace character after start, if any."""
+    i = start
+    while i < len(text) and text[i].isspace():
+        i += 1
+    return text[i] if i < len(text) else ""
 
 
 def _reverse_scan_json(text: str) -> dict | None:
@@ -152,10 +228,7 @@ def _reverse_scan_json(text: str) -> dict | None:
             if depth == 0:
                 # Found the matching opening brace
                 candidate = text[i : end + 1]
-                try:
-                    return json.loads(candidate)
-                except (json.JSONDecodeError, ValueError):
-                    return None
+                return _load_json_with_repair(candidate)
 
         i -= 1
 
@@ -359,7 +432,10 @@ class PIAgentBase:
             )
             logger.info("%s: requesting JSON retry", self.agent_name)
             await review_logger.json_retry_started()
-            structured_output, retry_metadata = await self._retry_json(proc_cwd=cwd)
+            structured_output, retry_metadata, retry_raw_text = await self._retry_json(
+                raw_text=result.assistant_text,
+                proc_cwd=cwd,
+            )
             if retry_metadata:
                 # Accumulate retry costs into the main metadata
                 metadata["input_tokens"] += retry_metadata.get("input_tokens", 0)
@@ -368,7 +444,7 @@ class PIAgentBase:
                 metadata["num_turns"] += retry_metadata.get("num_turns", 0)
                 metadata["json_retry"] = True
                 if structured_output is None:
-                    await review_logger.json_retry_failed(raw_text=result.assistant_text)
+                    await review_logger.json_retry_failed(raw_text=retry_raw_text or result.assistant_text)
 
         if result.is_error:
             await review_logger.agent_error(
@@ -389,21 +465,44 @@ class PIAgentBase:
     # JSON retry
     # -----------------------------------------------------------------
 
-    _JSON_RETRY_PROMPT = (
-        "Your previous response could not be parsed as JSON. "
-        "Please re-emit ONLY the JSON object matching the output schema "
-        "from your analysis. No markdown fences, no explanation — just "
-        'the raw JSON object with "findings" and "summary" keys.'
+    _JSON_RETRY_SYSTEM_PROMPT = (
+        "You repair malformed JSON. "
+        "Return only valid JSON with the same meaning and fields as the input."
     )
 
-    async def _retry_json(self, *, proc_cwd: str | None) -> tuple[Any, dict[str, Any] | None]:
+    _JSON_RETRY_PROMPT_TEMPLATE = """The following assistant response was intended to be a JSON object
+matching Baloo's review schema, but it is malformed.
+
+Repair it into valid JSON.
+- Preserve the same findings and summary content.
+- Escape any quotes or control characters inside string values.
+- Do not add commentary, markdown fences, or extra keys.
+- Return ONLY the repaired JSON object.
+
+Malformed response:
+```text
+{raw_text}
+```"""
+
+    async def _retry_json(
+        self, *, raw_text: str, proc_cwd: str | None
+    ) -> tuple[Any, dict[str, Any] | None, str | None]:
         """Spawn a cheap follow-up session to ask the model to fix its JSON.
 
         Uses the same model but with thinking off and max 2 turns to keep
-        cost minimal.  Returns (parsed_json_or_None, metadata_or_None).
+        cost minimal. Returns (parsed_json_or_None, metadata_or_None, raw_retry_text).
         """
         settings = get_settings()
         pi_binary = settings.pi_binary_path or "pi"
+
+        retry_opts = PIAgentOptions(
+            model=self.options.model,
+            provider=self.options.provider,
+            system_prompt=self._JSON_RETRY_SYSTEM_PROMPT,
+            thinking_level="off",
+            max_turns=2,
+            no_tools=True,
+        )
 
         cmd = [
             pi_binary,
@@ -411,15 +510,12 @@ class PIAgentBase:
             "rpc",
             "--no-session",
             "--provider",
-            self.options.provider,
+            retry_opts.provider,
             "--model",
-            f"{self.options.provider}/{self.options.model}",
+            f"{retry_opts.provider}/{retry_opts.model}",
         ]
-        if self.options.no_tools:
-            cmd.append("--no-tools")
-        else:
-            cmd.extend(["--tools", "read,grep,find,ls"])
-        cmd.extend(["--system-prompt", self.options.system_prompt])
+        cmd.append("--no-tools")
+        cmd.extend(["--system-prompt", retry_opts.system_prompt])
 
         start = time.time()
         try:
@@ -432,18 +528,12 @@ class PIAgentBase:
                 cwd=proc_cwd,
             )
 
-            retry_opts = PIAgentOptions(
-                model=self.options.model,
-                provider=self.options.provider,
-                system_prompt=self.options.system_prompt,
-                thinking_level="off",
-                max_turns=2,
-            )
             # Temporarily swap options for the retry
             original_opts = self.options
             self.options = retry_opts
             try:
-                result = await self._drive_session(proc, self._JSON_RETRY_PROMPT, start)
+                retry_prompt = self._JSON_RETRY_PROMPT_TEMPLATE.format(raw_text=raw_text)
+                result = await self._drive_session(proc, retry_prompt, start)
             finally:
                 self.options = original_opts
                 if proc.returncode is None:
@@ -460,11 +550,11 @@ class PIAgentBase:
             else:
                 logger.warning("%s: JSON retry also failed to produce valid JSON", self.agent_name)
 
-            return parsed, self._build_metadata(result)
+            return parsed, self._build_metadata(result), result.assistant_text
 
         except Exception as exc:
             logger.warning("%s: JSON retry failed: %s", self.agent_name, exc)
-            return None, None
+            return None, None, None
 
     # -----------------------------------------------------------------
     # Session driver

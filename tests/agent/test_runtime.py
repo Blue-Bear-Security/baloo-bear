@@ -408,6 +408,7 @@ class TestPIAgentBaseRunQuery:
     async def test_json_retry_on_invalid_response(self):
         """Test that invalid JSON triggers a retry that succeeds."""
         # First run returns non-JSON text
+        bad_text = "Here are my findings about the code..."
         bad_events = [
             json.dumps(
                 {"type": "response", "command": "set_thinking_level", "success": True}
@@ -420,9 +421,7 @@ class TestPIAgentBaseRunQuery:
                     "type": "message_end",
                     "message": {
                         "role": "assistant",
-                        "content": [
-                            {"type": "text", "text": "Here are my findings about the code..."}
-                        ],
+                        "content": [{"type": "text", "text": bad_text}],
                         "model": "test",
                         "usage": {
                             "input": 500,
@@ -478,6 +477,7 @@ class TestPIAgentBaseRunQuery:
 
         agent = PIAgentBase(PIAgentOptions())
         call_count = 0
+        procs = []
 
         with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
 
@@ -504,6 +504,7 @@ class TestPIAgentBaseRunQuery:
                 proc.stderr = AsyncMock()
                 proc.kill = MagicMock()
                 proc.wait = AsyncMock()
+                procs.append(proc)
                 return proc
 
             mock_exec.side_effect = make_proc
@@ -518,6 +519,14 @@ class TestPIAgentBaseRunQuery:
             assert metadata["input_tokens"] == 600  # 500 + 100
             assert metadata["cost_usd"] == pytest.approx(0.012, abs=0.001)
             assert call_count == 2
+
+            retry_prompt_writes = [
+                call.args[0].decode("utf-8")
+                for call in procs[1].stdin.write.call_args_list
+                if b'"prompt"' in call.args[0]
+            ]
+            assert retry_prompt_writes
+            assert bad_text in retry_prompt_writes[-1]
 
     @pytest.mark.asyncio
     async def test_usage_aggregation_across_turns(self):
