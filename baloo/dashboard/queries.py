@@ -504,7 +504,13 @@ class DashboardService:
             week_map: dict[str, dict] = {}
             for week, outcome, cnt in weekly_rows:
                 if week not in week_map:
-                    week_map[week] = {"total": 0, "actioned": 0, "disputed": 0, "ignored": 0}
+                    week_map[week] = {
+                        "total": 0,
+                        "actioned": 0,
+                        "acknowledged": 0,
+                        "disputed": 0,
+                        "ignored": 0,
+                    }
                 week_map[week]["total"] += cnt
                 if outcome in week_map[week]:
                     week_map[week][outcome] += cnt

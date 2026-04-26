@@ -58,8 +58,16 @@ async def fetch_merge_signals(
             pr_url,
             headers={**headers, "Accept": "application/vnd.github.v3.diff"},
         )
-        diff_resp.raise_for_status()
-        diff_text = diff_resp.text
+        if diff_resp.status_code == 406:
+            logger.warning(
+                "PR %s#%d diff too large (406), code-change detection will be skipped",
+                repo_full_name,
+                pr_number,
+            )
+            diff_text = ""
+        else:
+            diff_resp.raise_for_status()
+            diff_text = diff_resp.text
 
         # Fetch review comments (paginated)
         comments_url = f"{client.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
@@ -172,18 +180,17 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
                         finding["file_path"], finding["line_number"], diff_text
                     )
 
-                    # Match finding to a thread (±5 line tolerance)
+                    # Match finding to closest thread (±5 line tolerance)
                     matched_thread = None
+                    best_distance = float("inf")
                     for t in threads:
                         if t["path"] == finding["file_path"]:
                             t_line = t.get("line")
-                            if (
-                                t_line is not None
-                                and finding["line_number"] is not None
-                                and abs(t_line - finding["line_number"]) <= 5
-                            ):
-                                matched_thread = t
-                                break
+                            if t_line is not None and finding["line_number"] is not None:
+                                dist = abs(t_line - finding["line_number"])
+                                if dist <= 5 and dist < best_distance:
+                                    best_distance = dist
+                                    matched_thread = t
 
                     thread_signals = collect_thread_signals(matched_thread)
                     signals = {
