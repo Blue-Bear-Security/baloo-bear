@@ -1,6 +1,8 @@
 """Tests for improved JSON extraction — specifically the reverse-scan strategy."""
 
-from baloo.agent.pi_runtime import _extract_json_from_text
+from unittest.mock import patch
+
+from baloo.agent.pi_runtime import _extract_json_from_text, _load_json_with_repair
 
 
 class TestReverseScanExtraction:
@@ -142,6 +144,30 @@ Second line"
         result = _extract_json_from_text(text)
         assert result is not None
         assert result["findings"][0]["description"] == "First line\nSecond line"
+
+    def test_repairs_inner_quote_followed_by_colon_inside_value_string(self):
+        """A colon after an inner quote should not terminate a value string."""
+        text = """{
+  "findings": [
+    {
+      "description": "Use "key": value to configure",
+      "impact": "High"
+    }
+  ],
+  "summary": {}
+}"""
+        result = _extract_json_from_text(text)
+        assert result is not None
+        assert result["findings"][0]["description"] == 'Use "key": value to configure'
+        assert result["findings"][0]["impact"] == "High"
+
+    def test_logs_when_repair_attempt_still_fails(self):
+        """A failed repair attempt should emit a diagnostic warning."""
+        text = '{"description": "broken "term": still",, "impact": "High"}'
+        with patch("baloo.agent.pi_runtime.logger.warning") as mock_warning:
+            result = _load_json_with_repair(text)
+        assert result is None
+        mock_warning.assert_called_once()
 
     def test_no_json_at_all(self):
         """Still returns None when there's no JSON."""
