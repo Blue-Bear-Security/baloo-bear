@@ -118,6 +118,66 @@ def test_build_discussion_digest_counts_awaiting_threads():
     assert "@reviewer" in digest
 
 
+def test_declined_thread_treated_as_resolved():
+    """A thread where the developer declines should be treated as resolved."""
+    raw_comments = [
+        {
+            "id": 20,
+            "body": "🐻 Baloo: SQL injection risk",
+            "user": {"login": "baloo-reviewer[bot]"},
+            "created_at": "2025-02-14T10:00:00Z",
+            "updated_at": "2025-02-14T10:00:00Z",
+            "path": "src/auth.py",
+            "line": 42,
+        },
+        {
+            "id": 21,
+            "in_reply_to_id": 20,
+            "body": "Declined — this is intentional, the input is already sanitized upstream.",
+            "user": {"login": "dev-user"},
+            "created_at": "2025-02-14T11:00:00Z",
+            "updated_at": "2025-02-14T11:00:00Z",
+            "path": "src/auth.py",
+            "line": 42,
+        },
+    ]
+
+    threads = build_review_threads(raw_comments)
+    assert len(threads) == 1
+    thread = threads[0]
+    assert thread.is_baloo_thread is True
+    assert thread.awaiting_response is False
+    assert thread.resolved is True  # decline keywords should resolve the thread
+
+
+def test_false_positive_reply_treated_as_resolved():
+    """A 'false positive' reply should resolve the thread."""
+    raw_comments = [
+        {
+            "id": 30,
+            "body": "Possible null pointer",
+            "user": {"login": "baloo-reviewer[bot]"},
+            "created_at": "2025-02-14T10:00:00Z",
+            "updated_at": "2025-02-14T10:00:00Z",
+            "path": "src/utils.py",
+            "line": 10,
+        },
+        {
+            "id": 31,
+            "in_reply_to_id": 30,
+            "body": "This is a false positive — the value is guaranteed non-null by the caller.",
+            "user": {"login": "dev-user"},
+            "created_at": "2025-02-14T11:00:00Z",
+            "updated_at": "2025-02-14T11:00:00Z",
+            "path": "src/utils.py",
+            "line": 10,
+        },
+    ]
+
+    threads = build_review_threads(raw_comments)
+    assert threads[0].resolved is True
+
+
 def test_build_general_discussion_includes_reviews():
     """Review bodies should be surfaced alongside issue comments."""
     issue_comments = [

@@ -17,6 +17,14 @@ RESOLUTION_KEYWORDS = (
     "thanks, fixed",
     "lgtm",
     "applied",
+    # Decline keywords — the human addressed the finding by disagreeing
+    "declined",
+    "won't fix",
+    "wontfix",
+    "not a bug",
+    "by design",
+    "intentional",
+    "false positive",
 )
 
 

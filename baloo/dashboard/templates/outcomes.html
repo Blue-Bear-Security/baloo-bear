@@ -203,13 +203,17 @@
     disputed: '#ef4444',
     ignored: '#9ca3af'
   };
+  const KNOWN_OUTCOMES = ['actioned', 'acknowledged', 'disputed', 'ignored'];
+  const normalizedOutcomes = Object.fromEntries(
+    KNOWN_OUTCOMES.map(k => [k, outcomes[k] ?? 0])
+  );
   new Chart(document.getElementById('outcomeChart'), {
     type: 'doughnut',
     data: {
-      labels: Object.keys(outcomes),
+      labels: Object.keys(normalizedOutcomes),
       datasets: [{
-        data: Object.values(outcomes),
-        backgroundColor: Object.keys(outcomes).map(k => outcomeColors[k] || '#94a3b8'),
+        data: Object.values(normalizedOutcomes),
+        backgroundColor: Object.keys(normalizedOutcomes).map(k => outcomeColors[k] || '#94a3b8'),
       }]
     },
     options: { responsive: true }
