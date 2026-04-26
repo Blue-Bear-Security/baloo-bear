@@ -240,7 +240,7 @@ class FPVerifier:
         # turns on file reads (which fail for new files anyway) and a
         # single turn is sufficient for the JSON verdict.
         options.no_tools = True
-        options.max_turns = 1
+        options.max_turns = 2
 
         agent = _FPVerifierAgent(options)
 
