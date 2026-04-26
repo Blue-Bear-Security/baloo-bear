@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% set active_page = "outcomes" %}
+
+{% block title %}Finding Outcomes - Baloo Dashboard{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Finding Outcomes</h1>
+
+  <div class="flex items-center space-x-4">
+    <!-- Repo filter -->
+    <form class="flex items-center space-x-2">
+      <label class="text-sm text-gray-500">Repo:</label>
+      <select name="repo" onchange="this.form.submit()"
+              class="text-sm border border-gray-300 rounded px-2 py-1">
+        <option value="">All repos</option>
+        {% for r in repos %}
+        <option value="{{ r }}" {% if repo == r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+      <input type="hidden" name="days" value="{{ days }}">
+    </form>
+
+    <!-- Day range selector -->
+    <div class="flex items-center space-x-2">
+      <label class="text-sm text-gray-500">Range:</label>
+      {% for d in [30, 60, 90, 180, 365] %}
+      <a href="/dashboard/outcomes?days={{ d }}{% if repo %}&repo={{ repo }}{% endif %}"
+         class="px-3 py-1 text-sm rounded border {% if days == d %}bg-indigo-600 text-white border-indigo-600{% else %}hover:bg-gray-50{% endif %}">
+        {{ d }}d
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Total Findings</p>
+    <p class="text-3xl font-bold text-gray-900">{{ total }}</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Hit Rate</p>
+    <p class="text-3xl font-bold {% if hit_rate >= 50 %}text-green-600{% elif hit_rate >= 25 %}text-yellow-600{% else %}text-red-600{% endif %}">{{ hit_rate }}%</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Noise Rate</p>
+    <p class="text-3xl font-bold {% if noise_rate <= 30 %}text-green-600{% elif noise_rate <= 60 %}text-yellow-600{% else %}text-red-600{% endif %}">{{ noise_rate }}%</p>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <p class="text-sm text-gray-500">Outcome Breakdown</p>
+    <div class="flex flex-wrap gap-2 mt-2">
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">actioned: {{ outcomes.get('actioned', 0) }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">acknowledged: {{ outcomes.get('acknowledged', 0) }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">disputed: {{ outcomes.get('disputed', 0) }}</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">ignored: {{ outcomes.get('ignored', 0) }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Charts grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <div class="bg-white rounded-lg shadow p-5">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Hit Rate by Severity</h2>
+    <canvas id="severityChart" height="250"></canvas>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Hit Rate by Category</h2>
+    <canvas id="categoryChart" height="250"></canvas>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5 lg:col-span-2">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Weekly Trends</h2>
+    <canvas id="trendsChart" height="250"></canvas>
+  </div>
+  <div class="bg-white rounded-lg shadow p-5">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Outcome Distribution</h2>
+    <canvas id="outcomeChart" height="250"></canvas>
+  </div>
+</div>
+
+<!-- Category table -->
+<div class="bg-white rounded-lg shadow p-5">
+  <h2 class="text-lg font-semibold text-gray-900 mb-4">Category Breakdown</h2>
+  <table class="min-w-full divide-y divide-gray-200">
+    <thead>
+      <tr>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actioned</th>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Hit Rate</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for cat, info in category_data.items() | sort(attribute='1.hit_rate', reverse=true) %}
+      <tr>
+        <td class="px-4 py-2 text-sm text-gray-900">{{ cat }}</td>
+        <td class="px-4 py-2 text-sm text-gray-600">{{ info.total }}</td>
+        <td class="px-4 py-2 text-sm text-gray-600">{{ info.actioned }}</td>
+        <td class="px-4 py-2 text-sm font-medium {% if info.hit_rate >= 50 %}text-green-600{% elif info.hit_rate >= 25 %}text-yellow-600{% else %}text-red-600{% endif %}">{{ info.hit_rate }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+  const severityData = {{ (severity_data or {}) | tojson }};
+  const categoryData = {{ (category_data or {}) | tojson }};
+  const trends = {{ (trends or []) | tojson }};
+  const outcomes = {{ (outcomes or {}) | tojson }};
+
+  // Hit Rate by Severity - bar chart
+  const sevOrder = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+  const sevColors = { CRITICAL: '#dc2626', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#3b82f6' };
+  new Chart(document.getElementById('severityChart'), {
+    type: 'bar',
+    data: {
+      labels: sevOrder,
+      datasets: [{
+        label: 'Hit Rate %',
+        data: sevOrder.map(s => severityData[s] ? severityData[s].hit_rate : 0),
+        backgroundColor: sevOrder.map(s => sevColors[s]),
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
+    }
+  });
+
+  // Hit Rate by Category - horizontal bar chart
+  const catLabels = Object.keys(categoryData);
+  const catHitRates = catLabels.map(c => categoryData[c].hit_rate);
+  new Chart(document.getElementById('categoryChart'), {
+    type: 'bar',
+    data: {
+      labels: catLabels,
+      datasets: [{
+        label: 'Hit Rate %',
+        data: catHitRates,
+        backgroundColor: '#6366f1',
+      }]
+    },
+    options: {
+      responsive: true,
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: { x: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
+    }
+  });
+
+  // Weekly Trends - line chart with dual y-axis
+  new Chart(document.getElementById('trendsChart'), {
+    type: 'line',
+    data: {
+      labels: trends.map(t => t.week),
+      datasets: [
+        {
+          label: 'Hit Rate %',
+          data: trends.map(t => t.hit_rate),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.1)',
+          fill: false,
+          tension: 0.3,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Noise Rate %',
+          data: trends.map(t => t.noise_rate),
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239,68,68,0.1)',
+          fill: false,
+          tension: 0.3,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Volume',
+          data: trends.map(t => t.total),
+          borderColor: '#6366f1',
+          borderDash: [5, 5],
+          fill: false,
+          tension: 0.3,
+          yAxisID: 'y1',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { position: 'left', min: 0, max: 100, ticks: { callback: v => v + '%' } },
+        y1: { position: 'right', min: 0, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+
+  // Outcome Distribution - doughnut
+  const outcomeColors = {
+    actioned: '#22c55e',
+    acknowledged: '#3b82f6',
+    disputed: '#ef4444',
+    ignored: '#9ca3af'
+  };
+  const KNOWN_OUTCOMES = ['actioned', 'acknowledged', 'disputed', 'ignored'];
+  const normalizedOutcomes = Object.fromEntries(
+    KNOWN_OUTCOMES.map(k => [k, outcomes[k] ?? 0])
+  );
+  new Chart(document.getElementById('outcomeChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(normalizedOutcomes),
+      datasets: [{
+        data: Object.values(normalizedOutcomes),
+        backgroundColor: Object.keys(normalizedOutcomes).map(k => outcomeColors[k] || '#94a3b8'),
+      }]
+    },
+    options: { responsive: true }
+  });
+</script>
+{% endblock %}

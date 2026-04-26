@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from baloo.db.models import Base, Finding, Review, ReviewLog
+from baloo.db.models import Base, Finding, FindingOutcome, Review, ReviewLog
 
 
 @pytest.fixture
@@ -157,6 +157,21 @@ def test_review_log_model_fields():
         "raw_text",
         "metadata_json",
     }
+
+
+def test_finding_outcome_model_exists():
+    """FindingOutcome has expected columns."""
+    outcome = FindingOutcome(
+        finding_id=1,
+        review_id=1,
+        repo_full_name="owner/repo",
+        pr_number=42,
+        outcome="actioned",
+        signals={"code_changed_near_line": True},
+    )
+    assert outcome.outcome == "actioned"
+    assert outcome.signals == {"code_changed_near_line": True}
+    assert outcome.repo_full_name == "owner/repo"
 
 
 async def test_review_optional_fields(async_session: AsyncSession):

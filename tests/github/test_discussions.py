@@ -118,6 +118,40 @@ def test_build_discussion_digest_counts_awaiting_threads():
     assert "@reviewer" in digest
 
 
+def test_developer_reply_not_resolved_not_awaiting():
+    """A thread where the developer replied (but didn't 'fix') is not resolved and not awaiting."""
+    raw_comments = [
+        {
+            "id": 20,
+            "body": "🐻 Baloo: SQL injection risk",
+            "user": {"login": "baloo-reviewer[bot]"},
+            "created_at": "2025-02-14T10:00:00Z",
+            "updated_at": "2025-02-14T10:00:00Z",
+            "path": "src/auth.py",
+            "line": 42,
+        },
+        {
+            "id": 21,
+            "in_reply_to_id": 20,
+            "body": "Declined — this is intentional, the input is already sanitized upstream.",
+            "user": {"login": "dev-user"},
+            "created_at": "2025-02-14T11:00:00Z",
+            "updated_at": "2025-02-14T11:00:00Z",
+            "path": "src/auth.py",
+            "line": 42,
+        },
+    ]
+
+    threads = build_review_threads(raw_comments)
+    assert len(threads) == 1
+    thread = threads[0]
+    assert thread.is_baloo_thread is True
+    assert thread.awaiting_response is False
+    # Not resolved — developer responded but didn't use resolution keywords.
+    # The webhook handler skips these threads (not re-reviewed).
+    assert thread.resolved is False
+
+
 def test_build_general_discussion_includes_reviews():
     """Review bodies should be surfaced alongside issue comments."""
     issue_comments = [

@@ -91,3 +91,17 @@ async def analytics(
         name="analytics.html",
         context={"days": days, **data},
     )
+
+
+@router.get("/outcomes", response_class=HTMLResponse)
+async def outcomes(
+    request: Request,
+    days: int = Query(90, ge=1, le=365),
+    repo: str | None = Query(None),
+):
+    data = await DashboardService.get_outcomes_data(days=days, repo_filter=repo)
+    return templates.TemplateResponse(
+        request=request,
+        name="outcomes.html",
+        context={"days": days, "repo": repo, **data},
+    )
