@@ -151,6 +151,21 @@ _ISSUE_COMMENT_LOCATION_RE = re.compile(
 )
 
 
+def _is_missing_plan_fidelity_report(body: str) -> bool:
+    """Return True for Baloo fidelity comments that report a missing plan file."""
+    return "Fidelity Report" in body and "No plan file found" in body
+
+
+def _has_existing_missing_plan_fidelity_report(
+    issue_comments: list[DiscussionComment],
+) -> bool:
+    """Check whether Baloo already posted a missing-plan fidelity report on the PR."""
+    return any(
+        comment.is_baloo and _is_missing_plan_fidelity_report(comment.body)
+        for comment in issue_comments
+    )
+
+
 def _threads_from_issue_comments(
     issue_comments: list[DiscussionComment],
 ) -> list[DiscussionThread]:
@@ -838,10 +853,19 @@ async def process_pr_review(
             # Post fidelity report as separate comment
             if fidelity_report_text:
                 try:
-                    await github_client.post_comment(
-                        repo_full_name, pr_number, fidelity_report_text
-                    )
-                    logger.info(f"Posted fidelity report for {repo_full_name}#{pr_number}")
+                    if _is_missing_plan_fidelity_report(
+                        fidelity_report_text
+                    ) and _has_existing_missing_plan_fidelity_report(pr_context.issue_comments):
+                        logger.info(
+                            "Skipping duplicate missing-plan fidelity report for %s#%s",
+                            repo_full_name,
+                            pr_number,
+                        )
+                    else:
+                        await github_client.post_comment(
+                            repo_full_name, pr_number, fidelity_report_text
+                        )
+                        logger.info(f"Posted fidelity report for {repo_full_name}#{pr_number}")
                 except Exception as fidelity_err:
                     logger.warning(f"Failed to post fidelity report: {fidelity_err}")
 
