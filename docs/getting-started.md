@@ -28,8 +28,8 @@ You do not need a Python development environment just to try Baloo as a service.
 ## 2. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/baloo.git
-cd baloo
+git clone https://github.com/Blue-Bear-Security/baloo-bear.git
+cd baloo-bear
 ```
 
 ## 3. Create the GitHub App

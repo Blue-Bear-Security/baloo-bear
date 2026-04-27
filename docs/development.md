@@ -24,8 +24,8 @@ Optional but recommended:
 ## 2. Install Dependencies
 
 ```bash
-git clone https://github.com/your-org/baloo.git
-cd baloo
+git clone https://github.com/Blue-Bear-Security/baloo-bear.git
+cd baloo-bear
 uv sync
 npm install
 cp .env.example .env
