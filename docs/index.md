@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/baloo-banner.png" alt="Baloo — AI Code Review Agent" width="600">
+  <img src="assets/baloo-banner.png" alt="Baloo — AI Code Review Agent" width="420">
 </p>
 
 <p align="center">
