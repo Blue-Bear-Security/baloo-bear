@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Baloo Team"}
+    {name = "BlueBear Security"}
 ]
 dependencies = [
     "fastapi>=0.100.0",
