@@ -18,7 +18,13 @@ from baloo.config.settings import settings
 from baloo.db.engine import close_db, init_db
 from baloo.db.service import ReviewCompleteDTO, ReviewService
 from baloo.fidelity.fidelity_analyzer import analyze_fidelity
-from baloo.fidelity.fidelity_report import format_fidelity_report
+from baloo.fidelity.fidelity_report import (
+    ERROR_FIDELITY_SENTINEL,
+    MISSING_PLAN_FIDELITY_SENTINEL,
+    NO_TICKET_FIDELITY_SENTINEL,
+    STATIC_FIDELITY_SENTINELS,
+    format_fidelity_report,
+)
 from baloo.fidelity.models import FidelityResult
 from baloo.fidelity.plan_fetcher import fetch_plan_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
@@ -151,17 +157,40 @@ _ISSUE_COMMENT_LOCATION_RE = re.compile(
 )
 
 
-def _is_missing_plan_fidelity_report(body: str) -> bool:
-    """Return True for Baloo fidelity comments that report a missing plan file."""
-    return "Fidelity Report" in body and "No plan file found" in body
+_LEGACY_STATIC_FIDELITY_MARKERS = {
+    NO_TICKET_FIDELITY_SENTINEL: ("No ticket ID found",),
+    MISSING_PLAN_FIDELITY_SENTINEL: ("No plan file found",),
+    ERROR_FIDELITY_SENTINEL: ("Fidelity analysis encountered an error",),
+}
 
 
-def _has_existing_missing_plan_fidelity_report(
-    issue_comments: list[DiscussionComment],
+def _static_fidelity_sentinel_for_body(body: str) -> str | None:
+    """Return the static fidelity report sentinel represented by a comment body."""
+    for sentinel in STATIC_FIDELITY_SENTINELS:
+        if sentinel in body:
+            return sentinel
+
+    if "Fidelity Report" not in body:
+        return None
+
+    # Keep one migration path for comments posted before sentinels existed.
+    for sentinel, legacy_markers in _LEGACY_STATIC_FIDELITY_MARKERS.items():
+        if all(marker in body for marker in legacy_markers):
+            return sentinel
+
+    return None
+
+
+def _has_existing_static_fidelity_report(
+    issue_comments: list[DiscussionComment], report_body: str
 ) -> bool:
-    """Check whether Baloo already posted a missing-plan fidelity report on the PR."""
+    """Check whether Baloo already posted this static fidelity report type."""
+    report_sentinel = _static_fidelity_sentinel_for_body(report_body)
+    if report_sentinel is None:
+        return False
+
     return any(
-        comment.is_baloo and _is_missing_plan_fidelity_report(comment.body)
+        comment.is_baloo and _static_fidelity_sentinel_for_body(comment.body) == report_sentinel
         for comment in issue_comments
     )
 
@@ -853,11 +882,11 @@ async def process_pr_review(
             # Post fidelity report as separate comment
             if fidelity_report_text:
                 try:
-                    if _is_missing_plan_fidelity_report(
-                        fidelity_report_text
-                    ) and _has_existing_missing_plan_fidelity_report(pr_context.issue_comments):
+                    if _has_existing_static_fidelity_report(
+                        pr_context.issue_comments, fidelity_report_text
+                    ):
                         logger.info(
-                            "Skipping duplicate missing-plan fidelity report for %s#%s",
+                            "Skipping duplicate static fidelity report for %s#%s",
                             repo_full_name,
                             pr_number,
                         )

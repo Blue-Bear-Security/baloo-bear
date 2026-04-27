@@ -2,6 +2,17 @@
 
 from baloo.fidelity.models import FidelityResult
 
+NO_TICKET_FIDELITY_SENTINEL = "<!-- baloo:no-ticket-fidelity-report -->"
+MISSING_PLAN_FIDELITY_SENTINEL = "<!-- baloo:missing-plan-fidelity-report -->"
+ERROR_FIDELITY_SENTINEL = "<!-- baloo:error-fidelity-report -->"
+STATIC_FIDELITY_SENTINELS = frozenset(
+    {
+        NO_TICKET_FIDELITY_SENTINEL,
+        MISSING_PLAN_FIDELITY_SENTINEL,
+        ERROR_FIDELITY_SENTINEL,
+    }
+)
+
 
 def format_fidelity_report(
     result: FidelityResult | None = None,
@@ -133,8 +144,10 @@ def _get_severity_icon(severity: str) -> str:
 
 def _format_no_ticket() -> str:
     """Format report when no ticket ID is found."""
-    return """<details>
+    return f"""<details>
 <summary>\U0001f4cb Fidelity Report - \u23ed\ufe0f Skipped</summary>
+
+{NO_TICKET_FIDELITY_SENTINEL}
 
 **No ticket ID found in PR.**
 
@@ -153,6 +166,8 @@ def _format_no_plan(ticket_id: str | None, plan_path: str | None) -> str:
     return f"""<details>
 <summary>\U0001f4cb Fidelity Report ({ticket_display}) - \u23ed\ufe0f Skipped</summary>
 
+{MISSING_PLAN_FIDELITY_SENTINEL}
+
 **No plan file found at `{path_display}`**
 
 To enable fidelity analysis, create a plan file before implementation.
@@ -166,6 +181,8 @@ def _format_error(ticket_id: str | None) -> str:
 
     return f"""<details>
 <summary>\U0001f4cb Fidelity Report ({ticket_display}) - \u26a0\ufe0f Error</summary>
+
+{ERROR_FIDELITY_SENTINEL}
 
 **Fidelity analysis encountered an error.**
 

@@ -80,6 +80,144 @@ async def test_does_not_repost_missing_plan_fidelity_report():
 
 
 @pytest.mark.asyncio
+async def test_does_not_repost_no_ticket_fidelity_report():
+    """Do not post the no-ticket fidelity report more than once per PR."""
+
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock(return_value=12345)
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = [
+        DiscussionComment(
+            id=111,
+            author="baloo[bot]",
+            body=(
+                "<details>\n"
+                "<summary>📋 Fidelity Report - ⏭️ Skipped</summary>\n\n"
+                "**No ticket ID found in PR.**\n\n"
+                "</details>"
+            ),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            source="issue_comment",
+            is_baloo=True,
+        )
+    ]
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "fix/fidelity-missing-report-dedupe"
+    mock_pr_context.title = "Fix duplicate fidelity reports"
+    mock_pr_context.description = ""
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Review complete",
+            comments=[],
+            approve=True,
+            request_changes=False,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", True),
+        patch("baloo.config.settings.settings.review_auto_approve", True),
+        patch("baloo.github.webhook_handler.extract_ticket_id", return_value=None),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=False,
+        )
+
+    posted_comments = [call.args[2] for call in mock_github_client.post_comment.call_args_list]
+    assert not any("No ticket ID found" in body for body in posted_comments)
+
+
+@pytest.mark.asyncio
+async def test_does_not_repost_error_fidelity_report():
+    """Do not post the fidelity error report more than once per PR."""
+
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock(return_value=12345)
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = [
+        DiscussionComment(
+            id=111,
+            author="baloo[bot]",
+            body=(
+                "<details>\n"
+                "<summary>📋 Fidelity Report (DEN-123) - ⚠️ Error</summary>\n\n"
+                "**Fidelity analysis encountered an error.**\n\n"
+                "</details>"
+            ),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            source="issue_comment",
+            is_baloo=True,
+        )
+    ]
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "feat/DEN-123/add-feature"
+    mock_pr_context.title = "Add new feature"
+    mock_pr_context.description = "This PR adds a new feature"
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Review complete",
+            comments=[],
+            approve=True,
+            request_changes=False,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", True),
+        patch("baloo.config.settings.settings.review_auto_approve", True),
+        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch(
+            "baloo.github.webhook_handler.fetch_plan_content",
+            AsyncMock(return_value="# Plan"),
+        ),
+        patch(
+            "baloo.github.webhook_handler.analyze_fidelity",
+            AsyncMock(return_value=None),
+        ),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=False,
+        )
+
+    posted_comments = [call.args[2] for call in mock_github_client.post_comment.call_args_list]
+    assert not any("encountered an error" in body for body in posted_comments)
+
+
+@pytest.mark.asyncio
 async def test_updates_progress_comment_when_no_actionable_findings():
     """Test that progress comment is updated when no actionable findings."""
 
