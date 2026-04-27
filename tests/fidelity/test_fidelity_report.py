@@ -103,6 +103,12 @@ class TestFormatFidelityReportNoTicket:
         assert "feat/PROJ-XXX" in report
         assert "[PROJ-XXX]" in report
 
+    def test_no_ticket_report_includes_stable_sentinel(self):
+        """Static no-ticket reports include an opaque marker for dedup."""
+        report = format_fidelity_report(no_ticket=True)
+
+        assert "<!-- baloo:no-ticket-fidelity-report -->" in report
+
 
 class TestFormatFidelityReportNoPlan:
     """Tests for format_fidelity_report with no_plan=True."""
@@ -122,6 +128,16 @@ class TestFormatFidelityReportNoPlan:
         assert "Skipped" in report
         assert "No plan file found" in report
         assert "docs/plans/DEN-123.md" in report
+
+    def test_no_plan_report_includes_stable_sentinel(self):
+        """Static missing-plan reports include an opaque marker for dedup."""
+        report = format_fidelity_report(
+            no_plan=True,
+            ticket_id="DEN-123",
+            plan_path="docs/plans/DEN-123.md",
+        )
+
+        assert "<!-- baloo:missing-plan-fidelity-report -->" in report
 
 
 class TestFormatFidelityReportSuccess:
@@ -288,3 +304,9 @@ class TestFormatFidelityReportError:
         assert "DEN-123" in report
         assert "Error" in report
         assert "encountered an error" in report
+
+    def test_error_report_includes_stable_sentinel(self):
+        """Static error reports include an opaque marker for dedup."""
+        report = format_fidelity_report(result=None, ticket_id="DEN-123")
+
+        assert "<!-- baloo:error-fidelity-report -->" in report
