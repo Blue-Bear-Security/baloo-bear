@@ -471,7 +471,9 @@ class TestBalooAgentMetadata:
 
             assert result.metadata["input_tokens"] == 2000
             assert result.metadata["output_tokens"] == 500
-            assert result.metadata["cost_usd"] == 0.10
+            assert result.metadata["cache_read_tokens"] == 1000
+            assert result.metadata["cache_write_tokens"] == 200
+            assert result.metadata["cost_usd"] == pytest.approx(0.01455)
 
     def test_format_metadata_section(self):
         """Test summary formatting with metadata."""
@@ -479,6 +481,8 @@ class TestBalooAgentMetadata:
             "model": "claude-sonnet-4-6",
             "input_tokens": 2000,
             "output_tokens": 500,
+            "cache_read_tokens": 1000,
+            "cache_write_tokens": 200,
             "thinking_tokens": 0,
             "thinking_budget": None,
             "cost_usd": 0.10,
@@ -489,4 +493,5 @@ class TestBalooAgentMetadata:
         result = CommentFormatter.format_summary([], metadata)
 
         assert "**Model:** `claude-sonnet-4-6`" in result
+        assert "**Cache:** 200 write / 1,000 read" in result
         assert "**Cost:** $0.1000" in result

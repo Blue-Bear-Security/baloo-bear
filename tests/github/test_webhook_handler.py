@@ -14,7 +14,7 @@ from baloo.fidelity.fidelity_report import (
 from baloo.fidelity.models import FidelityResult
 from baloo.github.api_client import DroppedReviewComment, PostedReviewResult
 from baloo.github.models import DiscussionComment, DiscussionThread, ReviewComment, ReviewResult
-from baloo.github.webhook_handler import process_pr_review
+from baloo.github.webhook_handler import _total_review_cost_usd, process_pr_review
 
 
 def _baloo_thread(
@@ -50,6 +50,19 @@ def _baloo_thread(
         last_activity=now,
         root_comment_id=thread_id,
     )
+
+
+def test_total_review_cost_includes_fp_verification_cost():
+    """Persisted review cost should include main, fidelity, and FP verifier calls."""
+    total = _total_review_cost_usd(
+        {
+            "cost_usd": 0.10,
+            "fp_verification": {"cost_usd": 0.03},
+        },
+        {"cost_usd": 0.02},
+    )
+
+    assert total == pytest.approx(0.15)
 
 
 @pytest.mark.asyncio
@@ -114,6 +127,7 @@ async def test_review_summary_uses_actionable_findings_after_resolved_thread_ski
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -194,6 +208,7 @@ async def test_progress_comment_reports_dropped_inline_findings_internally():
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(

@@ -196,6 +196,19 @@ def _has_existing_static_fidelity_report(
     )
 
 
+def _total_review_cost_usd(review_metadata: dict, fidelity_metadata: dict) -> float:
+    """Aggregate all model-call cost components associated with a review."""
+    fp_metadata = review_metadata.get("fp_verification") or {}
+    if not isinstance(fp_metadata, dict):
+        fp_metadata = {}
+
+    return (
+        (review_metadata.get("cost_usd") or 0.0)
+        + (fidelity_metadata.get("cost_usd") or 0.0)
+        + (fp_metadata.get("cost_usd") or 0.0)
+    )
+
+
 def _threads_from_issue_comments(
     issue_comments: list[DiscussionComment],
 ) -> list[DiscussionThread]:
@@ -936,9 +949,7 @@ async def process_pr_review(
                 total_output_tokens = (review_metadata.get("output_tokens") or 0) + (
                     fidelity_metadata.get("output_tokens") or 0
                 )
-                total_cost_usd = (review_metadata.get("cost_usd") or 0.0) + (
-                    fidelity_metadata.get("cost_usd") or 0.0
-                )
+                total_cost_usd = _total_review_cost_usd(review_metadata, fidelity_metadata)
 
                 # Detect agent soft-failures: agent caught an error
                 # internally and returned 0 findings

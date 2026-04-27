@@ -18,6 +18,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from baloo.agent.costs import normalize_usage
 from baloo.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class PIRunResult:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    thinking_tokens: int = 0
     cost_usd: float = 0.0
     num_turns: int = 0
     model: str = ""
@@ -407,7 +409,9 @@ class PIAgentBase:
             "model": result.model or self.options.model,
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
-            "thinking_tokens": 0,
+            "cache_read_tokens": result.cache_read_tokens,
+            "cache_write_tokens": result.cache_write_tokens,
+            "thinking_tokens": result.thinking_tokens,
             "thinking_budget": None,
             "cost_usd": result.cost_usd,
             "num_turns": result.num_turns,
@@ -565,6 +569,9 @@ class PIAgentBase:
                 # Accumulate retry costs into the main metadata
                 metadata["input_tokens"] += retry_metadata.get("input_tokens", 0)
                 metadata["output_tokens"] += retry_metadata.get("output_tokens", 0)
+                metadata["cache_read_tokens"] += retry_metadata.get("cache_read_tokens", 0)
+                metadata["cache_write_tokens"] += retry_metadata.get("cache_write_tokens", 0)
+                metadata["thinking_tokens"] += retry_metadata.get("thinking_tokens", 0)
                 metadata["cost_usd"] += retry_metadata.get("cost_usd", 0)
                 metadata["num_turns"] += retry_metadata.get("num_turns", 0)
                 metadata["json_retry"] = True
@@ -798,16 +805,20 @@ Serialized payload:
 
                     # Accumulate usage
                     usage = msg.get("usage", {})
-                    result.input_tokens += usage.get("input", 0)
-                    result.output_tokens += usage.get("output", 0)
-                    result.cache_read_tokens += usage.get("cacheRead", 0)
-                    result.cache_write_tokens += usage.get("cacheWrite", 0)
+                    message_model = msg.get("model", result.model)
+                    normalized_usage = normalize_usage(
+                        usage,
+                        provider=self.options.provider,
+                        model=message_model,
+                    )
+                    result.input_tokens += normalized_usage.input_tokens
+                    result.output_tokens += normalized_usage.output_tokens
+                    result.cache_read_tokens += normalized_usage.cache_read_tokens
+                    result.cache_write_tokens += normalized_usage.cache_write_tokens
+                    result.thinking_tokens += normalized_usage.thinking_tokens
+                    result.cost_usd += normalized_usage.cost_usd
 
-                    cost = usage.get("cost", {})
-                    if isinstance(cost, dict):
-                        result.cost_usd += cost.get("total", 0) or 0
-
-                    result.model = msg.get("model", result.model)
+                    result.model = message_model
 
                     # Check for errors
                     stop_reason = msg.get("stopReason", "")

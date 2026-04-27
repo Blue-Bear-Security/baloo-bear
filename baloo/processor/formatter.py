@@ -85,6 +85,8 @@ class CommentFormatter:
         model = metadata.get("model", "unknown")
         in_tok = metadata.get("input_tokens", 0)
         out_tok = metadata.get("output_tokens", 0)
+        cache_read_tok = metadata.get("cache_read_tokens", 0)
+        cache_write_tok = metadata.get("cache_write_tokens", 0)
         think_tok = metadata.get("thinking_tokens", 0)
         cost = metadata.get("cost_usd", 0)
         turns = metadata.get("num_turns", 0)
@@ -94,6 +96,10 @@ class CommentFormatter:
         if think_tok > 0:
             thinking_info = f"<li>**Thinking Tokens:** {think_tok:,}</li>"
 
+        cache_info = ""
+        if cache_read_tok > 0 or cache_write_tok > 0:
+            cache_info = f"<li>**Cache:** {cache_write_tok:,} write / {cache_read_tok:,} read</li>"
+
         return f"""
 <details>
 <summary>📊 Review Metadata</summary>
@@ -101,6 +107,7 @@ class CommentFormatter:
 <ul>
   <li>**Model:** `{model}`</li>
   <li>**Tokens:** {in_tok:,} (in) / {out_tok:,} (out)</li>
+  {cache_info}
   {thinking_info}
   <li>**Cost:** ${cost:.4f}</li>
   <li>**Turns:** {turns}</li>
