@@ -62,6 +62,7 @@ def normalize_usage(usage: dict[str, Any], *, provider: str, model: str) -> Norm
         model=model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        thinking_tokens=thinking_tokens,
         cache_read_tokens=cache_read_tokens,
         cache_write_tokens=cache_write_tokens,
     )
@@ -83,6 +84,7 @@ def _estimate_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
+    thinking_tokens: int,
     cache_read_tokens: int,
     cache_write_tokens: int,
 ) -> float | None:
@@ -95,7 +97,7 @@ def _estimate_cost(
 
     return (
         (input_tokens / 1_000_000) * pricing.input_per_mtok
-        + (output_tokens / 1_000_000) * pricing.output_per_mtok
+        + ((output_tokens + thinking_tokens) / 1_000_000) * pricing.output_per_mtok
         + (cache_write_tokens / 1_000_000) * pricing.cache_write_per_mtok
         + (cache_read_tokens / 1_000_000) * pricing.cache_read_per_mtok
     )
