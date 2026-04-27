@@ -28,7 +28,7 @@ from baloo.fidelity.fidelity_report import (
 from baloo.fidelity.models import FidelityResult
 from baloo.fidelity.plan_fetcher import fetch_plan_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
-from baloo.github.api_client import GitHubAPIClient
+from baloo.github.api_client import GitHubAPIClient, PostedReviewResult
 from baloo.github.auth import verify_webhook_signature
 from baloo.github.models import (
     DiscussionComment,
@@ -40,6 +40,7 @@ from baloo.github.models import (
 from baloo.outcomes.labeler import label_pr_outcomes
 from baloo.processor.decision_engine import DecisionEngine
 from baloo.processor.findings_filter import FindingsFilter
+from baloo.processor.formatter import CommentFormatter
 from baloo.processor.severity_router import (
     ReviewSeverity,
     count_by_severity,
@@ -705,7 +706,7 @@ async def process_pr_review(
 
             decision_summary = DecisionEngine.get_decision_summary(approve, request_changes)
 
-            summary_text = agent_result.summary
+            summary_text = CommentFormatter.format_summary(decision_comments, agent_metadata)
             summary_text = f"{summary_text}\n\n{decision_summary}"
 
             if skipped_responded:
@@ -764,6 +765,7 @@ async def process_pr_review(
 
             # Route new findings by severity for posting/logging
             routed = route_findings(review_result.comments)
+            posted_review_result: PostedReviewResult | None = None
             logger.info(
                 f"New findings routed: {len(routed['review'])} blocking (CRITICAL/HIGH), "
                 f"{len(routed['checks'])} non-blocking (MEDIUM)"
@@ -810,7 +812,7 @@ async def process_pr_review(
 
             if request_changes and (routed["review"] or follow_up_comments):
                 logger.info("Posting request-changes review with new or follow-up findings")
-                await github_client.post_review(
+                posted_result = await github_client.post_review(
                     repo_full_name,
                     pr_number,
                     ReviewResult(
@@ -821,6 +823,16 @@ async def process_pr_review(
                     ),
                     diff=pr_context.diff,
                 )
+                if isinstance(posted_result, PostedReviewResult):
+                    posted_review_result = posted_result
+                    if posted_result.dropped:
+                        logger.warning(
+                            "Dropped %d/%d blocking review finding(s) while posting %s#%s",
+                            len(posted_result.dropped),
+                            posted_result.attempted,
+                            repo_full_name,
+                            pr_number,
+                        )
             elif request_changes and not has_new_feedback:
                 logger.info(
                     "Baloo is still waiting on existing threads; no new review posted to avoid noise."
@@ -858,6 +870,15 @@ async def process_pr_review(
                         f"{counts.get(ReviewSeverity.MEDIUM.value, 0)} medium, "
                         f"{counts.get(ReviewSeverity.LOW.value, 0)} low."
                     )
+                    if posted_review_result is not None:
+                        completion_msg += (
+                            f"\n\nPosted {posted_review_result.posted} inline comment(s)."
+                        )
+                        if posted_review_result.dropped:
+                            completion_msg += (
+                                f" Dropped {len(posted_review_result.dropped)} inline finding(s) "
+                                "that could not be placed on the diff; details were logged."
+                            )
                 elif not request_changes and approve:
                     completion_msg = (
                         f"✅ Baloo review completed in {review_duration}s. No issues found!"

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from baloo.github.api_client import GitHubAPIClient
+from baloo.github.api_client import GitHubAPIClient, _apply_resolved_thread_state
+from baloo.github.discussions import build_discussion_digest
+from baloo.github.models import DiscussionComment, DiscussionThread
 
 
 def _graphql_response(nodes: list[dict], has_next: bool = False, cursor: str = "c1") -> dict:
@@ -135,6 +138,22 @@ class TestFetchResolvedThreadIds:
         assert ids == set()
 
     @pytest.mark.asyncio
+    async def test_logs_exception_type_when_resolved_thread_fetch_fails(self, caplog):
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post = AsyncMock(side_effect=httpx.TimeoutException(""))
+            mock_client_cls.return_value = mock_client
+
+            client = GitHubAPIClient(installation_id=1)
+            with caplog.at_level("WARNING", logger="baloo.github.api_client"):
+                ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
+
+        assert ids == set()
+        assert "TimeoutException" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_no_resolved_threads(self):
         body = _graphql_response(
             [
@@ -154,3 +173,39 @@ class TestFetchResolvedThreadIds:
             ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
         assert ids == set()
+
+
+class TestApplyResolvedThreadState:
+    def test_resolved_baloo_thread_is_not_counted_as_awaiting_response(self):
+        """GraphQL-resolved threads should not remain open just because Baloo commented last."""
+        now = datetime.now(timezone.utc)
+        thread = DiscussionThread(
+            id=100,
+            path="file.py",
+            line=10,
+            comments=[
+                DiscussionComment(
+                    id=100,
+                    author="baloo-code-reviewer[bot]",
+                    body="**[HIGH] Bugs** - Existing issue",
+                    created_at=now,
+                    updated_at=now,
+                    source="review_comment",
+                    is_baloo=True,
+                    path="file.py",
+                    line=10,
+                )
+            ],
+            is_baloo_thread=True,
+            awaiting_response=True,
+            resolved=False,
+            last_activity=now,
+            root_comment_id=100,
+        )
+
+        _apply_resolved_thread_state([thread], {100})
+        _, awaiting_count = build_discussion_digest([thread], [])
+
+        assert thread.resolved is True
+        assert thread.awaiting_response is False
+        assert awaiting_count == 0

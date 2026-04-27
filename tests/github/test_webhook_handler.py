@@ -12,8 +12,202 @@ from baloo.fidelity.fidelity_report import (
     NO_TICKET_FIDELITY_SENTINEL,
 )
 from baloo.fidelity.models import FidelityResult
-from baloo.github.models import DiscussionComment, ReviewComment, ReviewResult
+from baloo.github.api_client import DroppedReviewComment, PostedReviewResult
+from baloo.github.models import DiscussionComment, DiscussionThread, ReviewComment, ReviewResult
 from baloo.github.webhook_handler import process_pr_review
+
+
+def _baloo_thread(
+    *,
+    thread_id: int,
+    path: str,
+    line: int,
+    body: str,
+    awaiting_response: bool = False,
+    resolved: bool = False,
+) -> DiscussionThread:
+    now = datetime.now(timezone.utc)
+    return DiscussionThread(
+        id=thread_id,
+        path=path,
+        line=line,
+        comments=[
+            DiscussionComment(
+                id=thread_id,
+                author="baloo-code-reviewer[bot]",
+                body=body,
+                created_at=now,
+                updated_at=now,
+                source="review_comment",
+                is_baloo=True,
+                path=path,
+                line=line,
+            )
+        ],
+        is_baloo_thread=True,
+        awaiting_response=awaiting_response,
+        resolved=resolved,
+        last_activity=now,
+        root_comment_id=thread_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_review_summary_uses_actionable_findings_after_resolved_thread_skip():
+    """Review body counts should reflect deduped actionable findings, not raw agent output."""
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock()
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(attempted=1, posted=1, dropped=[])
+    )
+
+    resolved_body = "**[HIGH] Bugs** - Existing resolved issue"
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = [
+        _baloo_thread(
+            thread_id=111,
+            path="file.py",
+            line=10,
+            body=resolved_body,
+            awaiting_response=False,
+            resolved=True,
+        )
+    ]
+    mock_pr_context.issue_comments = []
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "fix/counts"
+    mock_pr_context.title = "Fix counts"
+    mock_pr_context.description = ""
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="## 🐻 Baloo Review Summary\n\n🟠 **2** High\n**Total**: 2 issue(s) found",
+            comments=[
+                ReviewComment(
+                    path="file.py",
+                    line=10,
+                    body="**Existing resolved issue**\n\nStill present",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+                ReviewComment(
+                    path="new.py",
+                    line=20,
+                    body="**Fresh issue**\n\nNew actionable finding",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+            ],
+            approve=False,
+            request_changes=True,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", False),
+        patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=False,
+        )
+
+    posted_review = mock_github_client.post_review.call_args.args[2]
+    assert "**Total**: 1 issue(s) found" in posted_review.summary
+    assert "**Total**: 2 issue(s) found" not in posted_review.summary
+    assert "✅ Skipped 1 resolved thread(s)." in posted_review.summary
+
+
+@pytest.mark.asyncio
+async def test_progress_comment_reports_dropped_inline_findings_internally():
+    """Progress comments should not imply every actionable finding was posted inline."""
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock(return_value=12345)
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+
+    dropped_comment = ReviewComment(
+        path="file.py",
+        line=99,
+        body="Dropped high finding with enough detail",
+        severity="HIGH",
+        category="Bugs",
+    )
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(
+            attempted=2,
+            posted=1,
+            dropped=[
+                DroppedReviewComment(
+                    comment=dropped_comment,
+                    reason="line_not_in_diff",
+                    nearest_valid_line=10,
+                )
+            ],
+        )
+    )
+
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = []
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "fix/counts"
+    mock_pr_context.title = "Fix counts"
+    mock_pr_context.description = ""
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Raw summary",
+            comments=[
+                ReviewComment(
+                    path="file.py",
+                    line=10,
+                    body="Posted high finding with enough detail",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+                dropped_comment,
+            ],
+            approve=False,
+            request_changes=True,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", False),
+        patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=True,
+        )
+
+    completion_msg = mock_github_client.edit_comment.call_args.args[2]
+    assert "Found 2 issue(s)" in completion_msg
+    assert "Posted 1 inline comment(s)." in completion_msg
+    assert "Dropped 1 inline finding(s)" in completion_msg
 
 
 @pytest.mark.asyncio
