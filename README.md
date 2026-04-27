@@ -89,22 +89,22 @@ Install the GitHub App on your repositories. Open a PR — Baloo will review it 
 ## Architecture
 
 ```text
-┌──────────────┐     webhook      ┌──────────────────┐
-│   GitHub      │ ───────────────→ │   FastAPI         │
-│   (PR event)  │                  │   webhook_handler │
-└──────────────┘                  └────────┬─────────┘
+┌──────────────┐     webhook      ┌───────────────────┐
+│   GitHub     │ ───────────────→ │   FastAPI         │
+│   (PR event) │                  │   webhook_handler │
+└──────────────┘                  └────────┬──────────┘
                                            │
-                                  ┌────────▼─────────┐
+                                  ┌────────▼──────────┐
                                   │   PI Agent (RPC)  │
                                   │   read / grep /   │
                                   │   find / ls       │
-                                  └────────┬─────────┘
+                                  └────────┬──────────┘
                                            │
-                                  ┌────────▼─────────┐
+                                  ┌────────▼──────────┐
                                   │   Processor       │
                                   │   filter → route  │
                                   │   → decide        │
-                                  └────────┬─────────┘
+                                  └────────┬──────────┘
                                            │
                               ┌────────────┼────────────┐
                               ▼            ▼            ▼
