@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -121,4 +124,10 @@ def _usage_int(usage: dict[str, Any], *keys: str) -> int:
             return value
         if isinstance(value, float):
             return int(value)
+    if usage:
+        logger.debug(
+            "_usage_int: none of %s present in usage keys %s",
+            keys,
+            list(usage.keys()),
+        )
     return 0

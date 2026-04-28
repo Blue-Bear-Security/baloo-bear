@@ -5,7 +5,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from baloo.github.models import ReviewComment, ReviewResult
-from scripts.local_review import build_local_pr_context, run_local_review
+from scripts.local_review import _parse_numstat, build_local_pr_context, run_local_review
+
+
+def test_parse_numstat_skips_malformed_lines():
+    """Malformed git numstat lines should not crash parsing."""
+    stats = _parse_numstat("1\t2\n7\t8\tgood.py\n")
+    assert stats == {"good.py": (7, 8)}
 
 
 def test_build_local_pr_context_from_git_diff():

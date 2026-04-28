@@ -1,8 +1,10 @@
 """Tests for model usage normalization and cost estimation."""
 
+import logging
+
 import pytest
 
-from baloo.agent.costs import normalize_usage
+from baloo.agent.costs import _usage_int, normalize_usage
 
 
 def test_estimates_anthropic_cost_from_billing_usage_fields():
@@ -65,6 +67,13 @@ def test_bills_separately_reported_thinking_tokens_as_output():
 
     assert normalized.thinking_tokens == 50_000
     assert normalized.cost_usd == pytest.approx(5.25)
+
+
+def test_usage_int_logs_debug_when_aliases_missing(caplog):
+    """Missing usage aliases should emit debug signal instead of failing silently."""
+    caplog.set_level(logging.DEBUG)
+    assert _usage_int({"unknown_metric": 5}, "input", "input_tokens") == 0
+    assert "_usage_int" in caplog.text
 
 
 def test_falls_back_to_provider_reported_cost_for_unknown_pricing():

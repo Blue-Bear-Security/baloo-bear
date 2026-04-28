@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -13,6 +14,8 @@ from urllib.parse import urlparse
 
 from baloo.agent.client import BalooAgent
 from baloo.github.models import FileChange, PRContext, PRDiscussionContext, PRMetadata, ReviewResult
+
+logger = logging.getLogger(__name__)
 
 GitRunner = Callable[[Sequence[str], str | None, bool], str]
 
@@ -178,7 +181,11 @@ def _parse_numstat(output: str) -> dict[str, tuple[int, int]]:
     for raw_line in output.splitlines():
         if not raw_line.strip():
             continue
-        additions_raw, deletions_raw, filename = raw_line.split("\t", 2)
+        parts = raw_line.split("\t", 2)
+        if len(parts) < 3:
+            logger.warning("Unexpected numstat line (skipping): %r", raw_line)
+            continue
+        additions_raw, deletions_raw, filename = parts
         additions = 0 if additions_raw == "-" else int(additions_raw)
         deletions = 0 if deletions_raw == "-" else int(deletions_raw)
         stats[filename] = (additions, deletions)
