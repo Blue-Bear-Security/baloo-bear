@@ -4,7 +4,7 @@
   <div class="flex items-start gap-3">
     <!-- Timestamp -->
     <span class="text-xs text-gray-400 font-mono whitespace-nowrap mt-0.5">
-      {{ log.created_at.strftime("%H:%M:%S") }}
+      <time datetime="{{ log.created_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}" class="local-time-short">{{ log.created_at.strftime("%H:%M:%S") }} UTC</time>
     </span>
 
     <!-- Event badge -->

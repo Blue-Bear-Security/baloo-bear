@@ -1,6 +1,7 @@
 """Main entry point for Baloo application."""
 
 import logging
+import time
 
 import uvicorn
 
@@ -10,9 +11,11 @@ from baloo.version import BUILD_DATE, COMMIT_SHA, VERSION, get_version_info
 
 # Logging format shared by the app and uvicorn
 LOG_FORMAT = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
+LOG_DATEFMT = "%Y-%m-%d %H:%M:%S UTC"
 
 # Configure root logger (covers all non-uvicorn loggers)
-logging.basicConfig(level=settings.log_level, format=LOG_FORMAT)
+logging.basicConfig(level=settings.log_level, format=LOG_FORMAT, datefmt=LOG_DATEFMT)
+logging.Formatter.converter = time.gmtime
 
 # Uvicorn log config — override its default formatters so every line
 # gets a timestamp, matching the rest of the application output.
@@ -20,8 +23,8 @@ UVICORN_LOG_CONFIG: dict = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "default": {"format": LOG_FORMAT},
-        "access": {"format": LOG_FORMAT},
+        "default": {"format": LOG_FORMAT, "datefmt": LOG_DATEFMT},
+        "access": {"format": LOG_FORMAT, "datefmt": LOG_DATEFMT},
     },
     "handlers": {
         "default": {

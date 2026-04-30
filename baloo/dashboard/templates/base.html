@@ -42,5 +42,31 @@
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     {% block content %}{% endblock %}
   </main>
+  <script>
+    function convertTimestamps(root) {
+      root.querySelectorAll("time.local-time").forEach(function(el) {
+        var d = new Date(el.getAttribute("datetime"));
+        if (!isNaN(d)) {
+          el.textContent = d.getFullYear() + "-" +
+            String(d.getMonth() + 1).padStart(2, "0") + "-" +
+            String(d.getDate()).padStart(2, "0") + " " +
+            String(d.getHours()).padStart(2, "0") + ":" +
+            String(d.getMinutes()).padStart(2, "0");
+        }
+      });
+      root.querySelectorAll("time.local-time-short").forEach(function(el) {
+        var d = new Date(el.getAttribute("datetime"));
+        if (!isNaN(d)) {
+          el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
+            String(d.getMinutes()).padStart(2, "0") + ":" +
+            String(d.getSeconds()).padStart(2, "0");
+        }
+      });
+    }
+    convertTimestamps(document);
+    document.body.addEventListener("htmx:afterSwap", function(e) {
+      convertTimestamps(e.detail.target);
+    });
+  </script>
 </body>
 </html>

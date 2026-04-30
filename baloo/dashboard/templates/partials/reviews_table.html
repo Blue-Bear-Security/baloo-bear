@@ -37,7 +37,7 @@
       </td>
       <td class="px-4 py-3 text-sm text-gray-500">{{ "%.1fs"|format(r.duration_seconds) if r.duration_seconds else "-" }}</td>
       <td class="px-4 py-3 text-sm text-gray-500">{{ "$%.4f"|format(r.cost_usd) if r.cost_usd else "-" }}</td>
-      <td class="px-4 py-3 text-sm text-gray-500">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td class="px-4 py-3 text-sm text-gray-500"><time datetime="{{ r.started_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}" class="local-time">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }} UTC</time></td>
     </tr>
     {% endfor %}
     {% if not reviews %}

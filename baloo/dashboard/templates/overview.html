@@ -169,7 +169,7 @@
           {% endif %}
         </td>
         <td class="px-4 py-3 text-sm text-red-700 max-w-xs truncate" title="{{ r.error_message }}">{{ r.error_message[:80] if r.error_message else "-" }}{{ "..." if r.error_message and r.error_message|length > 80 else "" }}</td>
-        <td class="px-4 py-3 text-sm text-gray-500">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td class="px-4 py-3 text-sm text-gray-500"><time datetime="{{ r.started_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}" class="local-time">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }} UTC</time></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -217,7 +217,7 @@
           {% endif %}
         </td>
         <td class="px-4 py-3 text-sm text-gray-500">{{ "%.1fs"|format(r.duration_seconds) if r.duration_seconds else "-" }}</td>
-        <td class="px-4 py-3 text-sm text-gray-500">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td class="px-4 py-3 text-sm text-gray-500"><time datetime="{{ r.started_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}" class="local-time">{{ r.started_at.strftime("%Y-%m-%d %H:%M") }} UTC</time></td>
       </tr>
       {% endfor %}
       {% if not recent_reviews %}
