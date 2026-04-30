@@ -52,6 +52,7 @@ Inline comments appear on the exact lines:
 | **FP reduction** | Optional second LLM pass to verify findings and drop false positives |
 | **Dashboard** | Optional PostgreSQL-backed review history UI with cost tracking |
 | **Dependabot-aware** | Specialized review logic for dependency update PRs |
+| **Local dry-run** | Run [`scripts/local_review.py`](scripts/local_review.py) against a local git diff — no GitHub webhook or posted comments |
 
 ## Quick Start
 
@@ -165,6 +166,19 @@ uv run python main.py      # run locally
 uv run pytest              # test
 uv run ruff check baloo    # lint
 uv run black --check baloo # format check
+```
+
+### Local review (dry run)
+
+You can run the same review pipeline against your working tree before opening a PR. The script builds a synthetic pull request from a git diff (`base...head`), loads `AGENTS.md` / `CONTRIBUTING.md` from the head ref when present, and prints findings to stdout — nothing is posted to GitHub.
+
+Requires the same LLM credentials as production (for example `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` in your environment).
+
+```bash
+uv run python scripts/local_review.py
+uv run python scripts/local_review.py --base origin/main --head HEAD
+uv run python scripts/local_review.py --json
+uv run python scripts/local_review.py --fail-on-blocking   # exit 1 if CRITICAL/HIGH findings
 ```
 
 See [docs/development.md](docs/development.md) for the full contributor guide.

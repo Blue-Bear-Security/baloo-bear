@@ -210,9 +210,56 @@ class TestPIAgentBaseRunQuery:
             assert output["findings"][0]["file"] == "a.py"
             assert metadata["input_tokens"] == 500
             assert metadata["output_tokens"] == 100
-            assert metadata["cost_usd"] == 0.01
+            assert metadata["cache_read_tokens"] == 0
+            assert metadata["cache_write_tokens"] == 0
+            assert metadata["cost_usd"] == pytest.approx(0.003)
             assert metadata["num_turns"] == 1
             assert metadata["model"] == "claude-sonnet-4-6"
+
+    @pytest.mark.asyncio
+    async def test_anthropic_usage_metadata_includes_cache_tokens_and_estimated_cost(self):
+        """Runtime metadata should expose all Anthropic billing token classes."""
+        structured = {"findings": [], "summary": {}}
+        usage = {
+            "input_tokens": 1_000_000,
+            "output_tokens": 100_000,
+            "cache_creation_input_tokens": 10_000,
+            "cache_read_input_tokens": 20_000,
+            "cost": {"total": 999.0},
+        }
+        events = self._make_events(structured, usage)
+
+        agent = PIAgentBase(PIAgentOptions(model="claude-sonnet-4-6", provider="anthropic"))
+
+        with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.returncode = None
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            _, metadata = await agent.run_query("Review")
+
+        assert metadata["input_tokens"] == 1_000_000
+        assert metadata["output_tokens"] == 100_000
+        assert metadata["cache_write_tokens"] == 10_000
+        assert metadata["cache_read_tokens"] == 20_000
+        assert metadata["cost_usd"] == pytest.approx(4.5435)
 
     @pytest.mark.asyncio
     async def test_empty_response(self):

@@ -6,6 +6,7 @@ import asyncio
 import base64
 import logging
 import re
+from dataclasses import dataclass
 
 import httpx
 
@@ -22,10 +23,30 @@ from baloo.github.models import (
     PRContext,
     PRDiscussionContext,
     PRMetadata,
+    ReviewComment,
     ReviewResult,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DroppedReviewComment:
+    """Review comment that could not be placed on the GitHub diff."""
+
+    comment: ReviewComment
+    reason: str
+    nearest_valid_line: int | None = None
+
+
+@dataclass(frozen=True)
+class PostedReviewResult:
+    """Outcome of posting a pull request review."""
+
+    attempted: int
+    posted: int
+    dropped: list[DroppedReviewComment]
+    github_rejected: bool = False
 
 
 # Matches unified-diff hunk headers: @@ -old_start[,old_count] +new_start[,new_count] @@
@@ -85,6 +106,24 @@ def _valid_diff_lines(diff: str) -> dict[str, set[int]]:
         result[current_file] = current_lines
 
     return result
+
+
+def _apply_resolved_thread_state(
+    discussion_threads: list[DiscussionThread], resolved_ids: set[int]
+) -> None:
+    """Overlay GitHub's authoritative resolved state onto REST-built threads."""
+    if not resolved_ids:
+        return
+
+    for thread in discussion_threads:
+        if thread.root_comment_id in resolved_ids:
+            thread.resolved = True
+            thread.awaiting_response = False
+
+
+def _enum_value(value) -> str:
+    """Return enum value or string form for logging."""
+    return value.value if hasattr(value, "value") else str(value)
 
 
 class GitHubAPIClient:
@@ -193,10 +232,7 @@ class GitHubAPIClient:
             # The REST API doesn't expose thread resolution, so without
             # this call we rely on a keyword heuristic which is unreliable.
             resolved_ids = await self.fetch_resolved_thread_ids(repo_full_name, pr_number)
-            if resolved_ids:
-                for thread in discussion_threads:
-                    if thread.root_comment_id in resolved_ids:
-                        thread.resolved = True
+            _apply_resolved_thread_state(discussion_threads, resolved_ids)
 
             general_comments: list[DiscussionComment] = build_general_discussion(
                 issue_comments, reviews
@@ -246,7 +282,7 @@ class GitHubAPIClient:
         pr_number: int,
         review_result: ReviewResult,
         diff: str = "",
-    ) -> None:
+    ) -> PostedReviewResult:
         """
         Post a review to a pull request.
 
@@ -267,13 +303,27 @@ class GitHubAPIClient:
 
         # ---- validate comment line numbers against the diff ----
         valid_comments = list(review_result.comments)
+        dropped_comments: list[DroppedReviewComment] = []
         if diff and review_result.comments:
             valid_lines = _valid_diff_lines(diff)
             valid_comments = []
             for comment in review_result.comments:
                 file_lines = valid_lines.get(comment.path)
                 if file_lines is None:
-                    logger.warning("Dropping comment: file %s not in diff", comment.path)
+                    dropped_comments.append(
+                        DroppedReviewComment(comment=comment, reason="file_not_in_diff")
+                    )
+                    logger.warning(
+                        "Dropped review finding: reason=file_not_in_diff repo=%s pr=%s "
+                        "path=%s line=%s severity=%s category=%s body_preview=%r",
+                        repo_full_name,
+                        pr_number,
+                        comment.path,
+                        comment.line,
+                        _enum_value(comment.severity),
+                        _enum_value(comment.category),
+                        comment.body[:160],
+                    )
                     continue
                 if comment.line not in file_lines:
                     # Try to snap to the nearest valid line in the same file
@@ -289,11 +339,25 @@ class GitHubAPIClient:
                         comment = comment.model_copy(update={"line": nearest})
                         valid_comments.append(comment)
                     else:
+                        dropped_comments.append(
+                            DroppedReviewComment(
+                                comment=comment,
+                                reason="line_not_in_diff",
+                                nearest_valid_line=nearest,
+                            )
+                        )
                         logger.warning(
-                            "Dropping comment: %s:%d not in diff (nearest valid: %s)",
+                            "Dropped review finding: reason=line_not_in_diff repo=%s pr=%s "
+                            "path=%s line=%s nearest_valid_line=%s severity=%s category=%s "
+                            "body_preview=%r",
+                            repo_full_name,
+                            pr_number,
                             comment.path,
                             comment.line,
                             nearest,
+                            _enum_value(comment.severity),
+                            _enum_value(comment.category),
+                            comment.body[:160],
                         )
                     continue
                 valid_comments.append(comment)
@@ -301,9 +365,11 @@ class GitHubAPIClient:
             dropped = len(review_result.comments) - len(valid_comments)
             if dropped:
                 logger.warning(
-                    "Dropped %d/%d comments with invalid diff lines",
+                    "Dropped %d/%d review finding(s) with invalid diff lines for %s#%s",
                     dropped,
                     len(review_result.comments),
+                    repo_full_name,
+                    pr_number,
                 )
 
         async with httpx.AsyncClient() as client:
@@ -340,6 +406,12 @@ class GitHubAPIClient:
                 logger.info(
                     f"Successfully posted review with {len(valid_comments)} inline comments"
                 )
+                return PostedReviewResult(
+                    attempted=len(review_result.comments),
+                    posted=len(valid_comments),
+                    dropped=dropped_comments,
+                    github_rejected=False,
+                )
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 422:
@@ -351,9 +423,22 @@ class GitHubAPIClient:
                         "GitHub rejected review despite line validation (422). " "Error: %s",
                         e.response.text,
                     )
+                    return PostedReviewResult(
+                        attempted=len(review_result.comments),
+                        posted=0,
+                        dropped=dropped_comments,
+                        github_rejected=True,
+                    )
                 else:
                     # Other HTTP error - re-raise
                     raise
+
+        return PostedReviewResult(
+            attempted=len(review_result.comments),
+            posted=len(valid_comments),
+            dropped=dropped_comments,
+            github_rejected=False,
+        )
 
     async def post_comment(self, repo_full_name: str, pr_number: int, comment: str) -> int:
         """
@@ -664,7 +749,12 @@ class GitHubAPIClient:
                         break
 
         except Exception as exc:
-            logger.warning("Failed to fetch resolved thread state: %s", exc)
+            logger.warning(
+                "Failed to fetch resolved thread state: %s: %r",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
 
         return resolved_ids
 
