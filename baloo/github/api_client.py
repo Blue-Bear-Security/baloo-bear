@@ -276,6 +276,46 @@ class GitHubAPIClient:
                 diff=diff,
             )
 
+    async def get_changed_scope_between_commits(
+        self, repo_full_name: str, base_sha: str, head_sha: str
+    ) -> tuple[set[str], dict[str, set[int]], list[FileChange], str]:
+        """Return latest-push changed files, line scope, and scoped diff."""
+        if not base_sha or not head_sha:
+            return set(), {}, [], ""
+
+        compare_url = f"{self.base_url}/repos/{repo_full_name}/compare/{base_sha}...{head_sha}"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(compare_url, headers=self._get_headers())
+            response.raise_for_status()
+            compare_data = response.json()
+
+        files = compare_data.get("files", [])
+        changed_paths = {file.get("filename") for file in files if file.get("filename")}
+        diff_parts: list[str] = []
+        changed_file_models: list[FileChange] = []
+        for file in files:
+            filename = file.get("filename")
+            if filename:
+                changed_file_models.append(
+                    FileChange(
+                        filename=filename,
+                        status=file.get("status", "modified"),
+                        additions=file.get("additions", 0),
+                        deletions=file.get("deletions", 0),
+                        changes=file.get("changes", 0),
+                        patch=file.get("patch"),
+                    )
+                )
+            patch = file.get("patch")
+            if not filename or not patch:
+                continue
+            diff_parts.append(f"diff --git a/{filename} b/{filename}")
+            diff_parts.append(patch)
+
+        scoped_diff = "\n".join(diff_parts)
+        line_scope = _valid_diff_lines(scoped_diff) if scoped_diff else {}
+        return changed_paths, line_scope, changed_file_models, scoped_diff
+
     async def post_review(
         self,
         repo_full_name: str,

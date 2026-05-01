@@ -13,7 +13,16 @@ from baloo.fidelity.fidelity_report import (
 )
 from baloo.fidelity.models import FidelityResult
 from baloo.github.api_client import DroppedReviewComment, PostedReviewResult
-from baloo.github.models import DiscussionComment, DiscussionThread, ReviewComment, ReviewResult
+from baloo.github.models import (
+    DiscussionComment,
+    DiscussionThread,
+    FileChange,
+    PRContext,
+    PRDiscussionContext,
+    PRMetadata,
+    ReviewComment,
+    ReviewResult,
+)
 from baloo.github.webhook_handler import _total_review_cost_usd, process_pr_review
 
 
@@ -223,6 +232,259 @@ async def test_progress_comment_reports_dropped_inline_findings_internally():
     assert "Found 2 issue(s)" in completion_msg
     assert "Posted 1 inline comment(s)." in completion_msg
     assert "Dropped 1 inline finding(s)" in completion_msg
+
+
+@pytest.mark.asyncio
+async def test_synchronize_scoped_mode_posts_only_latest_push_related_findings():
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock()
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(attempted=1, posted=1, dropped=[])
+    )
+    mock_github_client.get_changed_scope_between_commits = AsyncMock(
+        return_value=(
+            {"changed.py"},
+            {"changed.py": {10, 11, 12}},
+            [
+                FileChange(
+                    filename="changed.py",
+                    status="modified",
+                    additions=2,
+                    deletions=1,
+                    changes=3,
+                    patch="@@ -1,1 +1,2 @@\n-old\n+new\n+more",
+                )
+            ],
+            "diff --git a/changed.py b/changed.py\n@@ -1,1 +1,2 @@\n-old\n+new\n+more",
+        )
+    )
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = []
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "head123"
+    mock_pr_context.head_branch = "fix/counts"
+    mock_pr_context.title = "Fix counts"
+    mock_pr_context.description = ""
+    mock_pr_context.diff = "full-pr-diff"
+    mock_pr_context.files_changed = []
+    mock_pr_context.metadata = MagicMock()
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Raw summary",
+            comments=[
+                ReviewComment(
+                    path="changed.py",
+                    line=200,
+                    body="Changed file but far",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+                ReviewComment(
+                    path="changed.py",
+                    line=12,
+                    body="Changed file finding",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+                ReviewComment(
+                    path="untouched.py",
+                    line=20,
+                    body="Untouched file finding",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+            ],
+            approve=False,
+            request_changes=True,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch(
+            "baloo.github.webhook_handler._decide_synchronize_review_mode",
+            AsyncMock(return_value=("scoped", "test")),
+        ),
+        patch("baloo.config.settings.settings.fidelity_enabled", False),
+        patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="pull_request:synchronize",
+            notify_progress=False,
+            synchronize_base_sha="before123",
+        )
+
+    posted_review = mock_github_client.post_review.call_args.args[2]
+    assert len(posted_review.comments) == 1
+    assert posted_review.comments[0].line == 12
+    assert "outside files changed in the latest push" in posted_review.summary
+    assert "not on or near lines changed in the latest push" in posted_review.summary
+
+
+@pytest.mark.asyncio
+async def test_synchronize_scoped_mode_passes_scoped_context_to_agent():
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock()
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(attempted=1, posted=1, dropped=[])
+    )
+    changed_file = FileChange(
+        filename="changed.py",
+        status="modified",
+        additions=2,
+        deletions=1,
+        changes=3,
+        patch="@@ -1,1 +1,2 @@\n-old\n+new\n+more",
+    )
+    mock_github_client.get_changed_scope_between_commits = AsyncMock(
+        return_value=(
+            {"changed.py"},
+            {"changed.py": {5, 6}},
+            [changed_file],
+            "diff --git a/changed.py b/changed.py\n@@ -1,1 +1,2 @@\n-old\n+new\n+more",
+        )
+    )
+    mock_pr_context = PRContext(
+        metadata=PRMetadata(
+            repo_full_name="test/repo",
+            pr_number=123,
+            title="Fix counts",
+            description="",
+            author="dev",
+            base_branch="main",
+            head_branch="fix/counts",
+            head_sha="head123",
+            files_changed=[changed_file],
+            repo_guidelines=None,
+        ),
+        discussion=PRDiscussionContext(
+            threads=[], issue_comments=[], digest="", awaiting_response_count=0
+        ),
+        diff="full-pr-diff",
+    )
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Raw summary",
+            comments=[
+                ReviewComment(
+                    path="changed.py",
+                    line=6,
+                    body="Changed file finding",
+                    severity="HIGH",
+                    category="Bugs",
+                )
+            ],
+            approve=False,
+            request_changes=True,
+        )
+    )
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch(
+            "baloo.github.webhook_handler._decide_synchronize_review_mode",
+            AsyncMock(return_value=("scoped", "test")),
+        ),
+        patch("baloo.config.settings.settings.fidelity_enabled", False),
+        patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="pull_request:synchronize",
+            notify_progress=False,
+            synchronize_base_sha="before123",
+        )
+
+    review_context = mock_agent.review_pr.await_args.args[0]
+    assert review_context.diff.startswith("diff --git a/changed.py b/changed.py")
+    assert [f.filename for f in review_context.files_changed] == ["changed.py"]
+
+
+@pytest.mark.asyncio
+async def test_collapses_near_duplicate_findings_in_same_run():
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock()
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(attempted=1, posted=1, dropped=[])
+    )
+
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = []
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "fix/counts"
+    mock_pr_context.title = "Fix counts"
+    mock_pr_context.description = ""
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Raw summary",
+            comments=[
+                ReviewComment(
+                    path="file.py",
+                    line=10,
+                    body="Null check missing before dereference in parse_user_data.",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+                ReviewComment(
+                    path="file.py",
+                    line=11,
+                    body="parse_user_data dereferences value without null check.",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+            ],
+            approve=False,
+            request_changes=True,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", False),
+        patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=False,
+        )
+
+    posted_review = mock_github_client.post_review.call_args.args[2]
+    assert len(posted_review.comments) == 1
+    assert "Collapsed 1 near-duplicate finding(s)" in posted_review.summary
 
 
 @pytest.mark.asyncio
