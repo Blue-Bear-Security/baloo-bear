@@ -325,6 +325,12 @@ Full PR diff (truncated):
             reason = str(structured.get("reason", "")).strip()
             if mode in {"scoped", "full_pr"}:
                 return mode, reason or "LLM scope decision"
+            logger.warning(
+                "Scope decider returned unexpected mode %r for %s#%s; defaulting full_pr",
+                mode,
+                pr_context.repo_full_name,
+                pr_context.pr_number,
+            )
     except Exception as exc:
         logger.warning("Scope decider failed, defaulting full_pr: %s", exc)
 
@@ -359,8 +365,15 @@ def _dedupe_similar_findings(comments: list[ReviewComment]) -> tuple[list[Review
         return comments, 0
 
     deduped: list[ReviewComment] = []
-    seen_keys: dict[tuple[str, str], list[tuple[str, int]]] = defaultdict(list)
+    seen_keys: dict[tuple[str, str], list[tuple[str, int, int, int]]] = defaultdict(list)
     dropped = 0
+
+    severity_rank = {
+        ReviewSeverity.LOW: 0,
+        ReviewSeverity.MEDIUM: 1,
+        ReviewSeverity.HIGH: 2,
+        ReviewSeverity.CRITICAL: 3,
+    }
 
     for comment in comments:
         signature = _extract_issue_signature(comment.body)
@@ -369,17 +382,29 @@ def _dedupe_similar_findings(comments: list[ReviewComment]) -> tuple[list[Review
         )
         key = (comment.path, category.lower())
         seen = seen_keys[key]
-        is_duplicate = any(
-            _calculate_similarity(signature, existing_sig) >= 0.3
-            and abs(comment.line - existing_line) <= 5
-            for existing_sig, existing_line in seen
-        )
-        if is_duplicate:
+        duplicate_idx: int | None = None
+        for idx, (existing_sig, existing_line, existing_rank, deduped_idx) in enumerate(seen):
+            if (
+                _calculate_similarity(signature, existing_sig) >= 0.55
+                and abs(comment.line - existing_line) <= 5
+            ):
+                duplicate_idx = idx
+                break
+
+        if duplicate_idx is not None:
+            _, _, existing_rank, deduped_idx = seen[duplicate_idx]
+            current_rank = severity_rank.get(comment.severity, 0)
+            # Never suppress a higher-severity finding behind a lower one.
+            if current_rank > existing_rank:
+                deduped[deduped_idx] = comment
+                seen[duplicate_idx] = (signature, comment.line, current_rank, deduped_idx)
             dropped += 1
             continue
 
+        current_rank = severity_rank.get(comment.severity, 0)
+        deduped_idx = len(deduped)
         deduped.append(comment)
-        seen.append((signature, comment.line))
+        seen.append((signature, comment.line, current_rank, deduped_idx))
 
     return deduped, dropped
 

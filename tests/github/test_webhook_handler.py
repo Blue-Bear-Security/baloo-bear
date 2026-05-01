@@ -23,7 +23,11 @@ from baloo.github.models import (
     ReviewComment,
     ReviewResult,
 )
-from baloo.github.webhook_handler import _total_review_cost_usd, process_pr_review
+from baloo.github.webhook_handler import (
+    _decide_synchronize_review_mode,
+    _total_review_cost_usd,
+    process_pr_review,
+)
 
 
 def _baloo_thread(
@@ -456,7 +460,7 @@ async def test_collapses_near_duplicate_findings_in_same_run():
                 ReviewComment(
                     path="file.py",
                     line=11,
-                    body="parse_user_data dereferences value without null check.",
+                    body="Null check missing before dereference in parse_user_data value path.",
                     severity="HIGH",
                     category="Bugs",
                 ),
@@ -485,6 +489,110 @@ async def test_collapses_near_duplicate_findings_in_same_run():
     posted_review = mock_github_client.post_review.call_args.args[2]
     assert len(posted_review.comments) == 1
     assert "Collapsed 1 near-duplicate finding(s)" in posted_review.summary
+
+
+@pytest.mark.asyncio
+async def test_dedup_keeps_higher_severity_when_similar_findings_overlap():
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock()
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.reply_to_review_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(attempted=1, posted=1, dropped=[])
+    )
+
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = []
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "fix/counts"
+    mock_pr_context.title = "Fix counts"
+    mock_pr_context.description = ""
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Raw summary",
+            comments=[
+                ReviewComment(
+                    path="file.py",
+                    line=10,
+                    body="Null check missing before dereference in parse_user_data.",
+                    severity="HIGH",
+                    category="Bugs",
+                ),
+                ReviewComment(
+                    path="file.py",
+                    line=11,
+                    body="Critical: null check missing before dereference in parse_user_data.",
+                    severity="CRITICAL",
+                    category="Bugs",
+                ),
+            ],
+            approve=False,
+            request_changes=True,
+        )
+    )
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", False),
+        patch("baloo.config.settings.settings.fp_verification_enabled", False),
+        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=False,
+        )
+
+    posted_review = mock_github_client.post_review.call_args.args[2]
+    assert len(posted_review.comments) == 1
+    assert posted_review.comments[0].severity.value == "CRITICAL"
+
+
+@pytest.mark.asyncio
+async def test_scope_decider_logs_unexpected_mode_and_defaults_full_pr(caplog):
+    mock_pr_context = PRContext(
+        metadata=PRMetadata(
+            repo_full_name="test/repo",
+            pr_number=123,
+            title="Fix counts",
+            description="",
+            author="dev",
+            base_branch="main",
+            head_branch="fix/counts",
+            head_sha="head123",
+            files_changed=[],
+            repo_guidelines=None,
+        ),
+        discussion=PRDiscussionContext(
+            threads=[], issue_comments=[], digest="", awaiting_response_count=0
+        ),
+        diff="full-pr-diff",
+    )
+
+    with patch(
+        "baloo.github.webhook_handler.PIAgentBase.run_query",
+        AsyncMock(return_value=({"mode": "scope"}, {})),
+    ):
+        caplog.set_level("WARNING")
+        mode, reason = await _decide_synchronize_review_mode(
+            pr_context=mock_pr_context,
+            changed_files_changed=[],
+            scoped_diff="",
+        )
+
+    assert mode == "full_pr"
+    assert "defaulting" in reason.lower()
+    assert "Scope decider returned unexpected mode" in caplog.text
 
 
 @pytest.mark.asyncio
