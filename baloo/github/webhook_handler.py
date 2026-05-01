@@ -14,6 +14,8 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 
+from baloo.agent.config import get_agent_options
+from baloo.agent.pi_runtime import PIAgentBase
 from baloo.config.settings import settings
 from baloo.db.engine import close_db, init_db
 from baloo.db.service import ReviewCompleteDTO, ReviewService
@@ -33,6 +35,7 @@ from baloo.github.auth import verify_webhook_signature
 from baloo.github.models import (
     DiscussionComment,
     DiscussionThread,
+    PRContext,
     PullRequestWebhookPayload,
     ReviewComment,
     ReviewResult,
@@ -48,6 +51,18 @@ from baloo.processor.severity_router import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SYNC_SCOPE_DECIDER_SYSTEM_PROMPT = """You decide synchronize review scope.
+
+Return JSON only:
+{
+  "mode": "scoped" | "full_pr",
+  "reason": "<short reason>"
+}
+
+Choose "scoped" when the latest push can be reviewed primarily from before..head delta.
+Choose "full_pr" when latest push likely changes behavior broadly enough to re-review the full PR.
+"""
 
 
 @asynccontextmanager
@@ -251,6 +266,77 @@ def _threads_from_issue_comments(
     return threads
 
 
+def _within_changed_line_scope(
+    comment: ReviewComment,
+    changed_line_scope: dict[str, set[int]],
+    *,
+    proximity_window: int = 25,
+) -> bool:
+    """Check whether finding is on/near latest-push changed lines in its file."""
+    file_scope = changed_line_scope.get(comment.path)
+    if file_scope is None:
+        # No line-level scope for this file (e.g. binary/rename without patch):
+        # allow file-level scope to decide.
+        return True
+    if comment.line in file_scope:
+        return True
+    nearest = min(file_scope, key=lambda ln: abs(ln - comment.line), default=None)
+    return nearest is not None and abs(nearest - comment.line) <= proximity_window
+
+
+async def _decide_synchronize_review_mode(
+    *,
+    pr_context: PRContext,
+    changed_files_changed: list,
+    scoped_diff: str,
+) -> tuple[str, str]:
+    """Ask PI whether synchronize should use scoped or full PR context."""
+    options = get_agent_options()
+    options.system_prompt = _SYNC_SCOPE_DECIDER_SYSTEM_PROMPT
+    options.max_turns = 1
+    options.no_tools = True
+    options.thinking_level = "minimal"
+    decider = PIAgentBase(options)
+
+    changed_files_list = "\n".join(
+        f"- {f.filename} (+{f.additions}/-{f.deletions})"
+        for f in changed_files_changed[:60]
+        if getattr(f, "filename", None)
+    )
+    prompt = f"""
+PR title: {pr_context.title}
+PR description (truncated): {(pr_context.description or "")[:800]}
+Full PR files changed: {len(pr_context.files_changed)}
+Latest push files changed: {len(changed_files_changed)}
+
+Latest push file list:
+{changed_files_list or "- (none)"}
+
+Latest push scoped diff (truncated):
+{scoped_diff[:12000]}
+
+Full PR diff (truncated):
+{pr_context.diff[:12000]}
+"""
+    try:
+        structured, _ = await decider.run_query(prompt)
+        if isinstance(structured, dict):
+            mode = str(structured.get("mode", "")).strip().lower()
+            reason = str(structured.get("reason", "")).strip()
+            if mode in {"scoped", "full_pr"}:
+                return mode, reason or "LLM scope decision"
+            logger.warning(
+                "Scope decider returned unexpected mode %r for %s#%s; defaulting full_pr",
+                mode,
+                pr_context.repo_full_name,
+                pr_context.pr_number,
+            )
+    except Exception as exc:
+        logger.warning("Scope decider failed, defaulting full_pr: %s", exc)
+
+    return "full_pr", "Scope decision unavailable; defaulting to full PR"
+
+
 def _extract_issue_signature(body: str) -> str:
     """
     Extract a normalized signature from a Baloo finding body.
@@ -271,6 +357,56 @@ def _extract_issue_signature(body: str) -> str:
 
     # Fallback: normalize the whole body
     return " ".join(body.strip().lower().split())
+
+
+def _dedupe_similar_findings(comments: list[ReviewComment]) -> tuple[list[ReviewComment], int]:
+    """Collapse near-duplicate findings within the same review run."""
+    if not comments:
+        return comments, 0
+
+    deduped: list[ReviewComment] = []
+    seen_keys: dict[tuple[str, str], list[tuple[str, int, int, int]]] = defaultdict(list)
+    dropped = 0
+
+    severity_rank = {
+        ReviewSeverity.LOW: 0,
+        ReviewSeverity.MEDIUM: 1,
+        ReviewSeverity.HIGH: 2,
+        ReviewSeverity.CRITICAL: 3,
+    }
+
+    for comment in comments:
+        signature = _extract_issue_signature(comment.body)
+        category = str(
+            comment.category.value if hasattr(comment.category, "value") else comment.category
+        )
+        key = (comment.path, category.lower())
+        seen = seen_keys[key]
+        duplicate_idx: int | None = None
+        for idx, (existing_sig, existing_line, existing_rank, deduped_idx) in enumerate(seen):
+            if (
+                _calculate_similarity(signature, existing_sig) >= 0.55
+                and abs(comment.line - existing_line) <= 5
+            ):
+                duplicate_idx = idx
+                break
+
+        if duplicate_idx is not None:
+            _, _, existing_rank, deduped_idx = seen[duplicate_idx]
+            current_rank = severity_rank.get(comment.severity, 0)
+            # Never suppress a higher-severity finding behind a lower one.
+            if current_rank > existing_rank:
+                deduped[deduped_idx] = comment
+                seen[duplicate_idx] = (signature, comment.line, current_rank, deduped_idx)
+            dropped += 1
+            continue
+
+        current_rank = severity_rank.get(comment.severity, 0)
+        deduped_idx = len(deduped)
+        deduped.append(comment)
+        seen.append((signature, comment.line, current_rank, deduped_idx))
+
+    return deduped, dropped
 
 
 def _calculate_similarity(s1: str, s2: str) -> float:
@@ -403,6 +539,7 @@ async def handle_webhook(
                 # For synchronize events, check if this is just a merge/sync commit
                 head_sha = webhook_payload.pull_request.head.get("sha")
                 base_branch = webhook_payload.pull_request.base.get("ref", "main")
+                before_sha = payload.get("before")
 
                 if action == "synchronize" and head_sha:
                     github_client = GitHubAPIClient(webhook_payload.installation.id)
@@ -432,6 +569,7 @@ async def handle_webhook(
                         webhook_payload.installation.id,
                         f"pull_request:{action}",
                         True,
+                        before_sha if action == "synchronize" else None,
                     )
                 )
                 active_reviews[(repo_name, pr_number)] = task
@@ -557,6 +695,7 @@ async def process_pr_review(
     installation_id: int,
     trigger_reason: str = "pull_request",
     notify_progress: bool = True,
+    synchronize_base_sha: str | None = None,
 ) -> None:
     """
     Process a PR review in the background.
@@ -569,6 +708,7 @@ async def process_pr_review(
         installation_id: GitHub App installation ID
         trigger_reason: Text describing what caused the review
         notify_progress: Whether to post a status comment before reviewing
+        synchronize_base_sha: Previous head SHA for synchronize events
     """
     # Acquire semaphore to limit concurrent reviews
     semaphore = get_review_semaphore()
@@ -606,20 +746,71 @@ async def process_pr_review(
 
             # Fetch PR context
             pr_context = await github_client.get_pr_context(repo_full_name, pr_number)
+            changed_files_scope: set[str] | None = None
+            changed_line_scope: dict[str, set[int]] = {}
+            review_mode = "full_pr"
+            review_mode_reason = "Non-synchronize trigger"
+            review_context = pr_context
+            if trigger_reason == "pull_request:synchronize" and synchronize_base_sha:
+                try:
+                    (
+                        changed_files_scope,
+                        changed_line_scope,
+                        changed_files_changed,
+                        scoped_diff,
+                    ) = await github_client.get_changed_scope_between_commits(
+                        repo_full_name=repo_full_name,
+                        base_sha=synchronize_base_sha,
+                        head_sha=pr_context.head_sha,
+                    )
+                    review_mode, review_mode_reason = await _decide_synchronize_review_mode(
+                        pr_context=pr_context,
+                        changed_files_changed=changed_files_changed,
+                        scoped_diff=scoped_diff,
+                    )
+                    logger.info(
+                        "Synchronize review mode for %s#%s: %s (%s)",
+                        repo_full_name,
+                        pr_number,
+                        review_mode,
+                        review_mode_reason,
+                    )
+                    if review_mode == "scoped" and changed_files_changed and scoped_diff:
+                        scoped_metadata = pr_context.metadata.model_copy(
+                            update={"files_changed": changed_files_changed}
+                        )
+                        review_context = pr_context.model_copy(
+                            update={"metadata": scoped_metadata, "diff": scoped_diff}
+                        )
+                        logger.info(
+                            "Using scoped review context (%d file(s)) for %s#%s",
+                            len(changed_files_changed),
+                            repo_full_name,
+                            pr_number,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to prepare synchronize scope for %s#%s: %s",
+                        repo_full_name,
+                        pr_number,
+                        exc,
+                    )
+                    review_mode = "full_pr"
+                    review_mode_reason = f"Scope preparation failed: {exc}"
 
             # Run fidelity analysis and main review concurrently
             fidelity_report_text = ""
             fidelity_result = None
             if settings.fidelity_enabled:
                 fidelity_report_text, fidelity_result = await _run_fidelity_analysis(
-                    github_client, repo_full_name, pr_context
+                    github_client, repo_full_name, review_context
                 )
 
             # Initialize agent and perform review
             from baloo.agent.client import BalooAgent
 
             agent = BalooAgent()
-            agent_result = await agent.review_pr(pr_context, review_id=db_review_id)
+            agent_result = await agent.review_pr(review_context, review_id=db_review_id)
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
@@ -663,6 +854,7 @@ async def process_pr_review(
 
             findings_filter = FindingsFilter()
             filtered_comments = findings_filter.filter_findings(review_result.comments)
+            filtered_comments, skipped_similar_repeats = _dedupe_similar_findings(filtered_comments)
 
             # Merge inline review threads with synthetic threads built from
             # issue-level comments (the 422-fallback path).  Without this,
@@ -677,10 +869,24 @@ async def process_pr_review(
             skipped_duplicates = 0
             skipped_resolved = 0
             skipped_responded = 0
+            skipped_unchanged_scope = 0
+            skipped_outside_line_scope = 0
 
             for comment in filtered_comments:
                 thread = _match_thread(thread_lookup, comment)
                 if not thread or not thread.is_baloo_thread:
+                    if review_mode == "scoped":
+                        if (
+                            changed_files_scope is not None
+                            and comment.path not in changed_files_scope
+                        ):
+                            skipped_unchanged_scope += 1
+                            continue
+                        if changed_files_scope is not None and not _within_changed_line_scope(
+                            comment, changed_line_scope
+                        ):
+                            skipped_outside_line_scope += 1
+                            continue
                     fresh_comments.append(comment)
                     continue
 
@@ -728,6 +934,21 @@ async def process_pr_review(
                 summary_text += f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
             if skipped_resolved:
                 summary_text += f"\n\n✅ Skipped {skipped_resolved} resolved thread(s)."
+            if skipped_similar_repeats:
+                summary_text += (
+                    f"\n\n🧹 Collapsed {skipped_similar_repeats} near-duplicate finding(s) "
+                    "from this run."
+                )
+            if skipped_unchanged_scope:
+                summary_text += (
+                    f"\n\n🧭 Skipped {skipped_unchanged_scope} finding(s) outside files changed "
+                    "in the latest push."
+                )
+            if skipped_outside_line_scope:
+                summary_text += (
+                    f"\n\n📏 Skipped {skipped_outside_line_scope} finding(s) not on or near "
+                    "lines changed in the latest push."
+                )
             if awaiting_threads:
                 summary_text += (
                     f"\n\n⏳ {awaiting_threads} Baloo thread(s) remain open from earlier reviews."
@@ -751,6 +972,10 @@ async def process_pr_review(
                 f"Low: {severity_counts.get(ReviewSeverity.LOW.value, 0)}), "
                 f"follow_ups={len(follow_up_comments)}, skipped_responded={skipped_responded}, "
                 f"skipped_duplicates={skipped_duplicates}, skipped_resolved={skipped_resolved}, "
+                f"skipped_similar_repeats={skipped_similar_repeats}, "
+                f"skipped_unchanged_scope={skipped_unchanged_scope}, "
+                f"skipped_outside_line_scope={skipped_outside_line_scope}, "
+                f"review_mode={review_mode}, "
                 f"approve={approve}, request_changes={request_changes}"
             )
 
