@@ -827,18 +827,18 @@ async def process_pr_review(
                     review_mode_reason = f"Scope preparation failed: {exc}"
 
             # Run fidelity analysis and main review concurrently
-            fidelity_report_text = ""
-            fidelity_result = None
-            if settings.fidelity_enabled:
-                fidelity_report_text, fidelity_result = await _run_fidelity_analysis(
-                    github_client, repo_full_name, review_context
-                )
-
-            # Initialize agent and perform review
             from baloo.agent.client import BalooAgent
 
             agent = BalooAgent()
-            agent_result = await agent.review_pr(review_context, review_id=db_review_id)
+
+            if settings.fidelity_enabled:
+                (fidelity_report_text, fidelity_result), agent_result = await asyncio.gather(
+                    _run_fidelity_analysis(github_client, repo_full_name, review_context),
+                    agent.review_pr(review_context, review_id=db_review_id),
+                )
+            else:
+                fidelity_report_text, fidelity_result = "", None
+                agent_result = await agent.review_pr(review_context, review_id=db_review_id)
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
