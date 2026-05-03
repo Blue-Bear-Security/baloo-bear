@@ -759,6 +759,7 @@ Serialized payload:
         last_assistant_text = ""
         all_assistant_texts: list[str] = []
         turn_count = 0
+        turn_tools: list[str] = []  # tool calls accumulated within the current turn
 
         while True:
             event = await asyncio.wait_for(
@@ -773,12 +774,19 @@ Serialized payload:
 
             if etype == "turn_end":
                 turn_count += 1
+                logger.info(
+                    "%s: turn %d — tools used: [%s]",
+                    self.agent_name,
+                    turn_count,
+                    ", ".join(turn_tools) if turn_tools else "none",
+                )
                 if review_logger:
                     await review_logger.turn_completed(
                         turn_number=turn_count,
                         tokens_in=result.input_tokens,
                         tokens_out=result.output_tokens,
                     )
+                turn_tools = []
                 # Enforce max turns
                 if turn_count >= self.options.max_turns:
                     logger.warning(
@@ -831,14 +839,15 @@ Serialized payload:
 
             elif etype == "tool_execution_start":
                 tool = event.get("toolName", "?")
-                logger.debug("%s: tool call → %s", self.agent_name, tool)
+                tool_input = event.get("input", {}) if isinstance(event.get("input"), dict) else {}
+                tool_file = (
+                    tool_input.get("path") or tool_input.get("pattern") or tool_input.get("glob")
+                )
+                tool_label = f"{tool}:{tool_file}" if tool_file else tool
+                turn_tools.append(tool_label)
+                logger.debug("%s: tool call → %s", self.agent_name, tool_label)
                 if review_logger:
-                    tool_file = (
-                        event.get("input", {}).get("path")
-                        if isinstance(event.get("input"), dict)
-                        else None
-                    )
-                    await review_logger.tool_use(tool_name=tool, file_path=tool_file)
+                    await review_logger.tool_use(tool_name=tool, file_path=tool_input.get("path"))
 
             elif etype == "agent_end":
                 break
