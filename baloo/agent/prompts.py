@@ -486,7 +486,7 @@ Use the **grep** tool to search for:
   - `.get\\(` with default values for required inputs
   - `or ""` / `or []` / `or {{}}` / `or 0` - silent default substitution for missing data
   - `try/except` blocks that do NOT contain `log`, `logger`, `logging`, `raise`, `warn`, or `print`
-  For every match, verify if the error is truly being swallowed (no logging, no re-raise, no alerting). If so, flag as CRITICAL.
+  For every match, verify if the error is truly being swallowed (no logging, no re-raise, no alerting). If so, flag as HIGH (CRITICAL only if it causes certain data loss or an exploitable security vulnerability).
 - Code duplication: Search for function names and patterns similar to changed code
 - Test coverage: Search for test files related to changed modules
 

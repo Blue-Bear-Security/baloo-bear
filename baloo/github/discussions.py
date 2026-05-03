@@ -206,7 +206,11 @@ def build_discussion_digest(
 
     if review_threads:
         for thread in review_threads[:max_items]:
-            status = "⏳" if thread.awaiting_response else ("✅" if thread.resolved else "💬")
+            status = (
+                "⏳"
+                if thread.awaiting_response
+                else ("✅" if thread.resolved else ("⏭️" if thread.outdated else "💬"))
+            )
             location = f"{thread.path}:{thread.line}" if thread.path else f"thread #{thread.id}"
             last = thread.comments[-1]
             summary = _summarize_body(last.body)
