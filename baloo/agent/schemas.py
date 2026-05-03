@@ -39,17 +39,12 @@ _SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
 # Category → minimum severity floor. Agent severity >= floor passes through;
 # agent severity < floor is escalated to the floor.
-# Performance and Quality use cap semantics (handled separately in enforce_severity).
+# Performance is always MEDIUM; Quality is capped at MEDIUM (see enforce_severity).
 _CATEGORY_MIN_SEVERITY: dict[str, str] = {
     "SECURITY": "HIGH",
     "BUGS": "HIGH",
     "SILENT FAILURES": "HIGH",
     "GUIDELINES": "HIGH",
-}
-
-# Category → maximum severity cap. Agent severity > cap is downgraded to cap.
-_CATEGORY_MAX_SEVERITY: dict[str, str] = {
-    "PERFORMANCE": "MEDIUM",
 }
 
 
@@ -129,7 +124,7 @@ def enforce_severity(finding: ReviewFinding) -> str:
     """Derive severity from category using deterministic rules.
 
     Security/Bugs/Silent Failures/Guidelines → floor of HIGH (CRITICAL passes through).
-    Performance → capped at MEDIUM (HIGH/CRITICAL downgraded).
+    Performance → always MEDIUM (LOW escalated, HIGH/CRITICAL downgraded).
     Quality → capped at MEDIUM (keeps LOW if LOW).
     Unknown categories → MEDIUM.
     """
@@ -143,11 +138,9 @@ def enforce_severity(finding: ReviewFinding) -> str:
         floor_rank = _SEVERITY_ORDER[floor]
         return agent_severity if agent_rank >= floor_rank else floor
 
-    # Cap semantics for Performance: downgrade if agent is above cap
-    cap = _CATEGORY_MAX_SEVERITY.get(category)
-    if cap is not None:
-        cap_rank = _SEVERITY_ORDER[cap]
-        return agent_severity if agent_rank <= cap_rank else cap
+    # Performance is always MEDIUM regardless of agent severity (LOW escalated, HIGH capped).
+    if category == "PERFORMANCE":
+        return "MEDIUM"
 
     # Quality: cap at MEDIUM, but don't escalate LOW
     if category == "QUALITY":

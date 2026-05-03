@@ -455,10 +455,25 @@ class TestEnforceSeverity:
         finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Performance")
         assert enforce_severity(finding) == "MEDIUM"
 
-    def test_performance_low_stays_low(self):
-        """Performance LOW is below cap, stays LOW."""
+    def test_performance_low_escalated_to_medium(self):
+        """Performance is always MEDIUM — LOW is escalated."""
         finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Performance")
-        assert enforce_severity(finding) == "LOW"
+        assert enforce_severity(finding) == "MEDIUM"
+
+    def test_bugs_high_stays_high(self):
+        """Bugs HIGH is at floor, stays HIGH."""
+        finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Bugs")
+        assert enforce_severity(finding) == "HIGH"
+
+    def test_silent_failures_high_stays_high(self):
+        """Silent Failures HIGH is at floor, stays HIGH."""
+        finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Silent Failures")
+        assert enforce_severity(finding) == "HIGH"
+
+    def test_guidelines_high_stays_high(self):
+        """Guidelines HIGH is at floor, stays HIGH."""
+        finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Guidelines")
+        assert enforce_severity(finding) == "HIGH"
 
     def test_quality_capped_at_medium(self):
         """Quality findings should be capped at MEDIUM even if LLM says CRITICAL."""
