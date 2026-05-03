@@ -368,8 +368,8 @@ class TestBalooAgentSeveritySummary:
             mock_exec.return_value = _mock_pi_process(events)
             result = await agent.review_pr(sample_pr_context)
 
-            assert "HIGH" in result.summary
-            assert "🟠" in result.summary
+            assert "Critical" in result.summary
+            assert "🔴" in result.summary
 
     @pytest.mark.asyncio
     async def test_summary_includes_low_severity(self, sample_pr_context):
