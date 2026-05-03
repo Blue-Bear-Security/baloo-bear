@@ -580,8 +580,7 @@ async def handle_webhook(
                         return {"status": "skipped", "reason": merge_reason}
 
                 # Check current queue status
-                semaphore = get_review_semaphore()
-                waiting = settings.max_concurrent_reviews - semaphore._value
+                waiting = sum(1 for t in active_reviews.values() if not t.done())
                 logger.info(
                     f"Queuing review: {repo_name}#{pr_number} (action: {action}) "
                     f"- {waiting} review(s) currently running"
@@ -747,7 +746,7 @@ async def process_pr_review(
 
     try:
         async with semaphore:
-            waiting = settings.max_concurrent_reviews - semaphore._value - 1
+            waiting = max(0, sum(1 for t in active_reviews.values() if not t.done()) - 1)
             logger.info(
                 f"Starting review for {repo_full_name}#{pr_number} "
                 f"(trigger={trigger_reason}, {waiting} other review(s) in progress)"
