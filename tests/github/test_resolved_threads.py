@@ -32,9 +32,10 @@ def _graphql_response(nodes: list[dict], has_next: bool = False, cursor: str = "
     }
 
 
-def _thread_node(comment_db_id: int, is_resolved: bool) -> dict:
+def _thread_node(comment_db_id: int, is_resolved: bool, is_outdated: bool = False) -> dict:
     return {
         "isResolved": is_resolved,
+        "isOutdated": is_outdated,
         "comments": {"nodes": [{"databaseId": comment_db_id}]},
     }
 
@@ -76,7 +77,9 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 42)
 
-        assert ids == {100, 300}
+        resolved_ids, outdated_ids = ids
+        assert resolved_ids == {100, 300}
+        assert outdated_ids == set()
 
     @pytest.mark.asyncio
     async def test_paginates(self):
@@ -100,7 +103,9 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
-        assert ids == {10, 20}
+        resolved_ids, outdated_ids = ids
+        assert resolved_ids == {10, 20}
+        assert outdated_ids == set()
         assert call_count == 2
 
     @pytest.mark.asyncio
@@ -117,7 +122,7 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
-        assert ids == set()
+        assert ids == (set(), set())
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_http_error(self):
@@ -135,7 +140,7 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
-        assert ids == set()
+        assert ids == (set(), set())
 
     @pytest.mark.asyncio
     async def test_logs_exception_type_when_resolved_thread_fetch_fails(self, caplog):
@@ -150,7 +155,7 @@ class TestFetchResolvedThreadIds:
             with caplog.at_level("WARNING", logger="baloo.github.api_client"):
                 ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
-        assert ids == set()
+        assert ids == (set(), set())
         assert "TimeoutException" in caplog.text
 
     @pytest.mark.asyncio
@@ -172,7 +177,30 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
-        assert ids == set()
+        assert ids == (set(), set())
+
+    @pytest.mark.asyncio
+    async def test_separates_outdated_from_resolved(self):
+        body = _graphql_response(
+            [
+                _thread_node(100, is_resolved=True),
+                _thread_node(200, is_resolved=False, is_outdated=True),
+                _thread_node(300, is_resolved=False),
+            ]
+        )
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post = AsyncMock(return_value=_mock_response(body))
+            mock_client_cls.return_value = mock_client
+
+            client = GitHubAPIClient(installation_id=1)
+            resolved_ids, outdated_ids = await client.fetch_resolved_thread_ids("owner/repo", 42)
+
+        assert resolved_ids == {100}
+        assert outdated_ids == {200}
 
 
 class TestApplyResolvedThreadState:

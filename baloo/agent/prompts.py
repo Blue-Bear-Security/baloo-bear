@@ -414,7 +414,7 @@ def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
         guidelines_section = (
             f"The following guidelines were fetched directly from this repository:\n\n"
             f"```\n{repo_guidelines}\n```\n\n"
-            f'Flag any violations of the conventions documented above as **CRITICAL** with category "Guidelines".\n'
+            f'Flag any violations of the conventions documented above as **HIGH** with category "Guidelines".\n'
             f"Only flag a violation if the guidelines explicitly require a specific convention."
         )
     else:

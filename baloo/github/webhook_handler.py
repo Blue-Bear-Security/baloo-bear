@@ -441,6 +441,29 @@ def _calculate_similarity(s1: str, s2: str) -> float:
     return sim
 
 
+def _build_db_findings(
+    comments: list[ReviewComment],
+    posted_review_result: PostedReviewResult | None,
+) -> list[dict]:
+    """Build the findings list for DB storage, excluding dropped comments."""
+    dropped_ids: set[int] = (
+        {id(d.comment) for d in posted_review_result.dropped}
+        if posted_review_result and posted_review_result.dropped
+        else set()
+    )
+    return [
+        {
+            "file_path": c.path,
+            "line_number": c.line,
+            "severity": c.severity,
+            "category": c.category,
+            "body": c.body,
+        }
+        for c in comments
+        if id(c) not in dropped_ids
+    ]
+
+
 def _match_thread(
     lookup: dict[str, list[DiscussionThread]], comment: ReviewComment
 ) -> DiscussionThread | None:
@@ -874,6 +897,7 @@ async def process_pr_review(
             )  # reserved for future conversational thread agent
             skipped_duplicates = 0
             skipped_resolved = 0
+            skipped_outdated = 0
             skipped_responded = 0
             skipped_unchanged_scope = 0
             skipped_outside_line_scope = 0
@@ -909,6 +933,19 @@ async def process_pr_review(
                     )
                     continue
 
+                # Thread is outdated (code was rebased/amended under the comment).
+                # The finding may still be valid but we can't place it on the
+                # current diff, so skip re-posting but don't count as responded.
+                if thread.outdated:
+                    skipped_outdated += 1
+                    logger.info(
+                        "Skipping outdated thread: %s:%s (thread %s)",
+                        comment.path,
+                        comment.line,
+                        thread.id,
+                    )
+                    continue
+
                 if thread.awaiting_response:
                     skipped_duplicates += 1
                     continue
@@ -938,6 +975,8 @@ async def process_pr_review(
                 summary_text += f"\n\n💬 Skipped {skipped_responded} thread(s) with developer responses (not re-reviewed)."
             if skipped_duplicates:
                 summary_text += f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
+            if skipped_outdated:
+                summary_text += f"\n\n⏭️ Skipped {skipped_outdated} outdated thread(s) (code changed under comment)."
             if skipped_resolved:
                 summary_text += f"\n\n✅ Skipped {skipped_resolved} resolved thread(s)."
             if skipped_similar_repeats:
@@ -978,6 +1017,7 @@ async def process_pr_review(
                 f"Low: {severity_counts.get(ReviewSeverity.LOW.value, 0)}), "
                 f"follow_ups={len(follow_up_comments)}, skipped_responded={skipped_responded}, "
                 f"skipped_duplicates={skipped_duplicates}, skipped_resolved={skipped_resolved}, "
+                f"skipped_outdated={skipped_outdated}, "
                 f"skipped_similar_repeats={skipped_similar_repeats}, "
                 f"skipped_unchanged_scope={skipped_unchanged_scope}, "
                 f"skipped_outside_line_scope={skipped_outside_line_scope}, "
@@ -1215,20 +1255,7 @@ async def process_pr_review(
                     error_message=error_detail,
                     error_category=error_category,
                     fallback_model=fallback_model,
-                    findings=[
-                        {
-                            "file_path": c.path,
-                            "line_number": c.line,
-                            "severity": c.severity,
-                            "category": c.category,
-                            "body": c.body,
-                        }
-                        for c in decision_comments
-                        if not (
-                            posted_review_result
-                            and any(d.comment is c for d in posted_review_result.dropped)
-                        )
-                    ],
+                    findings=_build_db_findings(decision_comments, posted_review_result),
                 )
 
                 await ReviewService.complete_review(

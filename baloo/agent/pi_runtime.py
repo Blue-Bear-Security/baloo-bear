@@ -58,6 +58,7 @@ class PIRunResult:
     duration_seconds: float = 0.0
     is_error: bool = False
     error_message: str = ""
+    max_turns_reached: bool = False
 
 
 def _extract_json_from_text(text: str) -> dict | None:
@@ -417,6 +418,7 @@ class PIAgentBase:
             "num_turns": result.num_turns,
             "duration_seconds": result.duration_seconds,
             "is_error": result.is_error,
+            "max_turns_reached": result.max_turns_reached,
         }
 
     # -----------------------------------------------------------------
@@ -784,6 +786,7 @@ Serialized payload:
                         self.agent_name,
                         self.options.max_turns,
                     )
+                    result.max_turns_reached = True
                     await send(self._make_command("abort"))
                     # Don't wait for abort response, just collect agent_end
                     break
