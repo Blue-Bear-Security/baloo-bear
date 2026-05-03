@@ -1,5 +1,6 @@
 """Tests for webhook handler completion messages."""
 
+import asyncio
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1340,6 +1341,7 @@ async def test_fidelity_and_agent_review_run_concurrently_when_fidelity_enabled(
             "baloo.github.webhook_handler._run_fidelity_analysis",
             side_effect=fake_run_fidelity_analysis,
         ),
+        patch("baloo.github.webhook_handler.asyncio.gather", wraps=asyncio.gather) as mock_gather,
     ):
         await process_pr_review(
             repo_full_name="test/repo",
@@ -1351,3 +1353,4 @@ async def test_fidelity_and_agent_review_run_concurrently_when_fidelity_enabled(
 
     assert fidelity_analysis_called, "_run_fidelity_analysis was not called"
     mock_agent.review_pr.assert_awaited_once()
+    mock_gather.assert_called_once()
