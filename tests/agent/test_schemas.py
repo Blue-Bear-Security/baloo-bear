@@ -227,7 +227,9 @@ class TestFindingsToComments:
             ]
         }
         comments = findings_to_comments(data)
-        assert comments[0].severity == "HIGH"  # Security → HIGH
+        assert (
+            comments[0].severity == "CRITICAL"
+        )  # Security CRITICAL passes through (floor, not cap)
         assert comments[1].severity == "MEDIUM"  # Quality MEDIUM stays MEDIUM
 
     def test_optional_fields_missing(self):
@@ -391,31 +393,72 @@ class TestNormalizeCategory:
 class TestEnforceSeverity:
     """Tests for rule-based severity enforcement by category."""
 
-    def test_security_always_high(self):
-        """Security findings map to HIGH regardless of LLM severity."""
+    def test_security_medium_escalated_to_high(self):
+        """Security MEDIUM is escalated to HIGH floor."""
         finding = ReviewFinding(file="a.py", line=1, severity="MEDIUM", category="Security")
         assert enforce_severity(finding) == "HIGH"
 
-    def test_security_low_escalated(self):
+    def test_security_low_escalated_to_high(self):
+        """Security LOW is escalated to HIGH floor."""
         finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Security")
         assert enforce_severity(finding) == "HIGH"
 
-    def test_bugs_enforced_to_high(self):
-        """Bugs category should be enforced to HIGH."""
-        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Bugs")
+    def test_security_high_stays_high(self):
+        """Security HIGH is at floor, stays HIGH."""
+        finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Security")
         assert enforce_severity(finding) == "HIGH"
 
-    def test_silent_failures_enforced_to_high(self):
+    def test_security_critical_passes_through(self):
+        """Security CRITICAL is above floor, passes through as CRITICAL."""
+        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Security")
+        assert enforce_severity(finding) == "CRITICAL"
+
+    def test_bugs_low_escalated_to_high(self):
+        """Bugs LOW is escalated to HIGH floor."""
+        finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Bugs")
+        assert enforce_severity(finding) == "HIGH"
+
+    def test_bugs_critical_passes_through(self):
+        """Bugs CRITICAL is above floor, passes through as CRITICAL."""
+        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Bugs")
+        assert enforce_severity(finding) == "CRITICAL"
+
+    def test_silent_failures_low_escalated_to_high(self):
+        """Silent Failures LOW is escalated to HIGH floor."""
         finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Silent Failures")
         assert enforce_severity(finding) == "HIGH"
 
-    def test_guidelines_enforced_to_high(self):
+    def test_silent_failures_critical_passes_through(self):
+        """Silent Failures CRITICAL passes through."""
+        finding = ReviewFinding(
+            file="a.py", line=1, severity="CRITICAL", category="Silent Failures"
+        )
+        assert enforce_severity(finding) == "CRITICAL"
+
+    def test_guidelines_medium_escalated_to_high(self):
+        """Guidelines MEDIUM is escalated to HIGH floor."""
         finding = ReviewFinding(file="a.py", line=1, severity="MEDIUM", category="Guidelines")
         assert enforce_severity(finding) == "HIGH"
 
-    def test_performance_enforced_to_medium(self):
+    def test_guidelines_critical_passes_through(self):
+        """Guidelines CRITICAL passes through."""
+        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Guidelines")
+        assert enforce_severity(finding) == "CRITICAL"
+
+    def test_performance_high_capped_to_medium(self):
+        """Performance HIGH is capped down to MEDIUM."""
         finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Performance")
         assert enforce_severity(finding) == "MEDIUM"
+
+    def test_performance_critical_capped_to_medium(self):
+        """Performance CRITICAL is capped down to MEDIUM."""
+        finding = ReviewFinding(file="a.py", line=1, severity="CRITICAL", category="Performance")
+        assert enforce_severity(finding) == "MEDIUM"
+
+    def test_performance_low_stays_low(self):
+        """Performance LOW is below cap, stays LOW."""
+        finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Performance")
+        assert enforce_severity(finding) == "LOW"
 
     def test_quality_capped_at_medium(self):
         """Quality findings should be capped at MEDIUM even if LLM says CRITICAL."""

@@ -37,14 +37,18 @@ def _normalize_severity(raw: str) -> str:
 
 _SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
-# Category → fixed severity. Quality is special (capped, not fixed).
-_CATEGORY_SEVERITY: dict[str, str] = {
-    # Security is always important but caps at HIGH so routine findings do not
-    # dominate as CRITICAL in the GitHub review signal.
+# Category → minimum severity floor. Agent severity >= floor passes through;
+# agent severity < floor is escalated to the floor.
+# Performance and Quality use cap semantics (handled separately in enforce_severity).
+_CATEGORY_MIN_SEVERITY: dict[str, str] = {
     "SECURITY": "HIGH",
     "BUGS": "HIGH",
     "SILENT FAILURES": "HIGH",
     "GUIDELINES": "HIGH",
+}
+
+# Category → maximum severity cap. Agent severity > cap is downgraded to cap.
+_CATEGORY_MAX_SEVERITY: dict[str, str] = {
     "PERFORMANCE": "MEDIUM",
 }
 
@@ -124,19 +128,32 @@ class ReviewOutput(BaseModel):
 def enforce_severity(finding: ReviewFinding) -> str:
     """Derive severity from category using deterministic rules.
 
-    Security/Bugs/Silent Failures/Guidelines → HIGH,
-    Performance → MEDIUM, Quality → capped at MEDIUM (keeps LOW if LOW).
+    Security/Bugs/Silent Failures/Guidelines → floor of HIGH (CRITICAL passes through).
+    Performance → capped at MEDIUM (HIGH/CRITICAL downgraded).
+    Quality → capped at MEDIUM (keeps LOW if LOW).
     Unknown categories → MEDIUM.
     """
     category = _normalize_category(finding.category).upper()
-    fixed = _CATEGORY_SEVERITY.get(category)
-    if fixed:
-        return fixed
+    agent_severity = finding.severity.upper()
+    agent_rank = _SEVERITY_ORDER.get(agent_severity, 2)
+
+    # Floor semantics: escalate if agent is below floor, pass through if at/above floor
+    floor = _CATEGORY_MIN_SEVERITY.get(category)
+    if floor is not None:
+        floor_rank = _SEVERITY_ORDER[floor]
+        return agent_severity if agent_rank >= floor_rank else floor
+
+    # Cap semantics for Performance: downgrade if agent is above cap
+    cap = _CATEGORY_MAX_SEVERITY.get(category)
+    if cap is not None:
+        cap_rank = _SEVERITY_ORDER[cap]
+        return agent_severity if agent_rank <= cap_rank else cap
+
     # Quality: cap at MEDIUM, but don't escalate LOW
     if category == "QUALITY":
-        llm_rank = _SEVERITY_ORDER.get(finding.severity.upper(), 2)
         cap_rank = _SEVERITY_ORDER["MEDIUM"]
-        return finding.severity.upper() if llm_rank <= cap_rank else "MEDIUM"
+        return agent_severity if agent_rank <= cap_rank else "MEDIUM"
+
     # Unknown category
     return "MEDIUM"
 
