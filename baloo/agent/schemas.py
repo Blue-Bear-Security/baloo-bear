@@ -120,6 +120,43 @@ class ReviewOutput(BaseModel):
         return super().model_validate(obj, **kwargs)
 
 
+_EXT_TO_LANG: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".java": "java",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".json": "json",
+    ".toml": "toml",
+    ".sql": "sql",
+    ".tf": "hcl",
+}
+
+
+def _lang_for_file(filename: str) -> str:
+    """Return the markdown language identifier for a given filename.
+
+    Maps common file extensions to their markdown code fence language identifiers.
+    Falls back to 'text' for unknown extensions.
+    """
+    if not filename:
+        return "text"
+    dot = filename.rfind(".")
+    if dot == -1:
+        return "text"
+    ext = filename[dot:].lower()
+    return _EXT_TO_LANG.get(ext, "text")
+
+
 def enforce_severity(finding: ReviewFinding) -> str:
     """Derive severity from category using deterministic rules.
 
@@ -129,7 +166,7 @@ def enforce_severity(finding: ReviewFinding) -> str:
     Unknown categories → MEDIUM.
     """
     category = _normalize_category(finding.category).upper()
-    agent_severity = finding.severity.upper()
+    agent_severity = _normalize_severity(finding.severity).upper()  # normalize first
     agent_rank = _SEVERITY_ORDER.get(agent_severity, 2)
 
     # Floor semantics: escalate if agent is below floor, pass through if at/above floor
@@ -207,7 +244,8 @@ def findings_to_comments(data: dict) -> list[ReviewComment]:
             body_parts.extend(["", "**Recommendation:**", finding.recommendation])
 
         if finding.code_example:
-            body_parts.extend(["", "```python", finding.code_example, "```"])
+            lang = _lang_for_file(finding.file)
+            body_parts.extend(["", f"```{lang}", finding.code_example, "```"])
         comments.append(
             ReviewComment(
                 path=finding.file or "unknown",
