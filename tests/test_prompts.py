@@ -1,6 +1,11 @@
 """Tests for prompt helpers."""
 
-from baloo.agent.prompts import _is_dependabot_pr, _is_security_patch, build_pr_review_prompt
+from baloo.agent.prompts import (
+    _is_dependabot_pr,
+    _is_security_patch,
+    _is_simple_pr,
+    build_pr_review_prompt,
+)
 
 
 def test_prompt_includes_discussion_digest():
@@ -236,6 +241,56 @@ def test_exhaustive_reporting_in_code_review_prompt():
 
     assert "Step 6: Completeness Check" in prompt
     assert 'skip any findings because you already had "enough"' in prompt
+
+
+def test_yml_files_not_classified_as_simple():
+    """PRs with only .yml files should NOT be classified as simple — they need full security review."""
+    pr_context = {"changed_file_paths": [".github/workflows/ci.yml"]}
+    assert _is_simple_pr(pr_context) is False
+
+
+def test_yaml_files_not_classified_as_simple():
+    """PRs with only .yaml files should NOT be classified as simple."""
+    pr_context = {"changed_file_paths": ["kubernetes/deployment.yaml", "helm/values.yaml"]}
+    assert _is_simple_pr(pr_context) is False
+
+
+def test_mixed_yml_and_py_not_classified_as_simple():
+    """PRs mixing .yml and .py files should NOT be classified as simple."""
+    pr_context = {"changed_file_paths": [".github/workflows/ci.yml", "app.py"]}
+    assert _is_simple_pr(pr_context) is False
+
+
+def test_requirements_txt_still_classified_as_simple():
+    """PRs with only requirements.txt should still be classified as simple (regression check)."""
+    pr_context = {"changed_file_paths": ["requirements.txt"]}
+    assert _is_simple_pr(pr_context) is True
+
+
+def test_md_files_still_classified_as_simple():
+    """PRs with only .md files should still be classified as simple."""
+    pr_context = {"changed_file_paths": ["README.md", "docs/guide.md"]}
+    assert _is_simple_pr(pr_context) is True
+
+
+def test_yml_pr_gets_full_review_prompt():
+    """A PR with only YAML files must receive the full review prompt (with grep instructions)."""
+    pr_context = {
+        "title": "Add CI pipeline",
+        "author": "dev",
+        "description": "Adds GitHub Actions workflow",
+        "base_branch": "main",
+        "head_branch": "feat/ci",
+        "files_changed": [{"filename": ".github/workflows/ci.yml"}],
+        "changed_file_paths": [".github/workflows/ci.yml"],
+        "diff": "--- a\n+++ b\n@@\n-old\n+new",
+    }
+
+    prompt = build_pr_review_prompt(pr_context)
+
+    # Full review prompt has Step 2 grep instructions; simple prompt does not
+    assert "Step 2: Search for Patterns" in prompt
+    assert "grep" in prompt.lower()
 
 
 def test_exhaustive_reporting_in_simple_pr_prompt():

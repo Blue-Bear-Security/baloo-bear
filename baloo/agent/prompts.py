@@ -110,8 +110,6 @@ def _is_simple_pr(pr_context: PRContext | dict[str, Any]) -> bool:
         "Gemfile.lock",
         ".md",
         ".txt",
-        ".yml",
-        ".yaml",
         ".toml",
         ".ini",
     ]
