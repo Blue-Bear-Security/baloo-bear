@@ -3,6 +3,7 @@
 from baloo.agent.schemas import (
     ReviewFinding,
     ReviewOutput,
+    _lang_for_file,
     _normalize_category,
     enforce_severity,
     findings_to_comments,
@@ -554,3 +555,84 @@ class TestFidelityOutput:
         assert schema["type"] == "json_schema"
         assert "schema" in schema
         assert "properties" in schema["schema"]
+
+
+class TestLangForFile:
+    """Tests for _lang_for_file helper."""
+
+    def test_python(self):
+        assert _lang_for_file("foo.py") == "python"
+
+    def test_go(self):
+        assert _lang_for_file("main.go") == "go"
+
+    def test_typescript(self):
+        assert _lang_for_file("app.ts") == "typescript"
+
+    def test_tsx(self):
+        assert _lang_for_file("component.tsx") == "typescript"
+
+    def test_javascript(self):
+        assert _lang_for_file("index.js") == "javascript"
+
+    def test_mjs(self):
+        assert _lang_for_file("module.mjs") == "javascript"
+
+    def test_rust(self):
+        assert _lang_for_file("lib.rs") == "rust"
+
+    def test_yaml(self):
+        assert _lang_for_file("config.yml") == "yaml"
+        assert _lang_for_file("config.yaml") == "yaml"
+
+    def test_toml(self):
+        assert _lang_for_file("Cargo.toml") == "toml"
+
+    def test_hcl(self):
+        assert _lang_for_file("main.tf") == "hcl"
+
+    def test_unknown_extension_returns_text(self):
+        assert _lang_for_file("styles.css") == "text"
+        assert _lang_for_file("README.md") == "text"
+
+    def test_no_extension_returns_text(self):
+        assert _lang_for_file("Makefile") == "text"
+
+    def test_empty_string_returns_text(self):
+        assert _lang_for_file("") == "text"
+
+    def test_case_insensitive(self):
+        assert _lang_for_file("script.PY") == "python"
+        assert _lang_for_file("main.GO") == "go"
+
+    def test_go_finding_produces_go_fence(self):
+        """End-to-end: a .go file finding produces ```go code fence."""
+        data = {
+            "findings": [
+                {
+                    "file": "cmd/main.go",
+                    "line": 10,
+                    "title": "Error not checked",
+                    "description": "Return value ignored",
+                    "code_example": "f, _ := os.Open(path)",
+                }
+            ]
+        }
+        comments = findings_to_comments(data)
+        assert "```go" in comments[0].body
+
+    def test_ts_finding_produces_typescript_fence(self):
+        """End-to-end: a .ts file finding produces ```typescript code fence."""
+        data = {
+            "findings": [
+                {
+                    "file": "src/api.ts",
+                    "line": 5,
+                    "title": "Any type usage",
+                    "description": "Avoid any",
+                    "code_example": "const x: any = getValue();",
+                }
+            ]
+        }
+        comments = findings_to_comments(data)
+        assert "```typescript" in comments[0].body
