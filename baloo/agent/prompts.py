@@ -99,6 +99,9 @@ def _is_simple_pr(pr_context: PRContext | dict[str, Any]) -> bool:
     """Check if this is a simple PR that doesn't need extensive analysis."""
     changed_files = _ctx_get(pr_context, "changed_file_paths", [])
 
+    if not changed_files:
+        return False
+
     # Check if all files are dependency or config files
     simple_file_patterns = [
         "requirements.txt",
@@ -110,10 +113,6 @@ def _is_simple_pr(pr_context: PRContext | dict[str, Any]) -> bool:
         "Gemfile.lock",
         ".md",
         ".txt",
-        ".yml",
-        ".yaml",
-        ".toml",
-        ".ini",
     ]
 
     return all(any(f.endswith(pattern) for pattern in simple_file_patterns) for f in changed_files)
