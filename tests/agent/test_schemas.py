@@ -494,6 +494,11 @@ class TestEnforceSeverity:
         finding = ReviewFinding(file="a.py", line=1, severity="HIGH", category="Unknown")
         assert enforce_severity(finding) == "MEDIUM"
 
+    def test_quality_unknown_severity_normalized_to_medium(self):
+        """Unrecognized severity string for Quality is normalized to MEDIUM, not returned as-is."""
+        finding = ReviewFinding(file="a.py", line=1, severity="SEVERE", category="Quality")
+        assert enforce_severity(finding) == "MEDIUM"
+
     def test_findings_to_comments_uses_enforcement(self):
         """End-to-end: findings_to_comments should apply severity enforcement."""
         data = {

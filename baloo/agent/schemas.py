@@ -166,7 +166,7 @@ def enforce_severity(finding: ReviewFinding) -> str:
     Unknown categories → MEDIUM.
     """
     category = _normalize_category(finding.category).upper()
-    agent_severity = finding.severity.upper()
+    agent_severity = _normalize_severity(finding.severity).upper()  # normalize first
     agent_rank = _SEVERITY_ORDER.get(agent_severity, 2)
 
     # Floor semantics: escalate if agent is below floor, pass through if at/above floor
