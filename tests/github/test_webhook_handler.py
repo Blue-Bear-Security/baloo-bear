@@ -1291,3 +1291,63 @@ async def test_does_not_approve_with_low_fidelity_score():
         for call in calls:
             review_result = call[0][2]
             assert review_result.approve is False
+
+
+@pytest.mark.asyncio
+async def test_fidelity_and_agent_review_run_concurrently_when_fidelity_enabled():
+    """When fidelity is enabled, both fidelity analysis and agent review are invoked."""
+    mock_github_client = MagicMock()
+    mock_github_client.post_comment = AsyncMock(return_value=12345)
+    mock_github_client.edit_comment = AsyncMock()
+    mock_github_client.post_review = AsyncMock(
+        return_value=PostedReviewResult(attempted=0, posted=0, dropped=[])
+    )
+    mock_github_client.reply_to_review_comment = AsyncMock()
+
+    mock_pr_context = MagicMock()
+    mock_pr_context.discussion_threads = []
+    mock_pr_context.issue_comments = []
+    mock_pr_context.awaiting_response_threads = 0
+    mock_pr_context.head_sha = "abc123"
+    mock_pr_context.head_branch = "feat/DEN-999/my-feature"
+    mock_pr_context.title = "My feature"
+    mock_pr_context.description = "Does something"
+    mock_pr_context.diff = "+ added code"
+    mock_github_client.get_pr_context = AsyncMock(return_value=mock_pr_context)
+
+    mock_agent = MagicMock()
+    mock_agent.review_pr = AsyncMock(
+        return_value=ReviewResult(
+            summary="Review complete",
+            comments=[],
+            approve=True,
+            request_changes=False,
+        )
+    )
+
+    fidelity_analysis_called = []
+
+    async def fake_run_fidelity_analysis(*args, **kwargs):
+        fidelity_analysis_called.append(True)
+        return "", None
+
+    with (
+        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
+        patch("baloo.config.settings.settings.fidelity_enabled", True),
+        patch("baloo.config.settings.settings.review_auto_approve", False),
+        patch(
+            "baloo.github.webhook_handler._run_fidelity_analysis",
+            side_effect=fake_run_fidelity_analysis,
+        ),
+    ):
+        await process_pr_review(
+            repo_full_name="test/repo",
+            pr_number=123,
+            installation_id=456,
+            trigger_reason="test",
+            notify_progress=False,
+        )
+
+    assert fidelity_analysis_called, "_run_fidelity_analysis was not called"
+    mock_agent.review_pr.assert_awaited_once()
