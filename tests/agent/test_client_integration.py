@@ -157,6 +157,20 @@ class TestBalooAgentErrorHandling:
             assert result.approve is True  # No issues = approve
 
     @pytest.mark.asyncio
+    async def test_max_turns_reached_sets_error_category(self, sample_pr_context):
+        """When PI hits its turn limit, error_category must be max_turns_reached not no_output."""
+        with patch.object(
+            BalooAgent,
+            "_run_with_fallback",
+            new=AsyncMock(return_value=(None, {"max_turns_reached": True, "num_turns": 20})),
+        ):
+            agent = BalooAgent()
+            result = await agent.review_pr(sample_pr_context)
+
+        assert result.metadata["agent_error"] is True
+        assert result.metadata["error_category"] == "max_turns_reached"
+
+    @pytest.mark.asyncio
     async def test_review_pr_handles_error_stop_reason(self, sample_pr_context):
         """Test handling of error stop reason from PI."""
         events = _make_pi_events(None, is_error=True)
@@ -197,8 +211,8 @@ class TestBalooAgentSuccessPath:
 
             assert len(result.comments) == 1
             assert result.comments[0].path == "test.py"
-            assert result.comments[0].severity == "CRITICAL"  # Security enforced to CRITICAL
-            assert result.approve is False  # CRITICAL severity = request changes
+            assert result.comments[0].severity == "HIGH"  # Security enforced to HIGH
+            assert result.approve is False  # HIGH severity still requests changes
             assert result.request_changes is True
 
     @pytest.mark.asyncio
@@ -354,8 +368,8 @@ class TestBalooAgentSeveritySummary:
             mock_exec.return_value = _mock_pi_process(events)
             result = await agent.review_pr(sample_pr_context)
 
-            assert "CRITICAL" in result.summary
-            assert "🔴" in result.summary
+            assert "HIGH" in result.summary
+            assert "🟠" in result.summary
 
     @pytest.mark.asyncio
     async def test_summary_includes_low_severity(self, sample_pr_context):

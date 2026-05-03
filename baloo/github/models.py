@@ -117,6 +117,7 @@ class DiscussionThread(BaseModel):
     is_baloo_thread: bool = False
     awaiting_response: bool = False
     resolved: bool = False
+    outdated: bool = False
     last_activity: datetime
     root_comment_id: int | None = None
 

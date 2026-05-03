@@ -83,7 +83,10 @@ class BalooAgent(PIAgentBase):
                     metadata.get("is_error"),
                 )
                 metadata["agent_error"] = True
-                metadata["error_category"] = metadata.get("error_category", "no_output")
+                if metadata.get("max_turns_reached"):
+                    metadata["error_category"] = "max_turns_reached"
+                else:
+                    metadata["error_category"] = metadata.get("error_category", "no_output")
 
             # Generate summary using shared formatter
             summary = CommentFormatter.format_summary(comments, metadata)

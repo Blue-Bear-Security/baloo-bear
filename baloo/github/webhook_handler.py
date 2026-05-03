@@ -148,6 +148,11 @@ async def health() -> dict[str, str]:
 
 # Max lines difference to consider a finding as part of an existing thread
 LINE_MATCH_TOLERANCE = 5
+# When the anchor line moved (edits above the hunk), still match the same issue
+# if signatures are clearly the same (stricter similarity threshold).
+LINE_MATCH_TOLERANCE_LOOSE = 18
+# Minimum similarity for loose (wider line window) dedupe against prior threads.
+_LINE_MATCH_LOOSE_MIN_SIMILARITY = 0.55
 
 
 def _build_thread_lookup(threads: list[DiscussionThread]) -> dict[str, list[DiscussionThread]]:
@@ -436,6 +441,29 @@ def _calculate_similarity(s1: str, s2: str) -> float:
     return sim
 
 
+def _build_db_findings(
+    comments: list[ReviewComment],
+    posted_review_result: PostedReviewResult | None,
+) -> list[dict]:
+    """Build the findings list for DB storage, excluding dropped comments."""
+    dropped_ids: set[int] = (
+        {id(d.comment) for d in posted_review_result.dropped}
+        if posted_review_result and posted_review_result.dropped
+        else set()
+    )
+    return [
+        {
+            "file_path": c.path,
+            "line_number": c.line,
+            "severity": c.severity,
+            "category": c.category,
+            "body": c.body,
+        }
+        for c in comments
+        if id(c) not in dropped_ids
+    ]
+
+
 def _match_thread(
     lookup: dict[str, list[DiscussionThread]], comment: ReviewComment
 ) -> DiscussionThread | None:
@@ -452,8 +480,9 @@ def _match_thread(
 
     comment_sig = _extract_issue_signature(comment.body)
 
-    best_match = None
-    best_similarity = 0.0
+    # Prefer higher similarity, then closer line (tuple sorts ascending).
+    best_key: tuple[float, int] | None = None
+    best_match: DiscussionThread | None = None
 
     for thread in threads_in_file:
         # 1. Skip non-Baloo threads (but keep resolved ones — the caller
@@ -461,36 +490,36 @@ def _match_thread(
         if not thread.is_baloo_thread:
             continue
 
-        # 2. Check if line is within tolerance
-        line_diff = abs(thread.line - comment.line)
-        if line_diff > LINE_MATCH_TOLERANCE:
+        if not thread.comments:
             continue
 
-        # 3. Check content similarity
-        if not thread.comments:
+        line_diff = abs(thread.line - comment.line)
+        if line_diff > LINE_MATCH_TOLERANCE_LOOSE:
             continue
 
         thread_sig = _extract_issue_signature(thread.comments[0].body)
         similarity = _calculate_similarity(comment_sig, thread_sig)
 
-        # DEBUG
-        # print(f"Comparing line {comment.line} with thread at {thread.line}")
-        # print(f"Similarity: {similarity}")
-        # print(f"S1: {comment_sig}")
-        # print(f"S2: {thread_sig}")
-
-        # 4. If exact line match and very high similarity, it's a definite match
+        # Definite match: same anchor line and very high similarity
         if line_diff == 0 and similarity > 0.8:
             return thread
 
-        # 5. Otherwise, track the best fuzzy match
-        if similarity > best_similarity:
-            best_similarity = similarity
+        strict_band = line_diff <= LINE_MATCH_TOLERANCE and similarity >= 0.2
+        loose_band = (
+            line_diff > LINE_MATCH_TOLERANCE
+            and line_diff <= LINE_MATCH_TOLERANCE_LOOSE
+            and similarity >= _LINE_MATCH_LOOSE_MIN_SIMILARITY
+        )
+        if not (strict_band or loose_band):
+            continue
+
+        # Minimize (-similarity, line_diff) == prefer higher sim, closer line
+        key = (-similarity, line_diff)
+        if best_key is None or key < best_key:
+            best_key = key
             best_match = thread
 
-    # Return best match if it's "similar enough"
-    # Threshold 0.2 catches semantically related but differently phrased issues
-    return best_match if best_similarity >= 0.2 else None
+    return best_match
 
 
 @app.post("/webhook")
@@ -868,6 +897,7 @@ async def process_pr_review(
             )  # reserved for future conversational thread agent
             skipped_duplicates = 0
             skipped_resolved = 0
+            skipped_outdated = 0
             skipped_responded = 0
             skipped_unchanged_scope = 0
             skipped_outside_line_scope = 0
@@ -903,6 +933,19 @@ async def process_pr_review(
                     )
                     continue
 
+                # Thread is outdated (code was rebased/amended under the comment).
+                # The finding may still be valid but we can't place it on the
+                # current diff, so skip re-posting but don't count as responded.
+                if thread.outdated:
+                    skipped_outdated += 1
+                    logger.info(
+                        "Skipping outdated thread: %s:%s (thread %s)",
+                        comment.path,
+                        comment.line,
+                        thread.id,
+                    )
+                    continue
+
                 if thread.awaiting_response:
                     skipped_duplicates += 1
                     continue
@@ -932,6 +975,8 @@ async def process_pr_review(
                 summary_text += f"\n\n💬 Skipped {skipped_responded} thread(s) with developer responses (not re-reviewed)."
             if skipped_duplicates:
                 summary_text += f"\n\n↪️ Skipped {skipped_duplicates} existing Baloo thread(s) already awaiting a response."
+            if skipped_outdated:
+                summary_text += f"\n\n⏭️ Skipped {skipped_outdated} outdated thread(s) (code changed under comment)."
             if skipped_resolved:
                 summary_text += f"\n\n✅ Skipped {skipped_resolved} resolved thread(s)."
             if skipped_similar_repeats:
@@ -972,6 +1017,7 @@ async def process_pr_review(
                 f"Low: {severity_counts.get(ReviewSeverity.LOW.value, 0)}), "
                 f"follow_ups={len(follow_up_comments)}, skipped_responded={skipped_responded}, "
                 f"skipped_duplicates={skipped_duplicates}, skipped_resolved={skipped_resolved}, "
+                f"skipped_outdated={skipped_outdated}, "
                 f"skipped_similar_repeats={skipped_similar_repeats}, "
                 f"skipped_unchanged_scope={skipped_unchanged_scope}, "
                 f"skipped_outside_line_scope={skipped_outside_line_scope}, "
@@ -1112,11 +1158,6 @@ async def process_pr_review(
                         completion_msg += (
                             f"\n\nPosted {posted_review_result.posted} inline comment(s)."
                         )
-                        if posted_review_result.dropped:
-                            completion_msg += (
-                                f" Dropped {len(posted_review_result.dropped)} inline finding(s) "
-                                "that could not be placed on the diff; details were logged."
-                            )
                 elif not request_changes and approve:
                     completion_msg = (
                         f"✅ Baloo review completed in {review_duration}s. No issues found!"
@@ -1214,16 +1255,7 @@ async def process_pr_review(
                     error_message=error_detail,
                     error_category=error_category,
                     fallback_model=fallback_model,
-                    findings=[
-                        {
-                            "file_path": c.path,
-                            "line_number": c.line,
-                            "severity": c.severity,
-                            "category": c.category,
-                            "body": c.body,
-                        }
-                        for c in decision_comments
-                    ],
+                    findings=_build_db_findings(decision_comments, posted_review_result),
                 )
 
                 await ReviewService.complete_review(
