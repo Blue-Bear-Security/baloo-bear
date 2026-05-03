@@ -579,16 +579,15 @@ async def handle_webhook(
                         logger.info(f"Skipping review for {repo_name}#{pr_number}: {merge_reason}")
                         return {"status": "skipped", "reason": merge_reason}
 
-                # Check current queue status
-                semaphore = get_review_semaphore()
-                waiting = settings.max_concurrent_reviews - semaphore._value
-                logger.info(
-                    f"Queuing review: {repo_name}#{pr_number} (action: {action}) "
-                    f"- {waiting} review(s) currently running"
-                )
-
                 # Cancel redundant review if one exists
                 cancel_existing_review(repo_name, pr_number)
+
+                # Check current queue status (after cancel so the old task isn't counted)
+                active_count = sum(1 for t in active_reviews.values() if not t.done())
+                logger.info(
+                    f"Queuing review: {repo_name}#{pr_number} (action: {action}) "
+                    f"- {active_count} review(s) active (running or queued)"
+                )
 
                 # Process PR review in background
                 task = asyncio.create_task(
@@ -606,7 +605,7 @@ async def handle_webhook(
                 # Add to FastAPI background tasks so it isn't garbage collected early
                 background_tasks.add_task(lambda: None)
 
-                return {"status": "queued", "queue_depth": waiting}
+                return {"status": "queued", "active_count": active_count}
             elif action == "closed":
                 if webhook_payload.pull_request.merged:
                     logger.info(f"PR merged: {repo_name}#{pr_number} — triggering outcome labeling")
@@ -747,10 +746,10 @@ async def process_pr_review(
 
     try:
         async with semaphore:
-            waiting = settings.max_concurrent_reviews - semaphore._value - 1
+            active_count = max(0, sum(1 for t in active_reviews.values() if not t.done()) - 1)
             logger.info(
                 f"Starting review for {repo_full_name}#{pr_number} "
-                f"(trigger={trigger_reason}, {waiting} other review(s) in progress)"
+                f"(trigger={trigger_reason}, {active_count} other review(s) active)"
             )
 
             # Create in-progress review row in database
