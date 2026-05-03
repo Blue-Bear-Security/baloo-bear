@@ -39,7 +39,9 @@ _SEVERITY_ORDER = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
 
 # Category → fixed severity. Quality is special (capped, not fixed).
 _CATEGORY_SEVERITY: dict[str, str] = {
-    "SECURITY": "CRITICAL",
+    # Security is always important but caps at HIGH so routine findings do not
+    # dominate as CRITICAL in the GitHub review signal.
+    "SECURITY": "HIGH",
     "BUGS": "HIGH",
     "SILENT FAILURES": "HIGH",
     "GUIDELINES": "HIGH",
@@ -122,7 +124,7 @@ class ReviewOutput(BaseModel):
 def enforce_severity(finding: ReviewFinding) -> str:
     """Derive severity from category using deterministic rules.
 
-    Security → CRITICAL, Bugs/Silent Failures/Guidelines → HIGH,
+    Security/Bugs/Silent Failures/Guidelines → HIGH,
     Performance → MEDIUM, Quality → capped at MEDIUM (keeps LOW if LOW).
     Unknown categories → MEDIUM.
     """

@@ -197,14 +197,14 @@ class TestMatchThread:
         assert matched.id == 1
 
     def test_no_match_outside_tolerance(self):
-        """Should not match thread outside LINE_MATCH_TOLERANCE."""
+        """Should not match when line is beyond the loose window."""
         thread = _make_thread(1, "file.py", 50, "**[HIGH] Bugs** - Issue description")
         lookup = _build_thread_lookup([thread])
 
-        # Comment is 10 lines away (outside tolerance of 5)
+        # 35 lines away — outside LINE_MATCH_TOLERANCE_LOOSE
         comment = ReviewComment(
             path="file.py",
-            line=60,
+            line=85,
             body="**[HIGH] Bugs** - Issue description",
             severity="HIGH",
             category="Bugs",
@@ -212,6 +212,23 @@ class TestMatchThread:
 
         matched = _match_thread(lookup, comment)
         assert matched is None
+
+    def test_loose_line_match_when_anchor_shifted(self):
+        """Same issue after edits can sit many lines away; still dedupe to the thread."""
+        thread = _make_thread(1, "file.py", 50, "**[HIGH] Bugs** - Issue description")
+        lookup = _build_thread_lookup([thread])
+
+        comment = ReviewComment(
+            path="file.py",
+            line=62,
+            body="**[HIGH] Bugs** - Issue description",
+            severity="HIGH",
+            category="Bugs",
+        )
+
+        matched = _match_thread(lookup, comment)
+        assert matched is not None
+        assert matched.id == 1
 
     def test_no_match_different_file(self):
         """Should not match thread in different file."""

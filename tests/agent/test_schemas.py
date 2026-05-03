@@ -191,7 +191,7 @@ class TestFindingsToComments:
         assert len(comments) == 1
         assert comments[0].path == "test.py"
         assert comments[0].line == 10
-        assert comments[0].severity == "CRITICAL"  # Security enforced to CRITICAL
+        assert comments[0].severity == "HIGH"  # Security enforced to HIGH
         assert comments[0].category == "Security"
         assert "SQL Injection Risk" in comments[0].body
         assert "Data breach possible" in comments[0].body
@@ -227,7 +227,7 @@ class TestFindingsToComments:
             ]
         }
         comments = findings_to_comments(data)
-        assert comments[0].severity == "CRITICAL"  # Security → CRITICAL
+        assert comments[0].severity == "HIGH"  # Security → HIGH
         assert comments[1].severity == "MEDIUM"  # Quality MEDIUM stays MEDIUM
 
     def test_optional_fields_missing(self):
@@ -391,14 +391,14 @@ class TestNormalizeCategory:
 class TestEnforceSeverity:
     """Tests for rule-based severity enforcement by category."""
 
-    def test_security_always_critical(self):
-        """Security findings should always be CRITICAL regardless of LLM severity."""
+    def test_security_always_high(self):
+        """Security findings map to HIGH regardless of LLM severity."""
         finding = ReviewFinding(file="a.py", line=1, severity="MEDIUM", category="Security")
-        assert enforce_severity(finding) == "CRITICAL"
+        assert enforce_severity(finding) == "HIGH"
 
     def test_security_low_escalated(self):
         finding = ReviewFinding(file="a.py", line=1, severity="LOW", category="Security")
-        assert enforce_severity(finding) == "CRITICAL"
+        assert enforce_severity(finding) == "HIGH"
 
     def test_bugs_enforced_to_high(self):
         """Bugs category should be enforced to HIGH."""
@@ -458,8 +458,8 @@ class TestEnforceSeverity:
             ]
         }
         comments = findings_to_comments(data)
-        # Security MEDIUM should be escalated to CRITICAL
-        assert comments[0].severity == "CRITICAL"
+        # Security MEDIUM should be escalated to HIGH
+        assert comments[0].severity == "HIGH"
         # Quality CRITICAL should be capped to MEDIUM
         assert comments[1].severity == "MEDIUM"
 

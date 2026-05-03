@@ -36,6 +36,17 @@ def run_git(args: Sequence[str], cwd: str | None = None, check: bool = True) -> 
     return proc.stdout.rstrip("\n")
 
 
+def _git_start_path(git_workdir: str | Path | None) -> Path:
+    """Directory used to resolve the git repo root (repo or any path inside it)."""
+    if git_workdir is not None:
+        start = Path(git_workdir).expanduser().resolve()
+    else:
+        start = Path.cwd()
+    if not start.exists():
+        raise RuntimeError(f"Git workdir does not exist: {start}")
+    return start
+
+
 def build_local_pr_context(
     *,
     base: str,
@@ -44,10 +55,24 @@ def build_local_pr_context(
     description: str,
     author: str,
     repo_full_name: str | None = None,
+    git_workdir: str | Path | None = None,
     git: GitRunner = run_git,
 ) -> PRContext:
-    """Build a synthetic PRContext from local git diff data."""
-    repo_root = git(["rev-parse", "--show-toplevel"], None, True)
+    """Build a synthetic PRContext from local git diff data.
+
+    Args:
+        git_workdir: Filesystem path to the repository (or a path inside it) whose
+            ``git diff base...head`` should be reviewed. When omitted, ``Path.cwd()``
+            is used — set this when running via ``uv run --directory …`` so the
+            process cwd is not the repo under review.
+    """
+    start = _git_start_path(git_workdir)
+    try:
+        repo_root = git(["rev-parse", "--show-toplevel"], str(start), True)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"Not a git repository (failed rev-parse --show-toplevel from {start})"
+        ) from exc
     head_branch = git(["rev-parse", "--abbrev-ref", head], repo_root, True)
     head_sha = git(["rev-parse", head], repo_root, True)
     diff_range = f"{base}...{head}"
@@ -111,9 +136,24 @@ async def run_local_review(
 
 
 async def async_main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=(
+            "When using `uv run --directory /path/to/baloo-bear`, the process cwd is "
+            "that project — pass `--git-workdir /path/to/repo-under-review` so diffs "
+            "and guidelines load from the correct repository."
+        ),
+    )
     parser.add_argument("--base", default="origin/main", help="Base ref for the comparison")
     parser.add_argument("--head", default="HEAD", help="Head ref for the comparison")
+    parser.add_argument(
+        "--git-workdir",
+        metavar="PATH",
+        help=(
+            "Git repository root (or any path inside it) for diff/refs; "
+            "defaults to current working directory"
+        ),
+    )
     parser.add_argument("--title", default="Local Baloo review", help="Synthetic PR title")
     parser.add_argument("--description", default="", help="Synthetic PR description")
     parser.add_argument("--author", default="local", help="Synthetic PR author")
@@ -135,6 +175,7 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
             description=args.description,
             author=args.author,
             repo_full_name=args.repo_full_name,
+            git_workdir=args.git_workdir,
         )
         return await run_local_review(
             context=context,

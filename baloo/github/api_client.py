@@ -730,6 +730,7 @@ class GitHubAPIClient:
                 pageInfo { hasNextPage endCursor }
                 nodes {
                   isResolved
+                  isOutdated
                   comments(first: 1) {
                     nodes { databaseId }
                   }
@@ -777,7 +778,7 @@ class GitHubAPIClient:
                     for node in threads_data.get("nodes", []):
                         if node is None:
                             continue
-                        if node.get("isResolved"):
+                        if node.get("isResolved") or node.get("isOutdated"):
                             comments = node.get("comments", {}).get("nodes", [])
                             if comments and comments[0].get("databaseId"):
                                 resolved_ids.add(comments[0]["databaseId"])

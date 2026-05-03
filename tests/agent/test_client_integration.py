@@ -197,8 +197,8 @@ class TestBalooAgentSuccessPath:
 
             assert len(result.comments) == 1
             assert result.comments[0].path == "test.py"
-            assert result.comments[0].severity == "CRITICAL"  # Security enforced to CRITICAL
-            assert result.approve is False  # CRITICAL severity = request changes
+            assert result.comments[0].severity == "HIGH"  # Security enforced to HIGH
+            assert result.approve is False  # HIGH severity still requests changes
             assert result.request_changes is True
 
     @pytest.mark.asyncio
@@ -354,8 +354,8 @@ class TestBalooAgentSeveritySummary:
             mock_exec.return_value = _mock_pi_process(events)
             result = await agent.review_pr(sample_pr_context)
 
-            assert "CRITICAL" in result.summary
-            assert "🔴" in result.summary
+            assert "HIGH" in result.summary
+            assert "🟠" in result.summary
 
     @pytest.mark.asyncio
     async def test_summary_includes_low_severity(self, sample_pr_context):

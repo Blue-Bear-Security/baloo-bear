@@ -179,6 +179,8 @@ uv run python scripts/local_review.py
 uv run python scripts/local_review.py --base origin/main --head HEAD
 uv run python scripts/local_review.py --json
 uv run python scripts/local_review.py --fail-on-blocking   # exit 1 if CRITICAL/HIGH findings
+# Review another clone while cwd is baloo-bear (e.g. uv --directory this repo):
+uv run python scripts/local_review.py --git-workdir /path/to/other-repo --base origin/main --head HEAD
 ```
 
 See [docs/development.md](docs/development.md) for the full contributor guide.
