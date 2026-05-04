@@ -181,9 +181,8 @@ async def test_reverify_skips_threads_without_node_id():
             api_client=mock_api,
         )
 
-    # Called with empty list (no eligible threads)
-    verify_call_comments = mock_instance.verify.call_args[0][0]
-    assert verify_call_comments == []
+    # Early return: verifier is never called when no eligible threads
+    mock_instance.verify.assert_not_called()
     assert resolved_count == 0
 
 

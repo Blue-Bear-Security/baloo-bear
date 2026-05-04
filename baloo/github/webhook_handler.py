@@ -430,6 +430,7 @@ async def _reverify_awaiting_threads(
     eligible = [t for t in awaiting_threads if t.node_id]
     if not eligible:
         logger.info("No awaiting threads with node_id — skipping re-verification")
+        return 0
 
     comments = [_comment_from_thread(t) for t in eligible]
 
@@ -454,11 +455,23 @@ async def _reverify_awaiting_threads(
         repo = pr_context.repo_full_name
 
         if thread.root_comment_id is not None:
-            await api_client.reply_to_review_comment(
-                repo,
-                thread.root_comment_id,
-                "Looks like this was addressed in the latest commit. Resolving.",
-            )
+            try:
+                replied = await api_client.reply_to_review_comment(
+                    repo,
+                    thread.root_comment_id,
+                    "Looks like this was addressed in the latest commit. Resolving.",
+                )
+                if not replied:
+                    logger.warning(
+                        "Failed to post resolution reply on thread %s — resolving anyway",
+                        thread.node_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Error posting resolution reply on thread %s: %s — resolving anyway",
+                    thread.node_id,
+                    exc,
+                )
 
         await api_client.resolve_review_thread(thread.node_id)
         resolved_count += 1
