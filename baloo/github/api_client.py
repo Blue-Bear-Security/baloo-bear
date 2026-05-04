@@ -567,6 +567,43 @@ class GitHubAPIClient:
             response.raise_for_status()
             return True
 
+    async def resolve_review_thread(self, thread_node_id: str) -> bool:
+        """Resolve a pull request review thread via GraphQL mutation.
+
+        Args:
+            thread_node_id: The GraphQL node ID of the thread (PullRequestReviewThread.id).
+
+        Returns:
+            True on success, False on any error (fail-open — a failed resolve is not fatal).
+        """
+        mutation = """
+        mutation($threadId: ID!) {
+          resolveReviewThread(input: {threadId: $threadId}) {
+            thread { id isResolved }
+          }
+        }
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.github.com/graphql",
+                    headers=self._get_headers(),
+                    json={"query": mutation, "variables": {"threadId": thread_node_id}},
+                )
+                response.raise_for_status()
+                body = response.json()
+                if "errors" in body:
+                    logger.warning(
+                        "GraphQL error resolving thread %s: %s",
+                        thread_node_id,
+                        body["errors"],
+                    )
+                    return False
+                return True
+        except Exception as exc:
+            logger.warning("Failed to resolve thread %s: %s", thread_node_id, exc)
+            return False
+
     async def get_commit_info(self, repo_full_name: str, commit_sha: str) -> dict:
         """
         Fetch information about a specific commit.
