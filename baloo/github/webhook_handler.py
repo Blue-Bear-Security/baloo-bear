@@ -35,6 +35,7 @@ from baloo.github.auth import verify_webhook_signature
 from baloo.github.models import (
     DiscussionComment,
     DiscussionThread,
+    FindingCategory,
     PRContext,
     PullRequestWebhookPayload,
     ReviewComment,
@@ -362,6 +363,50 @@ def _extract_issue_signature(body: str) -> str:
 
     # Fallback: normalize the whole body
     return " ".join(body.strip().lower().split())
+
+
+_SEVERITY_RE = re.compile(r"\*\*\[(\w+)\]\s+\w[\w ]*\*\*")
+_CATEGORY_RE = re.compile(r"\*\*\[(?:\w+)\]\s+([\w][\w ]*?)\*\*")
+
+_CATEGORY_MAP: dict[str, FindingCategory] = {
+    "security": FindingCategory.SECURITY,
+    "bugs": FindingCategory.BUGS,
+    "silent failures": FindingCategory.SILENT_FAILURES,
+    "guidelines": FindingCategory.GUIDELINES,
+    "performance": FindingCategory.PERFORMANCE,
+    "quality": FindingCategory.QUALITY,
+}
+
+
+def _comment_from_thread(thread: DiscussionThread) -> ReviewComment:
+    """Reconstruct a ReviewComment from a Baloo DiscussionThread for re-verification.
+
+    Parses severity and category from the root comment body using the Baloo
+    comment format: **[SEVERITY] Category** - **Title**
+    Falls back to MEDIUM/QUALITY if the body doesn't match.
+    """
+    body = thread.comments[0].body if thread.comments else ""
+
+    severity = ReviewSeverity.MEDIUM
+    m = _SEVERITY_RE.search(body)
+    if m:
+        try:
+            severity = ReviewSeverity(m.group(1).upper())
+        except ValueError:
+            pass
+
+    category = FindingCategory.QUALITY
+    m2 = _CATEGORY_RE.search(body)
+    if m2:
+        category = _CATEGORY_MAP.get(m2.group(1).lower().strip(), FindingCategory.QUALITY)
+
+    return ReviewComment(
+        path=thread.path or "",
+        line=thread.line or 0,
+        body=body,
+        severity=severity,
+        category=category,
+    )
 
 
 def _dedupe_similar_findings(comments: list[ReviewComment]) -> tuple[list[ReviewComment], int]:
