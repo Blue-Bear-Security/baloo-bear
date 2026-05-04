@@ -218,7 +218,7 @@ def test_exhaustive_reporting_in_system_prompt():
     from baloo.agent.prompts import REVIEW_SYSTEM_PROMPT
 
     assert "Exhaustive Reporting" in REVIEW_SYSTEM_PROMPT
-    assert "drip-feeds" in REVIEW_SYSTEM_PROMPT
+    assert "single pass" in REVIEW_SYSTEM_PROMPT
     assert "completeness check" in REVIEW_SYSTEM_PROMPT
     # "balanced" was removed to avoid self-limiting
     assert "balanced" not in REVIEW_SYSTEM_PROMPT

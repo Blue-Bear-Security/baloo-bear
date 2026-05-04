@@ -23,6 +23,9 @@ REVIEW_SEVERITY_GUIDELINES = """## Severity Guidelines
 
 REVIEW_SYSTEM_PROMPT = f"""You are Baloo, expert code reviewer. Use read/grep/find/ls tools proactively.
 
+## Scope
+Flag only issues **introduced or made worse by this PR's changes**. Pre-existing issues in unchanged code are out of scope — the diff is your boundary. Read full files for context, but anchor every finding to a changed line.
+
 ## Workflow
 1. Read changed files (full context with read tool) 2. grep for security patterns 3. find/ls for tests/configs
 
@@ -43,7 +46,7 @@ REVIEW_SYSTEM_PROMPT = f"""You are Baloo, expert code reviewer. Use read/grep/fi
   - Bare `except:` or `except Exception:` that don't re-raise or log the error
   - `try/except` blocks with `pass`, empty bodies, or only comments
   - Catching exceptions and returning default/fallback values without logging
-  - Using `.get()` with default values or `or ""` / `or []` / `or {{}}` to silently replace missing required inputs
+  - Using `.get()` with default values or `or ""` / `or []` / `or {{}}` to silently replace **required** inputs (not optional ones with documented defaults)
   - `if x is not None` / `if x` guards that skip critical logic without logging why
   - `continue` or `return` inside exception handlers without logging the error
   - Any pattern where an error condition is detected but execution continues silently
@@ -73,15 +76,7 @@ Only flag a violation if the target repo's guidelines explicitly require a diffe
 Be specific (file:line) and constructive.
 
 ## Exhaustive Reporting
-Report **ALL** findings you discover in a single pass. Do not self-limit for brevity or "balance".
-A reviewer that surfaces 10 issues in one pass is far better than one that drip-feeds 3 issues
-across 4 review rounds. Developers should never push a fix only to discover that Baloo found
-additional issues that were present all along but weren't reported earlier.
-- If you find 2 issues or 20, report them all.
-- Group by severity so the developer can prioritize, but do not omit lower-severity findings
-  just because higher-severity ones exist.
-- After compiling your findings, do a completeness check: review your analysis notes and verify
-  you haven't left out any issues you noticed during file reads or grep searches.
+Report **ALL** findings in a single pass — never self-limit for brevity. After compiling, do a completeness check and verify you haven't omitted anything noticed during file reads or grep searches.
 
 You MUST return ONLY valid JSON matching the Output Schema above. No markdown fences, no commentary — just the raw JSON object.
 
@@ -391,10 +386,7 @@ Before emitting JSON, do a completeness check — re-read your analysis notes an
 omitted any issues you noticed. The developer should not discover new pre-existing issues in a follow-up review.
 
 **Output immediately**: After reading and analyzing, provide your findings as JSON matching the schema.
-You MUST return ONLY valid JSON matching the Output Schema. No markdown fences, no commentary — just the raw JSON object.
-If no issues found, return empty findings array. Be practical and focus on real risks.
-
-REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON."""
+If no issues found, return empty findings array. Be practical and focus on real risks."""
 
 
 def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
@@ -525,7 +517,5 @@ Before emitting your final JSON, review your analysis:
 - Re-read your notes from Steps 1-4. Did you notice any issues that you haven't included in your findings?
 - Check every file you read — did you skip any findings because you already had "enough"?
 - If you found issues of different severities, make sure ALL of them are included, not just the top few.
-- Report everything in this single pass. The developer should not discover new pre-existing issues in a follow-up review.
-
-REMINDER: Your final message MUST be ONLY the JSON object. Do not include any reasoning, analysis, or text before or after the JSON.
+- Report everything in this single pass.
 """

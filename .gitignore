@@ -225,3 +225,4 @@ site/
 
 .care-bear/
 temp/
+.worktrees/
