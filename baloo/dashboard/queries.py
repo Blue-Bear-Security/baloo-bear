@@ -480,43 +480,37 @@ class DashboardService:
                 for cat, v in cat_map.items()
             }
 
-            # --- Weekly trends (dialect-aware) ---
-            if "postgres" in settings.database_url:
-                week_label = func.to_char(
-                    func.date_trunc("week", FindingOutcome.labeled_at), "IYYY-IW"
-                )
-            else:
-                week_label = func.strftime("%Y-%W", FindingOutcome.labeled_at)
-
-            weekly_rows = (
+            # --- Daily accuracy trends ---
+            daily_rows = (
                 await session.execute(
                     select(
-                        week_label.label("week"),
+                        func.date(FindingOutcome.labeled_at).label("day"),
                         FindingOutcome.outcome,
                         func.count(FindingOutcome.id),
                     )
                     .where(*_base_filters())
-                    .group_by("week", FindingOutcome.outcome)
-                    .order_by("week")
+                    .group_by("day", FindingOutcome.outcome)
+                    .order_by("day")
                 )
             ).all()
 
-            week_map: dict[str, dict] = {}
-            for week, outcome, cnt in weekly_rows:
-                if week not in week_map:
-                    week_map[week] = {
+            day_map: dict[str, dict] = {}
+            for day, outcome, cnt in daily_rows:
+                day_key = str(day)
+                if day_key not in day_map:
+                    day_map[day_key] = {
                         "total": 0,
                         "actioned": 0,
                         "acknowledged": 0,
                         "disputed": 0,
                         "ignored": 0,
                     }
-                week_map[week]["total"] += cnt
-                if outcome in week_map[week]:
-                    week_map[week][outcome] += cnt
+                day_map[day_key]["total"] += cnt
+                if outcome in day_map[day_key]:
+                    day_map[day_key][outcome] += cnt
             trends = [
                 {
-                    "week": w,
+                    "day": d,
                     "total": v["total"],
                     "hit_rate": round(v["actioned"] / v["total"] * 100, 1) if v["total"] else 0.0,
                     "noise_rate": (
@@ -525,7 +519,7 @@ class DashboardService:
                         else 0.0
                     ),
                 }
-                for w, v in week_map.items()
+                for d, v in day_map.items()
             ]
 
             # --- Repos for filter dropdown ---
