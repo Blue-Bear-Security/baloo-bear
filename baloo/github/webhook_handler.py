@@ -414,6 +414,7 @@ async def _reverify_awaiting_threads(
     awaiting_threads: list[DiscussionThread],
     pr_context: PRContext,
     api_client,
+    db_review_id: int | None = None,
 ) -> int:
     """Re-verify awaiting Baloo threads against the new diff.
 
@@ -461,6 +462,50 @@ async def _reverify_awaiting_threads(
 
         await api_client.resolve_review_thread(thread.node_id)
         resolved_count += 1
+
+        # Update finding_outcomes row for this finding if DB is enabled
+        if settings.database_enabled and db_review_id is not None:
+            try:
+                from sqlalchemy import select
+
+                from baloo.db.engine import get_session_factory
+                from baloo.db.models import Finding, FindingOutcome
+
+                session_factory = get_session_factory(settings.database_url)
+                async with session_factory() as session:
+                    async with session.begin():
+                        # Look up the Finding by review_id, file_path, line_number
+                        finding_stmt = select(Finding).where(
+                            Finding.review_id == db_review_id,
+                            Finding.file_path == (thread.path or ""),
+                            Finding.line_number == thread.line,
+                        )
+                        finding_result = await session.execute(finding_stmt)
+                        finding = finding_result.scalars().first()
+
+                        if finding is not None:
+                            # Update existing FindingOutcome row if present
+                            outcome_stmt = select(FindingOutcome).where(
+                                FindingOutcome.finding_id == finding.id
+                            )
+                            outcome_result = await session.execute(outcome_stmt)
+                            outcome_row = outcome_result.scalars().first()
+
+                            if outcome_row is not None:
+                                signals = dict(outcome_row.signals or {})
+                                signals["thread_resolved"] = True
+                                outcome_row.signals = signals
+                                logger.info(
+                                    "Updated finding_outcomes thread_resolved=True for finding %d",
+                                    finding.id,
+                                )
+            except Exception as db_err:
+                logger.warning(
+                    "Failed to update finding_outcomes for thread %s:%s: %s",
+                    thread.path,
+                    thread.line,
+                    db_err,
+                )
 
     return resolved_count
 
@@ -943,42 +988,6 @@ async def process_pr_review(
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
-            # FP verification pass (LLM-powered, before heuristic filter)
-            if settings.fp_verification_enabled and review_result.comments:
-                verifier = FPVerifier()
-                fp_result = await verifier.verify(review_result.comments, pr_context)
-                # Build a fresh metadata dict rather than mutating the agent
-                # result's dict via aliasing — keeps provenance explicit and
-                # avoids breakage if ReviewResult ever copies its metadata.
-                merged_metadata = {
-                    **review_result.metadata,
-                    "fp_verification": {
-                        "total": fp_result.stats.total_verified,
-                        "kept": fp_result.stats.kept,
-                        "rejected": fp_result.stats.rejected,
-                        "errors": fp_result.stats.errors,
-                        "cost_usd": fp_result.stats.total_cost_usd,
-                        "duration_seconds": fp_result.stats.duration_seconds,
-                    },
-                }
-                review_result = ReviewResult(
-                    summary=review_result.summary,
-                    comments=fp_result.verified,
-                    approve=review_result.approve,
-                    request_changes=review_result.request_changes,
-                    metadata=merged_metadata,
-                )
-                # Keep `agent_metadata` in sync so the final ReviewResult
-                # built below (which re-uses agent_metadata) still carries
-                # the fp_verification stats forward to the DB row.
-                agent_metadata = merged_metadata
-                logger.info(
-                    "FP verification: %d/%d findings kept (rejected %d)",
-                    fp_result.stats.kept,
-                    fp_result.stats.total_verified,
-                    fp_result.stats.rejected,
-                )
-
             findings_filter = FindingsFilter()
             filtered_comments = findings_filter.filter_findings(review_result.comments)
             filtered_comments, skipped_similar_repeats = _dedupe_similar_findings(filtered_comments)
@@ -989,7 +998,7 @@ async def process_pr_review(
             all_threads = list(pr_context.discussion_threads)
             all_threads.extend(_threads_from_issue_comments(pr_context.issue_comments))
             thread_lookup = _build_thread_lookup(all_threads)
-            fresh_comments: list[ReviewComment] = []
+            new_findings_comments: list[ReviewComment] = []
             follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = (
                 []
             )  # reserved for future conversational thread agent
@@ -1016,7 +1025,7 @@ async def process_pr_review(
                         ):
                             skipped_outside_line_scope += 1
                             continue
-                    fresh_comments.append(comment)
+                    new_findings_comments.append(comment)
                     continue
 
                 # Thread was resolved (GitHub "Resolve conversation").
@@ -1056,11 +1065,47 @@ async def process_pr_review(
                 skipped_responded += 1
                 continue
 
-            decision_comments = fresh_comments + [comment for _, comment in follow_up_comments]
+            # Run both FP passes concurrently after the thread-matching loop:
+            # Pass A: FP verification on new findings
+            # Pass B: Re-verification of awaiting threads
+            async def _fp_verify_new_findings(
+                comments: list[ReviewComment],
+            ) -> list[ReviewComment]:
+                """Run FP verifier on new findings; returns verified list."""
+                if not (settings.fp_verification_enabled and comments):
+                    return comments
+                verifier = FPVerifier()
+                fp_result = await verifier.verify(comments, pr_context)
+                nonlocal agent_metadata
+                merged_metadata = {
+                    **review_result.metadata,
+                    "fp_verification": {
+                        "total": fp_result.stats.total_verified,
+                        "kept": fp_result.stats.kept,
+                        "rejected": fp_result.stats.rejected,
+                        "errors": fp_result.stats.errors,
+                        "cost_usd": fp_result.stats.total_cost_usd,
+                        "duration_seconds": fp_result.stats.duration_seconds,
+                    },
+                }
+                agent_metadata = merged_metadata
+                logger.info(
+                    "FP verification: %d/%d findings kept (rejected %d)",
+                    fp_result.stats.kept,
+                    fp_result.stats.total_verified,
+                    fp_result.stats.rejected,
+                )
+                return fp_result.verified
 
-            auto_resolved_count = await _reverify_awaiting_threads(
-                awaiting_not_refiled, pr_context, github_client
+            verified_new_findings, auto_resolved_count = await asyncio.gather(
+                _fp_verify_new_findings(new_findings_comments),
+                _reverify_awaiting_threads(
+                    awaiting_not_refiled, pr_context, github_client, db_review_id=db_review_id
+                ),
             )
+
+            fresh_comments = verified_new_findings
+            decision_comments = fresh_comments + [comment for _, comment in follow_up_comments]
 
             approve, request_changes = DecisionEngine.make_decision(
                 decision_comments, fidelity_result=fidelity_result

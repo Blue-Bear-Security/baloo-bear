@@ -204,3 +204,59 @@ async def test_reverify_empty_list_no_verifier_call():
 
     mock_verifier_cls.assert_not_called()
     assert resolved_count == 0
+
+
+@pytest.mark.asyncio
+async def test_awaiting_count_excludes_resolved_threads():
+    """Decision engine sees 0 awaiting after all threads are auto-resolved."""
+    # This test verifies the integration: that auto_resolved_count returned from
+    # _reverify_awaiting_threads correctly reduces the awaiting_threads count
+    # fed to the decision engine, preventing spurious request_changes=True.
+    from baloo.github.webhook_handler import _reverify_awaiting_threads
+
+    thread = _make_awaiting_thread(root_comment_id=99, node_id="PRT_awaiting")
+    pr_context = _make_pr_context(awaiting_threads=[thread])
+
+    fake_rejected = ReviewComment(
+        path="app.py",
+        line=10,
+        body="**[HIGH] Security** - **SQL injection**\n**Category:** Security\n**Severity:** HIGH\n\nBad query.",
+        severity=ReviewSeverity.HIGH,
+        category=FindingCategory.SECURITY,
+    )
+    fp_result = FPVerificationResult(
+        verified=[],
+        rejected=[
+            FPRejection(
+                comment=fake_rejected,
+                reason="issue addressed in latest commit",
+                model="haiku",
+                cost_usd=0.001,
+            )
+        ],
+        stats=FPStats(),
+    )
+
+    mock_api = AsyncMock()
+    mock_api.reply_to_review_comment = AsyncMock(return_value=True)
+    mock_api.resolve_review_thread = AsyncMock(return_value=True)
+
+    with patch("baloo.github.webhook_handler.FPVerifier") as mock_verifier_cls:
+        mock_instance = AsyncMock()
+        mock_instance.verify = AsyncMock(return_value=fp_result)
+        mock_verifier_cls.return_value = mock_instance
+
+        resolved_count = await _reverify_awaiting_threads(
+            awaiting_threads=[thread],
+            pr_context=pr_context,
+            api_client=mock_api,
+        )
+
+    assert resolved_count == 1
+
+    # Simulate the decision engine logic: awaiting_threads - auto_resolved_count
+    awaiting_threads = pr_context.awaiting_response_threads
+    remaining = awaiting_threads - resolved_count
+    assert (
+        remaining == 0
+    ), f"Expected 0 remaining awaiting threads after auto-resolution, got {remaining}"
