@@ -34,6 +34,7 @@ def _graphql_response(nodes: list[dict], has_next: bool = False, cursor: str = "
 
 def _thread_node(comment_db_id: int, is_resolved: bool, is_outdated: bool = False) -> dict:
     return {
+        "id": f"PRT_node_{comment_db_id}",
         "isResolved": is_resolved,
         "isOutdated": is_outdated,
         "comments": {"nodes": [{"databaseId": comment_db_id}]},
@@ -77,9 +78,10 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 42)
 
-        resolved_ids, outdated_ids, _ = ids
+        resolved_ids, outdated_ids, node_id_map = ids
         assert resolved_ids == {100, 300}
         assert outdated_ids == set()
+        assert node_id_map == {100: "PRT_node_100", 200: "PRT_node_200", 300: "PRT_node_300"}
 
     @pytest.mark.asyncio
     async def test_paginates(self):
@@ -177,7 +179,10 @@ class TestFetchResolvedThreadIds:
             client = GitHubAPIClient(installation_id=1)
             ids = await client.fetch_resolved_thread_ids("owner/repo", 1)
 
-        assert ids == (set(), set(), {})
+        resolved_ids, outdated_ids, node_id_map = ids
+        assert resolved_ids == set()
+        assert outdated_ids == set()
+        assert node_id_map == {100: "PRT_node_100", 200: "PRT_node_200"}
 
     @pytest.mark.asyncio
     async def test_separates_outdated_from_resolved(self):
