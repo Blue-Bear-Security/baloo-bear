@@ -245,14 +245,19 @@ class GitHubAPIClient:
                 discussion_threads, general_comments
             )
 
-            # Fetch guidelines files from the reviewed repo concurrently
+            # Fetch guidelines files and commits from the reviewed repo concurrently
             head_sha = pr_data["head"]["sha"]
-            agents_md, contributing_md = await asyncio.gather(
+            commits_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/commits"
+            agents_md, contributing_md, commits_data = await asyncio.gather(
                 self.get_file_content(repo_full_name, "AGENTS.md", ref=head_sha),
                 self.get_file_content(repo_full_name, "CONTRIBUTING.md", ref=head_sha),
+                self._fetch_paginated_json(client, commits_url, headers=headers),
             )
             guidelines_parts = [c for c in [agents_md, contributing_md] if c]
             repo_guidelines = "\n\n---\n\n".join(guidelines_parts) if guidelines_parts else None
+            commit_messages = [
+                c["commit"]["message"].split("\n")[0] for c in commits_data if c.get("commit")
+            ]
 
             metadata = PRMetadata(
                 repo_full_name=repo_full_name,
@@ -265,6 +270,7 @@ class GitHubAPIClient:
                 head_sha=pr_data["head"]["sha"],
                 files_changed=files_changed,
                 repo_guidelines=repo_guidelines,
+                commit_messages=commit_messages,
             )
 
             discussion = PRDiscussionContext(
