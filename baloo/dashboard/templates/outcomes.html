@@ -70,7 +70,7 @@
     <canvas id="categoryChart" height="250"></canvas>
   </div>
   <div class="bg-white rounded-lg shadow p-5 lg:col-span-2">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4">Weekly Trends</h2>
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Accuracy Over Time</h2>
     <canvas id="trendsChart" height="250"></canvas>
   </div>
   <div class="bg-white rounded-lg shadow p-5">
@@ -156,7 +156,7 @@
   new Chart(document.getElementById('trendsChart'), {
     type: 'line',
     data: {
-      labels: trends.map(t => t.week),
+      labels: trends.map(t => t.day),
       datasets: [
         {
           label: 'Hit Rate %',
