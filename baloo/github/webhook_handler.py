@@ -45,6 +45,7 @@ from baloo.outcomes.labeler import label_pr_outcomes
 from baloo.processor.decision_engine import DecisionEngine
 from baloo.processor.findings_filter import FindingsFilter
 from baloo.processor.formatter import CommentFormatter
+from baloo.processor.fp_verifier import FPVerifier
 from baloo.processor.severity_router import (
     ReviewSeverity,
     count_by_severity,
@@ -407,6 +408,61 @@ def _comment_from_thread(thread: DiscussionThread) -> ReviewComment:
         severity=severity,
         category=category,
     )
+
+
+async def _reverify_awaiting_threads(
+    awaiting_threads: list[DiscussionThread],
+    pr_context: PRContext,
+    api_client,
+) -> int:
+    """Re-verify awaiting Baloo threads against the new diff.
+
+    For each thread where the LLM says the issue is no longer present (fp verdict),
+    post a resolution reply and resolve the GitHub thread.
+
+    Returns:
+        Number of threads auto-resolved.
+    """
+    if not awaiting_threads:
+        return 0
+
+    eligible = [t for t in awaiting_threads if t.node_id]
+    if not eligible:
+        logger.info("No awaiting threads with node_id — skipping re-verification")
+
+    comments = [_comment_from_thread(t) for t in eligible]
+
+    verifier = FPVerifier()
+    fp_result = await verifier.verify(comments, pr_context)
+
+    # fp_result.rejected = findings the verifier says are no longer present
+    rejected_paths_lines = {(r.comment.path, r.comment.line) for r in fp_result.rejected}
+
+    resolved_count = 0
+    for thread in eligible:
+        if (thread.path, thread.line) not in rejected_paths_lines:
+            continue
+
+        logger.info(
+            "Thread re-verified as fixed: %s:%s (thread node %s)",
+            thread.path,
+            thread.line,
+            thread.node_id,
+        )
+
+        repo = pr_context.repo_full_name
+
+        if thread.root_comment_id is not None:
+            await api_client.reply_to_review_comment(
+                repo,
+                thread.root_comment_id,
+                "Looks like this was addressed in the latest commit. Resolving.",
+            )
+
+        await api_client.resolve_review_thread(thread.node_id)
+        resolved_count += 1
+
+    return resolved_count
 
 
 def _dedupe_similar_findings(comments: list[ReviewComment]) -> tuple[list[ReviewComment], int]:
@@ -889,8 +945,6 @@ async def process_pr_review(
 
             # FP verification pass (LLM-powered, before heuristic filter)
             if settings.fp_verification_enabled and review_result.comments:
-                from baloo.processor.fp_verifier import FPVerifier
-
                 verifier = FPVerifier()
                 fp_result = await verifier.verify(review_result.comments, pr_context)
                 # Build a fresh metadata dict rather than mutating the agent
@@ -943,6 +997,7 @@ async def process_pr_review(
             skipped_resolved = 0
             skipped_outdated = 0
             skipped_responded = 0
+            awaiting_not_refiled: list[DiscussionThread] = []
             skipped_unchanged_scope = 0
             skipped_outside_line_scope = 0
 
@@ -992,6 +1047,7 @@ async def process_pr_review(
 
                 if thread.awaiting_response:
                     skipped_duplicates += 1
+                    awaiting_not_refiled.append(thread)
                     continue
 
                 # Developer responded (not resolved, not awaiting) — they've
@@ -1002,10 +1058,14 @@ async def process_pr_review(
 
             decision_comments = fresh_comments + [comment for _, comment in follow_up_comments]
 
+            auto_resolved_count = await _reverify_awaiting_threads(
+                awaiting_not_refiled, pr_context, github_client
+            )
+
             approve, request_changes = DecisionEngine.make_decision(
                 decision_comments, fidelity_result=fidelity_result
             )
-            awaiting_threads = pr_context.awaiting_response_threads
+            awaiting_threads = pr_context.awaiting_response_threads - auto_resolved_count
 
             if awaiting_threads and not request_changes and not decision_comments:
                 request_changes = True
@@ -1023,6 +1083,11 @@ async def process_pr_review(
                 summary_text += f"\n\n⏭️ Skipped {skipped_outdated} outdated thread(s) (code changed under comment)."
             if skipped_resolved:
                 summary_text += f"\n\n✅ Skipped {skipped_resolved} resolved thread(s)."
+            if auto_resolved_count:
+                summary_text += (
+                    f"\n\n✅ Auto-resolved {auto_resolved_count} previously flagged thread(s) "
+                    "that look fixed in this commit."
+                )
             if skipped_similar_repeats:
                 summary_text += (
                     f"\n\n🧹 Collapsed {skipped_similar_repeats} near-duplicate finding(s) "
