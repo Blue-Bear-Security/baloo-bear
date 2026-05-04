@@ -88,9 +88,10 @@ def build_verification_prompt(
             parts.append("<user_content>")
             for msg in pr_commit_messages:
                 safe_msg = (
-                    msg.replace("\n", " ")
+                    msg[:200]
+                    .replace("\n", " ")
                     .replace("\r", "")
-                    .replace("</user_content>", r"<\/user_content>")[:200]
+                    .replace("</user_content>", r"<\/user_content>")
                 )
                 parts.append(f"- {safe_msg}")
             parts.append("</user_content>")
