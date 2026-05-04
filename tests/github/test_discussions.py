@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from baloo.github.api_client import _apply_resolved_thread_state
 from baloo.github.discussions import (
     build_discussion_comment,
     build_discussion_digest,
@@ -150,6 +151,73 @@ def test_developer_reply_not_resolved_not_awaiting():
     # Not resolved — developer responded but didn't use resolution keywords.
     # The webhook handler skips these threads (not re-reviewed).
     assert thread.resolved is False
+
+
+def test_discussion_thread_has_node_id_field():
+    thread = DiscussionThread(
+        id=1,
+        path="foo.py",
+        line=10,
+        comments=[],
+        last_activity=datetime.now(timezone.utc),
+    )
+    assert thread.node_id is None
+
+
+def test_discussion_thread_node_id_can_be_set():
+    thread = DiscussionThread(
+        id=1,
+        path="foo.py",
+        line=10,
+        comments=[],
+        last_activity=datetime.now(timezone.utc),
+        node_id="PRT_kwDOBQ",
+    )
+    assert thread.node_id == "PRT_kwDOBQ"
+
+
+def _make_thread_for_state_test(root_comment_id: int) -> DiscussionThread:
+    return DiscussionThread(
+        id=root_comment_id,
+        path="foo.py",
+        line=1,
+        comments=[],
+        last_activity=datetime.now(timezone.utc),
+        root_comment_id=root_comment_id,
+    )
+
+
+def test_apply_resolved_thread_state_writes_node_id():
+    thread = _make_thread_for_state_test(root_comment_id=42)
+    node_id_map = {42: "PRT_kwDOBQ"}
+    _apply_resolved_thread_state(
+        [thread],
+        resolved_ids=set(),
+        outdated_ids=None,
+        thread_node_ids=node_id_map,
+    )
+    assert thread.node_id == "PRT_kwDOBQ"
+
+
+def test_apply_resolved_thread_state_node_id_missing_from_map():
+    thread = _make_thread_for_state_test(root_comment_id=99)
+    _apply_resolved_thread_state(
+        [thread],
+        resolved_ids=set(),
+        thread_node_ids={},
+    )
+    assert thread.node_id is None
+
+
+def test_apply_resolved_thread_state_existing_behaviour_preserved():
+    thread = _make_thread_for_state_test(root_comment_id=7)
+    _apply_resolved_thread_state(
+        [thread],
+        resolved_ids={7},
+        thread_node_ids={7: "PRT_abc"},
+    )
+    assert thread.resolved is True
+    assert thread.node_id == "PRT_abc"
 
 
 def test_build_general_discussion_includes_reviews():

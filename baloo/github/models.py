@@ -120,6 +120,7 @@ class DiscussionThread(BaseModel):
     outdated: bool = False
     last_activity: datetime
     root_comment_id: int | None = None
+    node_id: str | None = None
 
 
 class PRMetadata(BaseModel):
