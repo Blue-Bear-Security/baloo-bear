@@ -74,11 +74,12 @@ def build_verification_prompt(
             safe_title = pr_title.replace("\n", " ").replace("\r", "")[:200]
             parts.append(f"**Title**: {safe_title}")
         if pr_description:
+            safe_desc = pr_description[:2000].replace("</user_content>", r"<\/user_content>")
             parts.extend(
                 [
                     "**Description**:",
                     "<user_content>",
-                    pr_description[:2000],
+                    safe_desc,
                     "</user_content>",
                 ]
             )
@@ -86,7 +87,11 @@ def build_verification_prompt(
             parts.append("**Commits**:")
             parts.append("<user_content>")
             for msg in pr_commit_messages:
-                safe_msg = msg.replace("\n", " ").replace("\r", "")[:200]
+                safe_msg = (
+                    msg.replace("\n", " ")
+                    .replace("\r", "")
+                    .replace("</user_content>", r"<\/user_content>")[:200]
+                )
                 parts.append(f"- {safe_msg}")
             parts.append("</user_content>")
         parts.append("")
