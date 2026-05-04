@@ -427,6 +427,10 @@ async def _reverify_awaiting_threads(
     if not awaiting_threads:
         return 0
 
+    if not settings.fp_verification_enabled:
+        logger.debug("FP verification disabled — skipping awaiting thread re-verification")
+        return 0
+
     eligible = [t for t in awaiting_threads if t.node_id]
     if not eligible:
         logger.info("No awaiting threads with node_id — skipping re-verification")
@@ -1019,7 +1023,7 @@ async def process_pr_review(
             skipped_resolved = 0
             skipped_outdated = 0
             skipped_responded = 0
-            awaiting_not_refiled: list[DiscussionThread] = []
+            matched_awaiting_ids: set = set()
             skipped_unchanged_scope = 0
             skipped_outside_line_scope = 0
 
@@ -1069,7 +1073,7 @@ async def process_pr_review(
 
                 if thread.awaiting_response:
                     skipped_duplicates += 1
-                    awaiting_not_refiled.append(thread)
+                    matched_awaiting_ids.add(thread.id)
                     continue
 
                 # Developer responded (not resolved, not awaiting) — they've
@@ -1077,6 +1081,20 @@ async def process_pr_review(
                 # Don't re-litigate; just note these threads exist.
                 skipped_responded += 1
                 continue
+
+            # Collect threads from previous reviews that are still awaiting a
+            # response but were NOT re-flagged by any new finding.  These are
+            # candidates for auto-resolution: the agent no longer flags the
+            # issue, so the fix may have landed.
+            awaiting_not_refiled: list[DiscussionThread] = [
+                t
+                for t in all_threads
+                if t.is_baloo_thread
+                and t.awaiting_response
+                and not t.resolved
+                and not t.outdated
+                and t.id not in matched_awaiting_ids
+            ]
 
             # Run both FP passes concurrently after the thread-matching loop:
             # Pass A: FP verification on new findings
