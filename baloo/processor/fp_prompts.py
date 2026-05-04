@@ -44,6 +44,9 @@ def build_verification_prompt(
     comment: ReviewComment,
     diff_context: str,
     file_context: str | None = None,
+    pr_title: str | None = None,
+    pr_description: str | None = None,
+    pr_commit_messages: list[str] | None = None,
 ) -> str:
     """Build a verification prompt for a single finding.
 
@@ -51,19 +54,38 @@ def build_verification_prompt(
         comment: The review finding to verify.
         diff_context: The diff hunk(s) for the file.
         file_context: Optional full file content around the flagged line.
+        pr_title: PR title for context.
+        pr_description: PR description for context.
+        pr_commit_messages: List of commit messages in the PR.
 
     Returns:
         Prompt string for the verification model.
     """
-    parts = [
-        "## Finding to verify",
-        f"**File**: {comment.path}, line {comment.line}",
-        f"**Severity**: {comment.severity.value}",
-        f"**Category**: {comment.category.value}",
-        "",
-        comment.body,
-        "",
-    ]
+    parts: list[str] = []
+
+    if pr_title or pr_description or pr_commit_messages:
+        parts.append("## PR context")
+        if pr_title:
+            parts.append(f"**Title**: {pr_title}")
+        if pr_description:
+            parts.extend(["**Description**:", pr_description])
+        if pr_commit_messages:
+            parts.append("**Commits**:")
+            for msg in pr_commit_messages:
+                parts.append(f"- {msg}")
+        parts.append("")
+
+    parts.extend(
+        [
+            "## Finding to verify",
+            f"**File**: {comment.path}, line {comment.line}",
+            f"**Severity**: {comment.severity.value}",
+            f"**Category**: {comment.category.value}",
+            "",
+            comment.body,
+            "",
+        ]
+    )
 
     if file_context:
         parts.extend(

@@ -227,6 +227,9 @@ class FPVerifier:
             comment=comment,
             diff_context=diff_context,
             file_context=None,  # Start with diff only; add file reads later if needed
+            pr_title=pr_context.title,
+            pr_description=pr_context.description,
+            pr_commit_messages=pr_context.metadata.commit_messages or None,
         )
 
         # Get agent options for the cheap model

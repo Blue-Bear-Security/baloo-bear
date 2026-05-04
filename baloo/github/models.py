@@ -135,6 +135,7 @@ class PRMetadata(BaseModel):
     head_sha: str
     files_changed: list[FileChange]
     repo_guidelines: str | None = None
+    commit_messages: list[str] = Field(default_factory=list)
 
 
 class PRDiscussionContext(BaseModel):

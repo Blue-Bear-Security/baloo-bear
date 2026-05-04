@@ -93,6 +93,40 @@ class TestFPPrompts:
         assert "File context" in prompt
         assert "def foo()" in prompt
 
+    def test_build_verification_prompt_with_pr_context(self):
+        comment = _make_comment()
+        prompt = build_verification_prompt(
+            comment,
+            diff_context="+ some code",
+            pr_title="Fix auth vulnerability",
+            pr_description="Patches SQL injection in login flow",
+            pr_commit_messages=["fix: parameterize user query", "fix: add input validation"],
+        )
+        assert "PR context" in prompt
+        assert "Fix auth vulnerability" in prompt
+        assert "Patches SQL injection in login flow" in prompt
+        assert "fix: parameterize user query" in prompt
+        assert "fix: add input validation" in prompt
+
+    def test_build_verification_prompt_without_pr_context(self):
+        """PR context section should not appear when no PR metadata is provided."""
+        comment = _make_comment()
+        prompt = build_verification_prompt(comment, diff_context="+ some code")
+        assert "PR context" not in prompt
+
+    def test_build_verification_prompt_partial_pr_context(self):
+        """Only provided PR fields appear in prompt."""
+        comment = _make_comment()
+        prompt = build_verification_prompt(
+            comment,
+            diff_context="+ code",
+            pr_title="Add feature",
+        )
+        assert "PR context" in prompt
+        assert "Add feature" in prompt
+        assert "Description" not in prompt
+        assert "Commits" not in prompt
+
     def test_extract_diff_for_file_found(self):
         diff = (
             "diff --git a/src/a.py b/src/a.py\n"
