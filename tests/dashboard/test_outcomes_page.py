@@ -38,8 +38,8 @@ def test_outcomes_page_renders():
             "Style": {"total": 20, "actioned": 2, "hit_rate": 10.0},
         },
         "trends": [
-            {"week": "2026-16", "total": 25, "hit_rate": 44.0, "noise_rate": 36.0},
-            {"week": "2026-17", "total": 25, "hit_rate": 36.0, "noise_rate": 44.0},
+            {"day": "2026-04-27", "total": 168, "hit_rate": 83.3, "noise_rate": 16.7},
+            {"day": "2026-04-28", "total": 61, "hit_rate": 77.0, "noise_rate": 23.0},
         ],
         "repos": ["owner/repo-a", "owner/repo-b"],
     }
@@ -54,3 +54,4 @@ def test_outcomes_page_renders():
     assert response.status_code == 200
     assert "Outcomes" in response.text
     assert "40.0" in response.text  # hit_rate
+    assert "Accuracy Over Time" in response.text
