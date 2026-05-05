@@ -598,6 +598,13 @@ class GitHubAPIClient:
             url = f"{self.base_url}/repos/{repo_full_name}/compare/{commit_sha}...{branch}"
             response = await client.get(url, headers=self._get_headers())
             if response.status_code != 200:
+                logger.warning(
+                    "compare API returned %d for %s...%s in %s; treating as non-ancestor",
+                    response.status_code,
+                    commit_sha,
+                    branch,
+                    repo_full_name,
+                )
                 return False
             return response.json().get("status") in ("ahead", "identical")
 
@@ -646,7 +653,12 @@ class GitHubAPIClient:
             return False, ""
 
         except Exception as e:
-            logger.warning(f"Failed to check commit info for {commit_sha}: {e}")
+            logger.warning(
+                "Failed to determine merge/sync status for %s in %s: %s",
+                commit_sha,
+                repo_full_name,
+                e,
+            )
             return False, ""
 
     async def get_file_content(

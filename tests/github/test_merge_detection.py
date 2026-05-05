@@ -120,6 +120,50 @@ class TestMergeCommitDetection:
         assert reason == ""
 
     @pytest.mark.asyncio
+    async def test_detects_pr_merge_commit_by_ancestry(self, github_client):
+        """A 'Merge pull request' commit is skipped when one parent is on the base branch."""
+        commit_info = {
+            "parents": [{"sha": "feature111"}, {"sha": "base_pr_tip"}],
+            "commit": {"message": "Merge pull request #99 from user/feature"},
+        }
+
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(
+                github_client,
+                "_commit_is_ancestor_of_branch",
+                new=AsyncMock(side_effect=lambda repo, sha, branch: sha == "base_pr_tip"),
+            ),
+        ):
+            is_merge, reason = await github_client.is_merge_or_sync_commit(
+                "owner/repo", "head123", "main"
+            )
+
+        assert is_merge is True
+
+    @pytest.mark.asyncio
+    async def test_detects_remote_tracking_branch_merge_by_ancestry(self, github_client):
+        """A remote-tracking merge commit is skipped when one parent is on the base branch."""
+        commit_info = {
+            "parents": [{"sha": "feature111"}, {"sha": "origin_main_tip"}],
+            "commit": {"message": "Merge remote-tracking branch 'origin/main' into feature"},
+        }
+
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(
+                github_client,
+                "_commit_is_ancestor_of_branch",
+                new=AsyncMock(side_effect=lambda repo, sha, branch: sha == "origin_main_tip"),
+            ),
+        ):
+            is_merge, reason = await github_client.is_merge_or_sync_commit(
+                "owner/repo", "head123", "main"
+            )
+
+        assert is_merge is True
+
+    @pytest.mark.asyncio
     async def test_handles_ancestor_check_error_gracefully(self, github_client):
         """Should return False if the ancestry compare API call fails."""
         commit_info = {
