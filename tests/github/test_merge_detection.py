@@ -121,10 +121,13 @@ class TestMergeCommitDetection:
 
     @pytest.mark.asyncio
     async def test_detects_pr_merge_commit_by_ancestry(self, github_client):
-        """A 'Merge pull request' commit is skipped when one parent is on the base branch."""
+        """A 'Merge pull request' commit with many files is skipped via ancestry, not heuristics."""
+        # >3 files ensures the old file-count heuristic would NOT have triggered;
+        # only the ancestry check can produce is_merge=True here.
         commit_info = {
             "parents": [{"sha": "feature111"}, {"sha": "base_pr_tip"}],
             "commit": {"message": "Merge pull request #99 from user/feature"},
+            "files": [{"filename": f"file{i}.py"} for i in range(10)],
         }
 
         with (
@@ -143,10 +146,13 @@ class TestMergeCommitDetection:
 
     @pytest.mark.asyncio
     async def test_detects_remote_tracking_branch_merge_by_ancestry(self, github_client):
-        """A remote-tracking merge commit is skipped when one parent is on the base branch."""
+        """A remote-tracking merge with many files is skipped via ancestry, not heuristics."""
+        # >3 files ensures the old file-count heuristic would NOT have triggered;
+        # only the ancestry check can produce is_merge=True here.
         commit_info = {
             "parents": [{"sha": "feature111"}, {"sha": "origin_main_tip"}],
             "commit": {"message": "Merge remote-tracking branch 'origin/main' into feature"},
+            "files": [{"filename": f"file{i}.py"} for i in range(10)],
         }
 
         with (
