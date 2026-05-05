@@ -1353,4 +1353,5 @@ async def test_fidelity_and_agent_review_run_concurrently_when_fidelity_enabled(
 
     assert fidelity_analysis_called, "_run_fidelity_analysis was not called"
     mock_agent.review_pr.assert_awaited_once()
-    mock_gather.assert_called_once()
+    # gather is now called at least twice: once for fidelity+agent, once for both FP passes
+    mock_gather.assert_called()

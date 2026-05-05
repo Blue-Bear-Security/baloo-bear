@@ -112,9 +112,12 @@ def _apply_resolved_thread_state(
     discussion_threads: list[DiscussionThread],
     resolved_ids: set[int],
     outdated_ids: set[int] | None = None,
+    thread_node_ids: dict[int, str] | None = None,
 ) -> None:
     """Overlay GitHub's authoritative resolved/outdated state onto REST-built threads."""
     for thread in discussion_threads:
+        if thread_node_ids and thread.root_comment_id is not None:
+            thread.node_id = thread_node_ids.get(thread.root_comment_id)
         if thread.root_comment_id in resolved_ids:
             thread.resolved = True
             thread.awaiting_response = False
@@ -233,10 +236,12 @@ class GitHubAPIClient:
             # Overlay the authoritative isResolved state from GraphQL.
             # The REST API doesn't expose thread resolution, so without
             # this call we rely on a keyword heuristic which is unreliable.
-            resolved_ids, outdated_ids = await self.fetch_resolved_thread_ids(
+            resolved_ids, outdated_ids, thread_node_ids = await self.fetch_resolved_thread_ids(
                 repo_full_name, pr_number
             )
-            _apply_resolved_thread_state(discussion_threads, resolved_ids, outdated_ids)
+            _apply_resolved_thread_state(
+                discussion_threads, resolved_ids, outdated_ids, thread_node_ids
+            )
 
             general_comments: list[DiscussionComment] = build_general_discussion(
                 issue_comments, reviews
@@ -568,6 +573,43 @@ class GitHubAPIClient:
             response.raise_for_status()
             return True
 
+    async def resolve_review_thread(self, thread_node_id: str) -> bool:
+        """Resolve a pull request review thread via GraphQL mutation.
+
+        Args:
+            thread_node_id: The GraphQL node ID of the thread (PullRequestReviewThread.id).
+
+        Returns:
+            True on success, False on any error (fail-open — a failed resolve is not fatal).
+        """
+        mutation = """
+        mutation($threadId: ID!) {
+          resolveReviewThread(input: {threadId: $threadId}) {
+            thread { id isResolved }
+          }
+        }
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.github.com/graphql",
+                    headers=self._get_headers(),
+                    json={"query": mutation, "variables": {"threadId": thread_node_id}},
+                )
+                response.raise_for_status()
+                body = response.json()
+                if "errors" in body:
+                    logger.warning(
+                        "GraphQL error resolving thread %s: %s",
+                        thread_node_id,
+                        body["errors"],
+                    )
+                    return False
+                return True
+        except Exception as exc:
+            logger.warning("Failed to resolve thread %s: %s", thread_node_id, exc)
+            return False
+
     async def get_commit_info(self, repo_full_name: str, commit_sha: str) -> dict:
         """
         Fetch information about a specific commit.
@@ -722,15 +764,15 @@ class GitHubAPIClient:
 
     async def fetch_resolved_thread_ids(
         self, repo_full_name: str, pr_number: int
-    ) -> tuple[set[int], set[int]]:
+    ) -> tuple[set[int], set[int], dict[int, str]]:
         """Fetch resolved and outdated root comment database IDs for review threads.
 
         Uses the GraphQL API because the REST API does not expose the
         ``isResolved`` or ``isOutdated`` state of review threads.
 
         Returns:
-            Tuple of (resolved_ids, outdated_ids).  On error returns empty sets
-            so callers degrade gracefully (fail-open).
+            Tuple of (resolved_ids, outdated_ids, node_id_map).  On error returns
+            empty sets/dict so callers degrade gracefully (fail-open).
         """
         owner, repo = repo_full_name.split("/", 1)
         query = """
@@ -740,6 +782,7 @@ class GitHubAPIClient:
               reviewThreads(first: 100, after: $cursor) {
                 pageInfo { hasNextPage endCursor }
                 nodes {
+                  id
                   isResolved
                   isOutdated
                   comments(first: 1) {
@@ -754,6 +797,7 @@ class GitHubAPIClient:
 
         resolved_ids: set[int] = set()
         outdated_ids: set[int] = set()
+        node_id_map: dict[int, str] = {}
         cursor: str | None = None
 
         try:
@@ -794,6 +838,9 @@ class GitHubAPIClient:
                         if not comments or not comments[0].get("databaseId"):
                             continue
                         db_id = comments[0]["databaseId"]
+                        thread_node_id = node.get("id")
+                        if thread_node_id:
+                            node_id_map[db_id] = thread_node_id
                         if node.get("isResolved"):
                             resolved_ids.add(db_id)
                         elif node.get("isOutdated"):
@@ -813,7 +860,7 @@ class GitHubAPIClient:
                 exc_info=True,
             )
 
-        return resolved_ids, outdated_ids
+        return resolved_ids, outdated_ids, node_id_map
 
     async def _fetch_paginated_json(
         self,

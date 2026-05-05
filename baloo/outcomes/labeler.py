@@ -74,7 +74,11 @@ async def fetch_merge_signals(
         raw_comments = await client._fetch_paginated_json(http, comments_url, headers=headers)
 
     # Fetch resolved thread IDs via GraphQL
-    resolved_ids = await client.fetch_resolved_thread_ids(repo_full_name, pr_number)
+    resolved_ids, _outdated_ids, _thread_node_ids = (
+        await client.fetch_resolved_thread_ids(  # node_ids not needed here
+            repo_full_name, pr_number
+        )
+    )
 
     # Group comments into threads by in_reply_to_id
     # Root comments have in_reply_to_id == None

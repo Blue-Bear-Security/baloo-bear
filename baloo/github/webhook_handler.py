@@ -35,6 +35,7 @@ from baloo.github.auth import verify_webhook_signature
 from baloo.github.models import (
     DiscussionComment,
     DiscussionThread,
+    FindingCategory,
     PRContext,
     PullRequestWebhookPayload,
     ReviewComment,
@@ -44,6 +45,7 @@ from baloo.outcomes.labeler import label_pr_outcomes
 from baloo.processor.decision_engine import DecisionEngine
 from baloo.processor.findings_filter import FindingsFilter
 from baloo.processor.formatter import CommentFormatter
+from baloo.processor.fp_verifier import FPVerifier
 from baloo.processor.severity_router import (
     ReviewSeverity,
     count_by_severity,
@@ -362,6 +364,167 @@ def _extract_issue_signature(body: str) -> str:
 
     # Fallback: normalize the whole body
     return " ".join(body.strip().lower().split())
+
+
+_SEVERITY_RE = re.compile(r"\*\*\[(\w+)\]\s+\w[\w ]*\*\*")
+_CATEGORY_RE = re.compile(r"\*\*\[(?:\w+)\]\s+([\w][\w ]*?)\*\*")
+
+_CATEGORY_MAP: dict[str, FindingCategory] = {
+    "security": FindingCategory.SECURITY,
+    "bugs": FindingCategory.BUGS,
+    "silent failures": FindingCategory.SILENT_FAILURES,
+    "guidelines": FindingCategory.GUIDELINES,
+    "performance": FindingCategory.PERFORMANCE,
+    "quality": FindingCategory.QUALITY,
+}
+
+
+def _comment_from_thread(thread: DiscussionThread) -> ReviewComment:
+    """Reconstruct a ReviewComment from a Baloo DiscussionThread for re-verification.
+
+    Parses severity and category from the root comment body using the Baloo
+    comment format: **[SEVERITY] Category** - **Title**
+    Falls back to MEDIUM/QUALITY if the body doesn't match.
+    """
+    body = thread.comments[0].body if thread.comments else ""
+
+    severity = ReviewSeverity.MEDIUM
+    m = _SEVERITY_RE.search(body)
+    if m:
+        try:
+            severity = ReviewSeverity(m.group(1).upper())
+        except ValueError:
+            pass
+
+    category = FindingCategory.QUALITY
+    m2 = _CATEGORY_RE.search(body)
+    if m2:
+        category = _CATEGORY_MAP.get(m2.group(1).lower().strip(), FindingCategory.QUALITY)
+
+    return ReviewComment(
+        path=thread.path or "",
+        line=thread.line or 0,
+        body=body,
+        severity=severity,
+        category=category,
+    )
+
+
+async def _reverify_awaiting_threads(
+    awaiting_threads: list[DiscussionThread],
+    pr_context: PRContext,
+    api_client,
+    db_review_id: int | None = None,
+) -> int:
+    """Re-verify awaiting Baloo threads against the new diff.
+
+    For each thread where the LLM says the issue is no longer present (fp verdict),
+    post a resolution reply and resolve the GitHub thread.
+
+    Returns:
+        Number of threads auto-resolved.
+    """
+    if not awaiting_threads:
+        return 0
+
+    if not settings.fp_verification_enabled:
+        logger.debug("FP verification disabled — skipping awaiting thread re-verification")
+        return 0
+
+    eligible = [t for t in awaiting_threads if t.node_id]
+    if not eligible:
+        logger.info("No awaiting threads with node_id — skipping re-verification")
+        return 0
+
+    comments = [_comment_from_thread(t) for t in eligible]
+
+    verifier = FPVerifier()
+    fp_result = await verifier.verify(comments, pr_context)
+
+    # fp_result.rejected = findings the verifier says are no longer present
+    rejected_paths_lines = {(r.comment.path, r.comment.line) for r in fp_result.rejected}
+
+    resolved_count = 0
+    for thread in eligible:
+        if (thread.path, thread.line) not in rejected_paths_lines:
+            continue
+
+        logger.info(
+            "Thread re-verified as fixed: %s:%s (thread node %s)",
+            thread.path,
+            thread.line,
+            thread.node_id,
+        )
+
+        repo = pr_context.repo_full_name
+
+        if thread.root_comment_id is not None:
+            try:
+                replied = await api_client.reply_to_review_comment(
+                    repo,
+                    thread.root_comment_id,
+                    "Looks like this was addressed in the latest commit. Resolving.",
+                )
+                if not replied:
+                    logger.warning(
+                        "Failed to post resolution reply on thread %s — resolving anyway",
+                        thread.node_id,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Error posting resolution reply on thread %s: %s — resolving anyway",
+                    thread.node_id,
+                    exc,
+                )
+
+        await api_client.resolve_review_thread(thread.node_id)
+        resolved_count += 1
+
+        # Update finding_outcomes row for this finding if DB is enabled
+        if settings.database_enabled and db_review_id is not None:
+            try:
+                from sqlalchemy import select
+
+                from baloo.db.engine import get_session_factory
+                from baloo.db.models import Finding, FindingOutcome
+
+                session_factory = get_session_factory(settings.database_url)
+                async with session_factory() as session:
+                    async with session.begin():
+                        # Look up the Finding by review_id, file_path, line_number
+                        finding_stmt = select(Finding).where(
+                            Finding.review_id == db_review_id,
+                            Finding.file_path == (thread.path or ""),
+                            Finding.line_number == thread.line,
+                        )
+                        finding_result = await session.execute(finding_stmt)
+                        finding = finding_result.scalars().first()
+
+                        if finding is not None:
+                            # Update existing FindingOutcome row if present
+                            outcome_stmt = select(FindingOutcome).where(
+                                FindingOutcome.finding_id == finding.id
+                            )
+                            outcome_result = await session.execute(outcome_stmt)
+                            outcome_row = outcome_result.scalars().first()
+
+                            if outcome_row is not None:
+                                signals = dict(outcome_row.signals or {})
+                                signals["thread_resolved"] = True
+                                outcome_row.signals = signals
+                                logger.info(
+                                    "Updated finding_outcomes thread_resolved=True for finding %d",
+                                    finding.id,
+                                )
+            except Exception as db_err:
+                logger.warning(
+                    "Failed to update finding_outcomes for thread %s:%s: %s",
+                    thread.path,
+                    thread.line,
+                    db_err,
+                )
+
+    return resolved_count
 
 
 def _dedupe_similar_findings(comments: list[ReviewComment]) -> tuple[list[ReviewComment], int]:
@@ -842,44 +1005,6 @@ async def process_pr_review(
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
-            # FP verification pass (LLM-powered, before heuristic filter)
-            if settings.fp_verification_enabled and review_result.comments:
-                from baloo.processor.fp_verifier import FPVerifier
-
-                verifier = FPVerifier()
-                fp_result = await verifier.verify(review_result.comments, pr_context)
-                # Build a fresh metadata dict rather than mutating the agent
-                # result's dict via aliasing — keeps provenance explicit and
-                # avoids breakage if ReviewResult ever copies its metadata.
-                merged_metadata = {
-                    **review_result.metadata,
-                    "fp_verification": {
-                        "total": fp_result.stats.total_verified,
-                        "kept": fp_result.stats.kept,
-                        "rejected": fp_result.stats.rejected,
-                        "errors": fp_result.stats.errors,
-                        "cost_usd": fp_result.stats.total_cost_usd,
-                        "duration_seconds": fp_result.stats.duration_seconds,
-                    },
-                }
-                review_result = ReviewResult(
-                    summary=review_result.summary,
-                    comments=fp_result.verified,
-                    approve=review_result.approve,
-                    request_changes=review_result.request_changes,
-                    metadata=merged_metadata,
-                )
-                # Keep `agent_metadata` in sync so the final ReviewResult
-                # built below (which re-uses agent_metadata) still carries
-                # the fp_verification stats forward to the DB row.
-                agent_metadata = merged_metadata
-                logger.info(
-                    "FP verification: %d/%d findings kept (rejected %d)",
-                    fp_result.stats.kept,
-                    fp_result.stats.total_verified,
-                    fp_result.stats.rejected,
-                )
-
             findings_filter = FindingsFilter()
             filtered_comments = findings_filter.filter_findings(review_result.comments)
             filtered_comments, skipped_similar_repeats = _dedupe_similar_findings(filtered_comments)
@@ -890,7 +1015,7 @@ async def process_pr_review(
             all_threads = list(pr_context.discussion_threads)
             all_threads.extend(_threads_from_issue_comments(pr_context.issue_comments))
             thread_lookup = _build_thread_lookup(all_threads)
-            fresh_comments: list[ReviewComment] = []
+            new_findings_comments: list[ReviewComment] = []
             follow_up_comments: list[tuple[DiscussionThread, ReviewComment]] = (
                 []
             )  # reserved for future conversational thread agent
@@ -898,6 +1023,7 @@ async def process_pr_review(
             skipped_resolved = 0
             skipped_outdated = 0
             skipped_responded = 0
+            matched_awaiting_ids: set = set()
             skipped_unchanged_scope = 0
             skipped_outside_line_scope = 0
 
@@ -916,7 +1042,7 @@ async def process_pr_review(
                         ):
                             skipped_outside_line_scope += 1
                             continue
-                    fresh_comments.append(comment)
+                    new_findings_comments.append(comment)
                     continue
 
                 # Thread was resolved (GitHub "Resolve conversation").
@@ -947,6 +1073,7 @@ async def process_pr_review(
 
                 if thread.awaiting_response:
                     skipped_duplicates += 1
+                    matched_awaiting_ids.add(thread.id)
                     continue
 
                 # Developer responded (not resolved, not awaiting) — they've
@@ -955,12 +1082,66 @@ async def process_pr_review(
                 skipped_responded += 1
                 continue
 
+            # Collect threads from previous reviews that are still awaiting a
+            # response but were NOT re-flagged by any new finding.  These are
+            # candidates for auto-resolution: the agent no longer flags the
+            # issue, so the fix may have landed.
+            awaiting_not_refiled: list[DiscussionThread] = [
+                t
+                for t in all_threads
+                if t.is_baloo_thread
+                and t.awaiting_response
+                and not t.resolved
+                and not t.outdated
+                and t.id not in matched_awaiting_ids
+            ]
+
+            # Run both FP passes concurrently after the thread-matching loop:
+            # Pass A: FP verification on new findings
+            # Pass B: Re-verification of awaiting threads
+            async def _fp_verify_new_findings(
+                comments: list[ReviewComment],
+            ) -> list[ReviewComment]:
+                """Run FP verifier on new findings; returns verified list."""
+                if not (settings.fp_verification_enabled and comments):
+                    return comments
+                verifier = FPVerifier()
+                fp_result = await verifier.verify(comments, pr_context)
+                nonlocal agent_metadata
+                merged_metadata = {
+                    **review_result.metadata,
+                    "fp_verification": {
+                        "total": fp_result.stats.total_verified,
+                        "kept": fp_result.stats.kept,
+                        "rejected": fp_result.stats.rejected,
+                        "errors": fp_result.stats.errors,
+                        "cost_usd": fp_result.stats.total_cost_usd,
+                        "duration_seconds": fp_result.stats.duration_seconds,
+                    },
+                }
+                agent_metadata = merged_metadata
+                logger.info(
+                    "FP verification: %d/%d findings kept (rejected %d)",
+                    fp_result.stats.kept,
+                    fp_result.stats.total_verified,
+                    fp_result.stats.rejected,
+                )
+                return fp_result.verified
+
+            verified_new_findings, auto_resolved_count = await asyncio.gather(
+                _fp_verify_new_findings(new_findings_comments),
+                _reverify_awaiting_threads(
+                    awaiting_not_refiled, pr_context, github_client, db_review_id=db_review_id
+                ),
+            )
+
+            fresh_comments = verified_new_findings
             decision_comments = fresh_comments + [comment for _, comment in follow_up_comments]
 
             approve, request_changes = DecisionEngine.make_decision(
                 decision_comments, fidelity_result=fidelity_result
             )
-            awaiting_threads = pr_context.awaiting_response_threads
+            awaiting_threads = pr_context.awaiting_response_threads - auto_resolved_count
 
             if awaiting_threads and not request_changes and not decision_comments:
                 request_changes = True
@@ -978,6 +1159,11 @@ async def process_pr_review(
                 summary_text += f"\n\n⏭️ Skipped {skipped_outdated} outdated thread(s) (code changed under comment)."
             if skipped_resolved:
                 summary_text += f"\n\n✅ Skipped {skipped_resolved} resolved thread(s)."
+            if auto_resolved_count:
+                summary_text += (
+                    f"\n\n✅ Auto-resolved {auto_resolved_count} previously flagged thread(s) "
+                    "that look fixed in this commit."
+                )
             if skipped_similar_repeats:
                 summary_text += (
                     f"\n\n🧹 Collapsed {skipped_similar_repeats} near-duplicate finding(s) "
