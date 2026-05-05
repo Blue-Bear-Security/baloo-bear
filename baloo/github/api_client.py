@@ -585,15 +585,35 @@ class GitHubAPIClient:
             response.raise_for_status()
             return response.json()
 
+    async def _commit_is_ancestor_of_branch(
+        self, repo_full_name: str, commit_sha: str, branch: str
+    ) -> bool:
+        """Return True if commit_sha is an ancestor of (or identical to) branch HEAD.
+
+        Uses the GitHub compare API: compare/{commit}...{branch} returns
+        status "ahead" when branch is ahead of commit (commit is an ancestor)
+        or "identical" when they are the same commit.
+        """
+        async with httpx.AsyncClient() as client:
+            url = f"{self.base_url}/repos/{repo_full_name}/compare/{commit_sha}...{branch}"
+            response = await client.get(url, headers=self._get_headers())
+            if response.status_code != 200:
+                return False
+            return response.json().get("status") in ("ahead", "identical")
+
     async def is_merge_or_sync_commit(
         self, repo_full_name: str, commit_sha: str, base_branch: str
     ) -> tuple[bool, str]:
         """
         Check if a commit is a merge/sync commit that doesn't warrant a new review.
 
-        This detects:
-        1. Merge commits (2+ parents) with messages like "Merge branch 'dev' into feature"
-        2. Commits that only merge upstream changes without new PR-specific changes
+        A push is a sync-with-base when the HEAD commit is a merge commit (2+
+        parents) and one of those parents is an ancestor of the base branch —
+        meaning the developer merged the base branch into their feature branch.
+
+        Detection uses the GitHub compare API rather than commit message pattern
+        matching or file-count heuristics, so it works regardless of message
+        wording, author tooling, or how many files changed from upstream.
 
         Args:
             repo_full_name: Repository full name (owner/repo)
@@ -605,34 +625,23 @@ class GitHubAPIClient:
         """
         try:
             commit_info = await self.get_commit_info(repo_full_name, commit_sha)
-
             parents = commit_info.get("parents", [])
-            message = commit_info.get("commit", {}).get("message", "").lower()
-            files = commit_info.get("files", [])
 
-            # Check if it's a merge commit (2+ parents)
-            if len(parents) >= 2:
-                # Check for common merge patterns
-                merge_patterns = [
-                    f"merge branch '{base_branch}'",
-                    f'merge branch "{base_branch}"',
-                    f"merge {base_branch} into",
-                    "merge pull request",
-                    "merge remote-tracking branch",
-                ]
+            if len(parents) < 2:
+                return False, ""
 
-                for pattern in merge_patterns:
-                    if pattern in message:
-                        # If it's a pure merge with no file changes, definitely skip
-                        if not files:
-                            return True, "merge commit with no file changes"
-
-                        # If it only has a few conflict resolution files, likely just a sync
-                        if len(files) <= 3:
-                            return (
-                                True,
-                                f"merge commit with only {len(files)} file(s) (conflict resolution)",
-                            )
+            for parent in parents:
+                parent_sha = parent.get("sha", "")
+                if not parent_sha:
+                    continue
+                if await self._commit_is_ancestor_of_branch(
+                    repo_full_name, parent_sha, base_branch
+                ):
+                    return (
+                        True,
+                        f"merge commit syncing {base_branch} into feature branch "
+                        f"(parent {parent_sha[:7]} is an ancestor of {base_branch})",
+                    )
 
             return False, ""
 
