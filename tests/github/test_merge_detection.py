@@ -17,53 +17,57 @@ class TestMergeCommitDetection:
             return GitHubAPIClient(installation_id=123)
 
     @pytest.mark.asyncio
-    async def test_detects_merge_commit_with_base_branch(self, github_client):
-        """Should detect merge commit that merges base branch into feature."""
+    async def test_detects_sync_when_parent_is_ancestor_of_base(self, github_client):
+        """Should skip review when a merge commit parent is on the base branch."""
         commit_info = {
-            "parents": [{"sha": "abc123"}, {"sha": "def456"}],
-            "commit": {"message": "Merge branch 'dev' into feature-branch"},
-            "files": [],
+            "parents": [{"sha": "feature111"}, {"sha": "base000"}],
+            "commit": {"message": "Merge branch 'main' into feature-branch"},
         }
 
-        with patch.object(
-            github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(
+                github_client,
+                "_commit_is_ancestor_of_branch",
+                new=AsyncMock(side_effect=lambda repo, sha, branch: sha == "base000"),
+            ),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
-                "owner/repo", "abc123", "dev"
+                "owner/repo", "head123", "main"
             )
 
         assert is_merge is True
-        assert "merge commit" in reason.lower()
+        assert "main" in reason
+        assert "base000" in reason
 
     @pytest.mark.asyncio
-    async def test_detects_merge_commit_with_conflict_resolution(self, github_client):
-        """Should detect merge commit with small number of conflict resolution files."""
+    async def test_detects_sync_regardless_of_file_count(self, github_client):
+        """File count is irrelevant — a large upstream sync should still be skipped."""
         commit_info = {
-            "parents": [{"sha": "abc123"}, {"sha": "def456"}],
-            "commit": {"message": "Merge branch 'main' into my-feature"},
-            "files": [
-                {"filename": "file1.py"},
-                {"filename": "file2.py"},
-            ],
+            "parents": [{"sha": "feature111"}, {"sha": "base000"}],
+            "commit": {"message": "Synced with main"},  # non-standard message
         }
 
-        with patch.object(
-            github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(
+                github_client,
+                "_commit_is_ancestor_of_branch",
+                new=AsyncMock(side_effect=lambda repo, sha, branch: sha == "base000"),
+            ),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
-                "owner/repo", "abc123", "main"
+                "owner/repo", "head123", "main"
             )
 
         assert is_merge is True
-        assert "2 file(s)" in reason
 
     @pytest.mark.asyncio
     async def test_does_not_detect_regular_commit(self, github_client):
-        """Should not detect regular (non-merge) commit."""
+        """Single-parent commit is never a sync merge."""
         commit_info = {
-            "parents": [{"sha": "abc123"}],  # Only one parent = not a merge
+            "parents": [{"sha": "abc123"}],
             "commit": {"message": "feat: add new feature"},
-            "files": [{"filename": "feature.py"}],
         }
 
         with patch.object(
@@ -77,45 +81,32 @@ class TestMergeCommitDetection:
         assert reason == ""
 
     @pytest.mark.asyncio
-    async def test_does_not_detect_merge_with_many_files(self, github_client):
-        """Should not detect merge commit with many file changes (likely real work)."""
+    async def test_does_not_detect_merge_between_feature_branches(self, github_client):
+        """Merging one feature branch into another should not be skipped."""
         commit_info = {
-            "parents": [{"sha": "abc123"}, {"sha": "def456"}],
-            "commit": {"message": "Merge branch 'main' into feature"},
-            "files": [{"filename": f"file{i}.py"} for i in range(10)],  # 10 files
+            "parents": [{"sha": "feature-a"}, {"sha": "feature-b"}],
+            "commit": {"message": "Merge branch 'feature-a' into feature-b"},
         }
 
-        with patch.object(
-            github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(
+                github_client,
+                "_commit_is_ancestor_of_branch",
+                # Neither parent is on main
+                new=AsyncMock(return_value=False),
+            ),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
-                "owner/repo", "abc123", "main"
+                "owner/repo", "head123", "main"
             )
 
         assert is_merge is False
-
-    @pytest.mark.asyncio
-    async def test_does_not_detect_merge_with_unrelated_message(self, github_client):
-        """Should not detect merge commit that doesn't match base branch pattern."""
-        commit_info = {
-            "parents": [{"sha": "abc123"}, {"sha": "def456"}],
-            "commit": {"message": "Merge branch 'other-feature' into my-feature"},
-            "files": [],
-        }
-
-        with patch.object(
-            github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)
-        ):
-            # Base branch is 'main', but merge is from 'other-feature'
-            is_merge, reason = await github_client.is_merge_or_sync_commit(
-                "owner/repo", "abc123", "main"
-            )
-
-        assert is_merge is False
+        assert reason == ""
 
     @pytest.mark.asyncio
     async def test_handles_api_error_gracefully(self, github_client):
-        """Should return False if API call fails."""
+        """Should return False if the commit info API call fails."""
         with patch.object(
             github_client,
             "get_commit_info",
@@ -129,37 +120,70 @@ class TestMergeCommitDetection:
         assert reason == ""
 
     @pytest.mark.asyncio
-    async def test_detects_pull_request_merge(self, github_client):
-        """Should detect merge pull request commits."""
+    async def test_detects_pr_merge_commit_by_ancestry(self, github_client):
+        """A 'Merge pull request' commit with many files is skipped via ancestry, not heuristics."""
+        # >3 files ensures the old file-count heuristic would NOT have triggered;
+        # only the ancestry check can produce is_merge=True here.
         commit_info = {
-            "parents": [{"sha": "abc123"}, {"sha": "def456"}],
-            "commit": {"message": "Merge pull request #123 from user/feature"},
-            "files": [],
+            "parents": [{"sha": "feature111"}, {"sha": "base_pr_tip"}],
+            "commit": {"message": "Merge pull request #99 from user/feature"},
+            "files": [{"filename": f"file{i}.py"} for i in range(10)],
         }
 
-        with patch.object(
-            github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)
+        ancestry_mock = AsyncMock(side_effect=lambda repo, sha, branch: sha == "base_pr_tip")
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(github_client, "_commit_is_ancestor_of_branch", new=ancestry_mock),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
-                "owner/repo", "abc123", "main"
+                "owner/repo", "head123", "main"
             )
 
         assert is_merge is True
+        ancestry_mock.assert_awaited()  # proves ancestry path was exercised, not heuristics
 
     @pytest.mark.asyncio
-    async def test_detects_remote_tracking_branch_merge(self, github_client):
-        """Should detect merge from remote-tracking branch."""
+    async def test_detects_remote_tracking_branch_merge_by_ancestry(self, github_client):
+        """A remote-tracking merge with many files is skipped via ancestry, not heuristics."""
+        # >3 files ensures the old file-count heuristic would NOT have triggered;
+        # only the ancestry check can produce is_merge=True here.
         commit_info = {
-            "parents": [{"sha": "abc123"}, {"sha": "def456"}],
+            "parents": [{"sha": "feature111"}, {"sha": "origin_main_tip"}],
             "commit": {"message": "Merge remote-tracking branch 'origin/main' into feature"},
-            "files": [{"filename": "conflict.py"}],
+            "files": [{"filename": f"file{i}.py"} for i in range(10)],
         }
 
-        with patch.object(
-            github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)
+        ancestry_mock = AsyncMock(side_effect=lambda repo, sha, branch: sha == "origin_main_tip")
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(github_client, "_commit_is_ancestor_of_branch", new=ancestry_mock),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
-                "owner/repo", "abc123", "main"
+                "owner/repo", "head123", "main"
             )
 
         assert is_merge is True
+        ancestry_mock.assert_awaited()  # proves ancestry path was exercised, not heuristics
+
+    @pytest.mark.asyncio
+    async def test_handles_ancestor_check_error_gracefully(self, github_client):
+        """Should return False if the ancestry compare API call fails."""
+        commit_info = {
+            "parents": [{"sha": "feature111"}, {"sha": "base000"}],
+            "commit": {"message": "Merge branch 'main'"},
+        }
+
+        with (
+            patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
+            patch.object(
+                github_client,
+                "_commit_is_ancestor_of_branch",
+                new=AsyncMock(side_effect=Exception("compare API error")),
+            ),
+        ):
+            is_merge, reason = await github_client.is_merge_or_sync_commit(
+                "owner/repo", "head123", "main"
+            )
+
+        assert is_merge is False
+        assert reason == ""

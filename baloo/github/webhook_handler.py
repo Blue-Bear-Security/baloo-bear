@@ -996,7 +996,7 @@ async def process_pr_review(
 
             if settings.fidelity_enabled:
                 (fidelity_report_text, fidelity_result), agent_result = await asyncio.gather(
-                    _run_fidelity_analysis(github_client, repo_full_name, review_context),
+                    _run_fidelity_analysis(github_client, repo_full_name, pr_context),
                     agent.review_pr(review_context, review_id=db_review_id),
                 )
             else:
