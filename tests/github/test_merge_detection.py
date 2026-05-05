@@ -130,19 +130,17 @@ class TestMergeCommitDetection:
             "files": [{"filename": f"file{i}.py"} for i in range(10)],
         }
 
+        ancestry_mock = AsyncMock(side_effect=lambda repo, sha, branch: sha == "base_pr_tip")
         with (
             patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
-            patch.object(
-                github_client,
-                "_commit_is_ancestor_of_branch",
-                new=AsyncMock(side_effect=lambda repo, sha, branch: sha == "base_pr_tip"),
-            ),
+            patch.object(github_client, "_commit_is_ancestor_of_branch", new=ancestry_mock),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
                 "owner/repo", "head123", "main"
             )
 
         assert is_merge is True
+        ancestry_mock.assert_awaited()  # proves ancestry path was exercised, not heuristics
 
     @pytest.mark.asyncio
     async def test_detects_remote_tracking_branch_merge_by_ancestry(self, github_client):
@@ -155,19 +153,17 @@ class TestMergeCommitDetection:
             "files": [{"filename": f"file{i}.py"} for i in range(10)],
         }
 
+        ancestry_mock = AsyncMock(side_effect=lambda repo, sha, branch: sha == "origin_main_tip")
         with (
             patch.object(github_client, "get_commit_info", new=AsyncMock(return_value=commit_info)),
-            patch.object(
-                github_client,
-                "_commit_is_ancestor_of_branch",
-                new=AsyncMock(side_effect=lambda repo, sha, branch: sha == "origin_main_tip"),
-            ),
+            patch.object(github_client, "_commit_is_ancestor_of_branch", new=ancestry_mock),
         ):
             is_merge, reason = await github_client.is_merge_or_sync_commit(
                 "owner/repo", "head123", "main"
             )
 
         assert is_merge is True
+        ancestry_mock.assert_awaited()  # proves ancestry path was exercised, not heuristics
 
     @pytest.mark.asyncio
     async def test_handles_ancestor_check_error_gracefully(self, github_client):
