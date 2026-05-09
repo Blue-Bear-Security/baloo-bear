@@ -1,9 +1,12 @@
 """Configuration settings for Baloo using Pydantic."""
 
+import logging
 import os
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -147,6 +150,11 @@ def get_settings() -> Settings:
     global _settings
     if _settings is None:
         _settings = Settings()
+        if _settings.webhook_pre_verified:
+            logger.warning(
+                "WEBHOOK_PRE_VERIFIED is enabled — webhook signature verification is DISABLED. "
+                "Only use this when running behind a trusted proxy."
+            )
     return _settings
 
 

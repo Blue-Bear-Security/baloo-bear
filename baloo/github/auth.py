@@ -2,12 +2,15 @@
 
 import hashlib
 import hmac
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
 
 from baloo.config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 def generate_jwt() -> str:
@@ -43,6 +46,7 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
         True if signature is valid, False otherwise
     """
     if settings.webhook_pre_verified:
+        logger.debug("Webhook signature check skipped — WEBHOOK_PRE_VERIFIED is enabled")
         return True
 
     if not signature_header:
