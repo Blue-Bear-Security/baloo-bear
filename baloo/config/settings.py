@@ -1,9 +1,12 @@
 """Configuration settings for Baloo using Pydantic."""
 
+import logging
 import os
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -21,6 +24,10 @@ class Settings(BaseSettings):
     github_private_key: str = Field(default="", description="GitHub App private key (PEM format)")
     github_webhook_secret: str = Field(
         default="", description="GitHub webhook secret for signature validation"
+    )
+    webhook_pre_verified: bool = Field(
+        default=False,
+        description="Skip webhook signature verification (set True when behind a trusted proxy)",
     )
 
     # Anthropic Configuration
@@ -143,6 +150,11 @@ def get_settings() -> Settings:
     global _settings
     if _settings is None:
         _settings = Settings()
+        if _settings.webhook_pre_verified:
+            logger.warning(
+                "WEBHOOK_PRE_VERIFIED is enabled — webhook signature verification is DISABLED. "
+                "Only use this when running behind a trusted proxy."
+            )
     return _settings
 
 
