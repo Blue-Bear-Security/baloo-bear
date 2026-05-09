@@ -130,3 +130,26 @@ class FindingOutcome(Base):
         Index("ix_finding_outcomes_repo", "repo_full_name"),
         Index("ix_finding_outcomes_outcome", "outcome"),
     )
+
+
+class FeedbackSignal(Base):
+    __tablename__ = "feedback_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    repo: Mapped[str] = mapped_column(Text, nullable=False)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_glob: Mapped[str | None] = mapped_column(Text, nullable=True)
+    developer: Mapped[str] = mapped_column(String(255), nullable=False)
+    thread_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    last_matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    times_matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_feedback_signals_repo", "repo"),
+        Index("uq_feedback_signals_repo_cat_pattern", "repo", "category", "pattern", unique=True),
+    )

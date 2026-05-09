@@ -226,3 +226,6 @@ site/
 .care-bear/
 temp/
 .worktrees/
+
+# AI agent plans/specs (internal workflow scaffolding)
+docs/superpowers/

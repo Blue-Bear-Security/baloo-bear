@@ -1,5 +1,8 @@
 """Tests for prompt helpers."""
 
+from datetime import datetime, timezone
+from unittest.mock import MagicMock
+
 from baloo.agent.prompts import (
     _is_dependabot_pr,
     _is_security_patch,
@@ -308,3 +311,32 @@ def test_exhaustive_reporting_in_simple_pr_prompt():
 
     assert "Be exhaustive" in prompt
     assert "completeness check" in prompt
+
+
+def test_feedback_signals_section_empty():
+    """No signals produces empty section."""
+    from baloo.agent.prompts import _feedback_signals_section
+
+    assert _feedback_signals_section([]) == ""
+
+
+def test_feedback_signals_section_formats_signals():
+    """Signals are formatted into a prompt section with header."""
+    from baloo.agent.prompts import _feedback_signals_section
+
+    signals = [
+        MagicMock(
+            category="Silent Failures",
+            file_glob="app/retry/*.py",
+            pattern="except pass in retry loops is intentional",
+            developer="alice",
+            created_at=datetime(2026, 5, 7, tzinfo=timezone.utc),
+        ),
+    ]
+    result = _feedback_signals_section(signals)
+    assert "Team Feedback Signals" in result
+    assert "Silent Failures" in result
+    assert "app/retry/*.py" in result
+    assert "except pass in retry loops" in result
+    assert "@alice" in result
+    assert "avoid re-flagging" in result

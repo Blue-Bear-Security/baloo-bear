@@ -225,6 +225,33 @@ def _discussion_section(pr_context: PRContext | dict[str, Any]) -> str:
 """
 
 
+def _feedback_signals_section(signals: list) -> str:
+    """Format feedback signals as a review prompt section.
+
+    Args:
+        signals: List of FeedbackSignal objects (or mocks with same attributes).
+
+    Returns:
+        Formatted prompt section, or empty string if no signals.
+    """
+    from baloo.db.feedback_service import FeedbackService
+
+    formatted = FeedbackService.format_signals_for_prompt(signals)
+    if not formatted:
+        return ""
+
+    return f"""## Team Feedback Signals
+
+The following patterns have been previously reviewed and accepted by this team.
+Consider these when assigning severity. You may still flag if the specific
+instance is genuinely dangerous, but avoid re-flagging patterns the team has
+explicitly accepted.
+
+{formatted}
+
+"""
+
+
 def _is_dependabot_pr(pr_context: PRContext | dict[str, Any]) -> bool:
     """Check if this PR is from Dependabot or similar dependency update bots."""
     author = (_ctx_get(pr_context, "author", "") or "").lower()
@@ -284,7 +311,9 @@ def _is_security_patch(pr_context: PRContext | dict[str, Any]) -> bool:
     )
 
 
-def _build_simple_pr_review_prompt(pr_context: PRContext | dict[str, Any], files_list: str) -> str:
+def _build_simple_pr_review_prompt(
+    pr_context: PRContext | dict[str, Any], files_list: str, feedback_signals_text: str = ""
+) -> str:
     """Build a focused prompt for simple PRs (configs, deps, docs)."""
     is_dependabot = _is_dependabot_pr(pr_context)
     is_security = _is_security_patch(pr_context)
@@ -345,7 +374,7 @@ Be practical - automated updates usually don't need extensive review unless they
 
 {dependabot_notice}
 {_discussion_section(pr_context)}
-
+{feedback_signals_text}
 ## Changes
 
 ```diff
@@ -418,9 +447,13 @@ def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
             "Skip guidelines compliance check."
         )
 
+    # Build feedback signals section
+    feedback_signals = _ctx_get(pr_context, "feedback_signals", [])
+    feedback_signals_text = _feedback_signals_section(feedback_signals)
+
     # Use simplified prompt for simple PRs (configs, deps, docs)
     if _is_simple_pr(pr_context):
-        return _build_simple_pr_review_prompt(pr_context, files_list)
+        return _build_simple_pr_review_prompt(pr_context, files_list, feedback_signals_text)
 
     return f"""Please review the following pull request:
 
@@ -434,7 +467,7 @@ def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
 {_ctx_get(pr_context, "description", "No description provided.")}
 
 {_discussion_section(pr_context)}
-
+{feedback_signals_text}
 **Files Changed**: {len(_ctx_get(pr_context, "files_changed", []))} files
 
 {files_list}

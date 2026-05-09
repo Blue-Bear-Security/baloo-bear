@@ -154,6 +154,7 @@ class PRContext(BaseModel):
     metadata: PRMetadata
     discussion: PRDiscussionContext
     diff: str
+    feedback_signals: list = Field(default_factory=list)
 
     @property
     def repo_full_name(self) -> str:

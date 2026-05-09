@@ -195,3 +195,24 @@ async def test_review_optional_fields(async_session: AsyncSession):
     assert saved.tokens_input is None
     assert saved.cost_usd is None
     assert saved.error_message == "Something went wrong"
+
+
+def test_feedback_signal_model_exists():
+    """FeedbackSignal model is importable and has expected columns."""
+    from baloo.db.models import FeedbackSignal
+
+    assert FeedbackSignal.__tablename__ == "feedback_signals"
+    columns = {c.name for c in FeedbackSignal.__table__.columns}
+    assert columns == {
+        "id",
+        "repo",
+        "pattern",
+        "category",
+        "file_glob",
+        "developer",
+        "thread_url",
+        "pr_number",
+        "created_at",
+        "last_matched_at",
+        "times_matched",
+    }
