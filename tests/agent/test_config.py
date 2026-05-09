@@ -79,3 +79,16 @@ class TestGetAgentOptions:
         options = get_agent_options("sonnet")
         assert options.system_prompt is not None
         assert "Baloo" in options.system_prompt
+
+
+def test_thread_agent_settings_defaults():
+    """Thread agent settings have correct defaults."""
+    from baloo.config.settings import Settings
+
+    s = Settings()
+    assert s.thread_agent_enabled is False
+    assert s.thread_agent_model == "haiku"
+    assert s.thread_agent_max_replies == 3
+    assert s.thread_agent_max_concurrent == 3
+    assert s.feedback_signals_enabled is True
+    assert s.feedback_signals_ttl_days == 180

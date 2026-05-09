@@ -108,6 +108,34 @@ class Settings(BaseSettings):
         description="Path for FP verification audit log (JSONL). Empty to disable.",
     )
 
+    # Thread Agent Configuration
+    thread_agent_enabled: bool = Field(
+        default=False,
+        description="Enable the thread conversation agent for PR comment replies",
+    )
+    thread_agent_model: str = Field(
+        default="haiku",
+        description="Model for thread replies (short name or provider/model)",
+    )
+    thread_agent_max_replies: int = Field(
+        default=3,
+        description="Max total Baloo messages per thread (original + replies) before escalation",
+    )
+    thread_agent_max_concurrent: int = Field(
+        default=3,
+        description="Max parallel thread agent calls",
+    )
+
+    # Feedback Signals Configuration
+    feedback_signals_enabled: bool = Field(
+        default=True,
+        description="Write and read feedback signals (requires DATABASE_ENABLED)",
+    )
+    feedback_signals_ttl_days: int = Field(
+        default=180,
+        description="Days before unmatched feedback signals expire",
+    )
+
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(
         default=True,
