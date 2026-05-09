@@ -883,6 +883,20 @@ class GitHubAPIClient:
 
         return resolved_ids, outdated_ids, node_id_map
 
+    async def fetch_review_comments(self, repo_full_name: str, pr_number: int) -> list[dict]:
+        """Fetch all review comments on a PR.
+
+        Args:
+            repo_full_name: Repository full name (owner/repo)
+            pr_number: Pull request number
+
+        Returns:
+            List of raw comment dicts from the GitHub API
+        """
+        async with httpx.AsyncClient() as client:
+            url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
+            return await self._fetch_paginated_json(client, url, headers=self._get_headers())
+
     async def _fetch_paginated_json(
         self,
         client: httpx.AsyncClient,
