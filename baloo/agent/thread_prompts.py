@@ -29,9 +29,8 @@ Classify the developer's response and decide how to reply.
 
 ## Output
 
-Return ONLY a JSON object:
+Return ONLY a JSON object with these fields (no markdown fences, no extra text):
 
-```json
 {
   "classification": "acknowledged | disagreed_valid | disagreed_invalid | question | unclear",
   "reply": "your reply text, or null if no reply needed",
@@ -42,12 +41,9 @@ Return ONLY a JSON object:
     "file_glob": "optional file glob or null"
   }
 }
-```
 
 The `feedback_signal` field should ONLY be present when classification is `disagreed_valid`.
-For all other classifications, set `feedback_signal` to null.
-
-IMPORTANT: Return ONLY the JSON object. No markdown fences, no extra text."""
+For all other classifications, set `feedback_signal` to null."""
 
 
 def build_thread_prompt(

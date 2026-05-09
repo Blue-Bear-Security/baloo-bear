@@ -34,9 +34,29 @@ class FeedbackService:
         if not settings.feedback_signals_enabled or not settings.database_enabled:
             return
 
+        from sqlalchemy import select
+
         session_factory = get_session_factory(settings.database_url)
         async with session_factory() as session:
             async with session.begin():
+                # Check for existing signal with same repo/category/pattern to avoid duplicates
+                stmt = (
+                    select(FeedbackSignal)
+                    .where(FeedbackSignal.repo == repo)
+                    .where(FeedbackSignal.category == category)
+                    .where(FeedbackSignal.pattern == pattern)
+                    .limit(1)
+                )
+                existing = (await session.execute(stmt)).scalar_one_or_none()
+                if existing:
+                    logger.info(
+                        "Feedback signal already exists for %s: [%s] %s — skipping",
+                        repo,
+                        category,
+                        pattern[:80],
+                    )
+                    return
+
                 signal = FeedbackSignal(
                     repo=repo,
                     pattern=pattern,

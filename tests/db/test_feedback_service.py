@@ -31,6 +31,11 @@ def mock_session_factory(mock_session):
 @pytest.mark.asyncio
 async def test_write_signal_calls_session_add(mock_session, mock_session_factory):
     """write_signal adds a FeedbackSignal row to the session."""
+    # Mock the dedup query to return no existing signal
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
     with patch("baloo.db.feedback_service.get_session_factory", return_value=mock_session_factory):
         with patch("baloo.db.feedback_service.get_settings") as mock_settings:
             mock_settings.return_value.database_url = "postgresql+asyncpg://localhost/test"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -67,6 +68,10 @@ async def test_process_thread_reply_concede_writes_signal():
     with (
         patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_client),
         patch("baloo.github.webhook_handler.settings") as mock_settings,
+        patch(
+            "baloo.github.webhook_handler.get_thread_agent_semaphore",
+            return_value=asyncio.Semaphore(3),
+        ),
         patch(
             "baloo.agent.thread_agent.ThreadAgent.classify",
             new_callable=AsyncMock,
@@ -186,6 +191,10 @@ async def test_process_thread_reply_escalation_cap():
     with (
         patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_client),
         patch("baloo.github.webhook_handler.settings") as mock_settings,
+        patch(
+            "baloo.github.webhook_handler.get_thread_agent_semaphore",
+            return_value=asyncio.Semaphore(3),
+        ),
     ):
         mock_settings.thread_agent_max_replies = 3
 

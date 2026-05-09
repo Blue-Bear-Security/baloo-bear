@@ -105,6 +105,9 @@ if (
 # Initialized lazily on first use to respect settings
 review_semaphore = None
 
+# Semaphore to limit concurrent thread agent calls
+thread_agent_semaphore = None
+
 # Registry of active review tasks to allow cancellation of redundant reviews
 # Map of (repo_full_name, pr_number) -> asyncio.Task
 active_reviews: dict[tuple[str, int], asyncio.Task] = {}
@@ -119,6 +122,18 @@ def get_review_semaphore() -> asyncio.Semaphore:
             f"Initialized review queue with max {settings.max_concurrent_reviews} concurrent reviews"
         )
     return review_semaphore
+
+
+def get_thread_agent_semaphore() -> asyncio.Semaphore:
+    """Get or create the thread agent semaphore with the configured limit."""
+    global thread_agent_semaphore
+    if thread_agent_semaphore is None:
+        thread_agent_semaphore = asyncio.Semaphore(settings.thread_agent_max_concurrent)
+        logger.info(
+            "Initialized thread agent queue with max %d concurrent calls",
+            settings.thread_agent_max_concurrent,
+        )
+    return thread_agent_semaphore
 
 
 def cancel_existing_review(repo_full_name: str, pr_number: int) -> None:
@@ -879,111 +894,115 @@ async def _process_thread_reply(
     from baloo.db.feedback_service import FeedbackService
     from baloo.github.discussions import build_discussion_comment
 
-    try:
-        github_client = GitHubAPIClient(installation_id)
+    semaphore = get_thread_agent_semaphore()
+    async with semaphore:
+        try:
+            github_client = GitHubAPIClient(installation_id)
 
-        # Fetch all review comments for this PR
-        all_review_comments = await github_client.fetch_review_comments(repo_full_name, pr_number)
-
-        # Build the thread: find all comments in this thread chain
-        thread_comments_raw = []
-        for c in all_review_comments:
-            root_id = c.get("in_reply_to_id") or c.get("id")
-            if root_id == in_reply_to_id or c.get("id") == in_reply_to_id:
-                thread_comments_raw.append(c)
-
-        # Sort by creation time
-        thread_comments_raw.sort(key=lambda c: c.get("created_at", ""))
-
-        # Build DiscussionComment objects
-        thread_comments = [
-            build_discussion_comment(
-                c,
-                source="review_comment",
-                path=c.get("path"),
-                line=c.get("line") or c.get("original_line"),
+            # Fetch all review comments for this PR
+            all_review_comments = await github_client.fetch_review_comments(
+                repo_full_name, pr_number
             )
-            for c in thread_comments_raw
-        ]
 
-        if not any(c.is_baloo for c in thread_comments):
-            logger.info("Thread %s is not a Baloo thread, skipping", in_reply_to_id)
-            return
+            # Build the thread: find all comments in this thread chain
+            thread_comments_raw = []
+            for c in all_review_comments:
+                root_id = c.get("in_reply_to_id") or c.get("id")
+                if root_id == in_reply_to_id or c.get("id") == in_reply_to_id:
+                    thread_comments_raw.append(c)
 
-        # Check escalation cap
-        baloo_message_count = sum(1 for c in thread_comments if c.is_baloo)
-        if baloo_message_count >= settings.thread_agent_max_replies:
+            # Sort by creation time
+            thread_comments_raw.sort(key=lambda c: c.get("created_at", ""))
+
+            # Build DiscussionComment objects
+            thread_comments = [
+                build_discussion_comment(
+                    c,
+                    source="review_comment",
+                    path=c.get("path"),
+                    line=c.get("line") or c.get("original_line"),
+                )
+                for c in thread_comments_raw
+            ]
+
+            if not any(c.is_baloo for c in thread_comments):
+                logger.info("Thread %s is not a Baloo thread, skipping", in_reply_to_id)
+                return
+
+            # Check escalation cap
+            baloo_message_count = sum(1 for c in thread_comments if c.is_baloo)
+            if baloo_message_count >= settings.thread_agent_max_replies:
+                logger.info(
+                    "Thread %s hit escalation cap (%d Baloo messages), skipping",
+                    in_reply_to_id,
+                    baloo_message_count,
+                )
+                return
+
+            # Fetch code context around the finding location
+            file_path = comment_data.get("path", "")
+            line_number = comment_data.get("line") or comment_data.get("original_line") or 0
+
+            code_context = ""
+            if file_path and head_sha:
+                file_content = await github_client.get_file_content(
+                    repo_full_name, file_path, ref=head_sha
+                )
+                if file_content:
+                    lines = file_content.splitlines()
+                    start = max(0, line_number - 31)
+                    end = min(len(lines), line_number + 30)
+                    code_context = "\n".join(
+                        f"{i+1}: {line}" for i, line in enumerate(lines[start:end], start=start)
+                    )
+
+            # Run the thread agent
+            agent = ThreadAgent()
+            result = await agent.classify(
+                thread_comments=thread_comments,
+                code_context=code_context,
+                file_path=file_path,
+                line_number=line_number,
+            )
+
             logger.info(
-                "Thread %s hit escalation cap (%d Baloo messages), skipping",
+                "Thread agent result for %s#%s thread %s: %s (reply=%s)",
+                repo_full_name,
+                pr_number,
                 in_reply_to_id,
-                baloo_message_count,
+                result.classification,
+                bool(result.reply),
             )
-            return
 
-        # Fetch code context around the finding location
-        file_path = comment_data.get("path", "")
-        line_number = comment_data.get("line") or comment_data.get("original_line") or 0
-
-        code_context = ""
-        if file_path and head_sha:
-            file_content = await github_client.get_file_content(
-                repo_full_name, file_path, ref=head_sha
-            )
-            if file_content:
-                lines = file_content.splitlines()
-                start = max(0, line_number - 31)
-                end = min(len(lines), line_number + 30)
-                code_context = "\n".join(
-                    f"{i+1}: {line}" for i, line in enumerate(lines[start:end], start=start)
+            # Post reply if needed
+            if result.reply:
+                await github_client.reply_to_review_comment(
+                    repo_full_name,
+                    in_reply_to_id,
+                    result.reply,
                 )
 
-        # Run the thread agent
-        agent = ThreadAgent()
-        result = await agent.classify(
-            thread_comments=thread_comments,
-            code_context=code_context,
-            file_path=file_path,
-            line_number=line_number,
-        )
+            # Write feedback signal on concession
+            if result.classification == "disagreed_valid" and result.feedback_signal:
+                comment_url = comment_data.get("html_url", "")
+                await FeedbackService.write_signal(
+                    repo=repo_full_name,
+                    pattern=result.feedback_signal["pattern"],
+                    category=result.feedback_signal.get("category", ""),
+                    developer=(comment_data.get("user") or {}).get("login", "unknown"),
+                    file_glob=result.feedback_signal.get("file_glob"),
+                    thread_url=comment_url,
+                    pr_number=pr_number,
+                )
 
-        logger.info(
-            "Thread agent result for %s#%s thread %s: %s (reply=%s)",
-            repo_full_name,
-            pr_number,
-            in_reply_to_id,
-            result.classification,
-            bool(result.reply),
-        )
-
-        # Post reply if needed
-        if result.reply:
-            await github_client.reply_to_review_comment(
+        except Exception as exc:
+            logger.error(
+                "Error processing thread reply for %s#%s: %s",
                 repo_full_name,
-                in_reply_to_id,
-                result.reply,
+                pr_number,
+                exc,
+                exc_info=True,
             )
-
-        # Write feedback signal on concession
-        if result.classification == "disagreed_valid" and result.feedback_signal:
-            comment_url = comment_data.get("html_url", "")
-            await FeedbackService.write_signal(
-                repo=repo_full_name,
-                pattern=result.feedback_signal["pattern"],
-                category=result.feedback_signal.get("category", ""),
-                developer=(comment_data.get("user") or {}).get("login", "unknown"),
-                file_glob=result.feedback_signal.get("file_glob"),
-                thread_url=comment_url,
-                pr_number=pr_number,
-            )
-
-    except Exception as exc:
-        logger.error(
-            "Error processing thread reply for %s#%s: %s",
-            repo_full_name,
-            pr_number,
-            exc,
-            exc_info=True,
-        )
 
 
 async def _run_fidelity_analysis(
