@@ -37,8 +37,15 @@ def upgrade() -> None:
             sa.Column("times_matched", sa.Integer, nullable=False, server_default="0"),
         )
         op.create_index("ix_feedback_signals_repo", "feedback_signals", ["repo"])
+        op.create_index(
+            "uq_feedback_signals_repo_cat_pattern",
+            "feedback_signals",
+            ["repo", "category", "pattern"],
+            unique=True,
+        )
 
 
 def downgrade() -> None:
+    op.drop_index("uq_feedback_signals_repo_cat_pattern", table_name="feedback_signals")
     op.drop_index("ix_feedback_signals_repo", table_name="feedback_signals")
     op.drop_table("feedback_signals")

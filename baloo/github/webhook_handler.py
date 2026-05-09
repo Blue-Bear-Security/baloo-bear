@@ -1002,6 +1002,7 @@ async def _process_thread_reply(
                 pr_number,
                 exc,
                 exc_info=True,
+                extra={"metric": "thread_agent_failure", "repo": repo_full_name},
             )
 
 

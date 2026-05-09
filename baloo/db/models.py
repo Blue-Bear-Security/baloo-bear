@@ -149,4 +149,7 @@ class FeedbackSignal(Base):
     last_matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     times_matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    __table_args__ = (Index("ix_feedback_signals_repo", "repo"),)
+    __table_args__ = (
+        Index("ix_feedback_signals_repo", "repo"),
+        Index("uq_feedback_signals_repo_cat_pattern", "repo", "category", "pattern", unique=True),
+    )
