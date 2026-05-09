@@ -32,6 +32,9 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
     """
     Verify that the webhook payload was sent from GitHub by validating its signature.
 
+    When WEBHOOK_PRE_VERIFIED is True, the signature check is skipped because
+    a trusted proxy (e.g., baloo-cloud) has already validated it.
+
     Args:
         payload_body: Raw request body bytes
         signature_header: X-Hub-Signature-256 header value
@@ -39,6 +42,9 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
     Returns:
         True if signature is valid, False otherwise
     """
+    if settings.webhook_pre_verified:
+        return True
+
     if not signature_header:
         return False
 

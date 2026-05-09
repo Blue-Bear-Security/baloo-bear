@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     github_webhook_secret: str = Field(
         default="", description="GitHub webhook secret for signature validation"
     )
+    webhook_pre_verified: bool = Field(
+        default=False,
+        description="Skip webhook signature verification (set True when behind a trusted proxy)",
+    )
 
     # Anthropic Configuration
     anthropic_api_key: str = Field(default="", description="Anthropic API key for Claude")
