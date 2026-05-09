@@ -32,6 +32,7 @@ def valid_signature(webhook_secret, payload):
 def reset_settings_fixture():
     """Reset settings before and after each test to pick up env var changes."""
     from baloo.config import settings as settings_module
+
     settings_module.reset_settings()
     yield
     settings_module.reset_settings()
@@ -40,6 +41,7 @@ def reset_settings_fixture():
 def _verify(payload: bytes, signature: str) -> bool:
     """Re-import auth module to pick up fresh settings."""
     import baloo.github.auth as auth_module
+
     importlib.reload(auth_module)
     return auth_module.verify_webhook_signature(payload, signature)
 
