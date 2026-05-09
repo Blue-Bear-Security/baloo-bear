@@ -1108,6 +1108,23 @@ async def process_pr_review(
 
             # Fetch PR context
             pr_context = await github_client.get_pr_context(repo_full_name, pr_number)
+
+            # Fetch feedback signals for this repo
+            feedback_signals = []
+            if settings.feedback_signals_enabled and settings.database_enabled:
+                try:
+                    from baloo.db.feedback_service import FeedbackService
+
+                    feedback_signals = await FeedbackService.get_signals_for_repo(repo_full_name)
+                    if feedback_signals:
+                        logger.info(
+                            "Loaded %d feedback signal(s) for %s",
+                            len(feedback_signals),
+                            repo_full_name,
+                        )
+                except Exception as exc:
+                    logger.warning("Failed to load feedback signals: %s", exc)
+
             changed_files_scope: set[str] | None = None
             changed_line_scope: dict[str, set[int]] = {}
             review_mode = "full_pr"
@@ -1159,6 +1176,12 @@ async def process_pr_review(
                     )
                     review_mode = "full_pr"
                     review_mode_reason = f"Scope preparation failed: {exc}"
+
+            # Attach feedback signals to review context
+            if feedback_signals:
+                review_context = review_context.model_copy(
+                    update={"feedback_signals": feedback_signals}
+                )
 
             # Run fidelity analysis and main review concurrently
             from baloo.agent.client import BalooAgent
