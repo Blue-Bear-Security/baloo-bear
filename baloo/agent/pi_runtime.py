@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from baloo.agent.costs import normalize_usage
-from baloo.config.settings import get_settings, settings
+from baloo.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -424,7 +424,8 @@ class PIAgentBase:
 
     def _build_pi_command(self) -> list[str]:
         """Build the PI CLI command list."""
-        pi_binary = settings.pi_binary_path or "pi"
+        s = get_settings()
+        pi_binary = s.pi_binary_path or "pi"
 
         cmd = [
             pi_binary,
@@ -442,7 +443,7 @@ class PIAgentBase:
             cmd.extend(["--tools", "read,grep,find,ls"])
 
             # Load AST tools extension when enabled
-            if settings.ast_tools_enabled:
+            if s.ast_tools_enabled:
                 ext_path = (
                     Path(__file__).resolve().parent.parent.parent
                     / "extensions"

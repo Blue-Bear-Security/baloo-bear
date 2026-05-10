@@ -47,7 +47,8 @@ export function detectLanguage(filePath: string): LangId | null {
 export function readFileText(filePath: string): string | null {
   try {
     return fs.readFileSync(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    console.error(`[ast-tools] Failed to read ${filePath}: ${err}`);
     return null;
   }
 }
@@ -443,6 +444,7 @@ export default function balooAstTools(pi: ExtensionAPI): void {
       const MAX_MATCHES = 30;
       const matchLines: string[] = [];
       let totalMatches = 0;
+      let firstFileProcessed = false;
 
       outer: for (const filePath of files) {
         const source = readFileText(filePath);
@@ -459,9 +461,20 @@ export default function balooAstTools(pi: ExtensionAPI): void {
         let matches;
         try {
           matches = tree.root().findAll(pattern);
-        } catch {
+        } catch (err) {
+          if (!firstFileProcessed) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Invalid pattern \`${pattern}\`: ${err}`,
+                },
+              ],
+            };
+          }
           continue;
         }
+        firstFileProcessed = true;
 
         for (const node of matches) {
           if (totalMatches >= MAX_MATCHES) break outer;
@@ -662,13 +675,15 @@ export default function balooAstTools(pi: ExtensionAPI): void {
         }
 
         // --- Text-based reference search ---
+        const escapedName = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const symbolRegex = new RegExp(`\\b${escapedName}\\b`);
         if (references.length < MAX_REFS) {
           for (let i = 0; i < sourceLines.length; i++) {
             if (references.length >= MAX_REFS) break;
             const lineNum = i + 1;
             const key = `${filePath}:${lineNum}`;
             if (defLineSet.has(key)) continue; // already a definition
-            if (sourceLines[i].includes(symbolName)) {
+            if (symbolRegex.test(sourceLines[i])) {
               references.push({
                 file: filePath,
                 line: lineNum,

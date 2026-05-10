@@ -3,7 +3,7 @@
 import logging
 
 from baloo.agent.pi_runtime import PIAgentOptions
-from baloo.agent.prompts import REVIEW_SYSTEM_PROMPT
+from baloo.agent.prompts import AST_TOOLS_PROMPT_SECTION, REVIEW_SYSTEM_PROMPT
 from baloo.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,14 @@ MODEL_MAP = {name: spec[1] for name, spec in MODEL_REGISTRY.items()}
 MAX_TURNS = {name: spec[2] for name, spec in MODEL_REGISTRY.items()}
 
 
+def _build_system_prompt() -> str:
+    """Build the system prompt, conditionally including the AST tools section."""
+    prompt = REVIEW_SYSTEM_PROMPT
+    if settings.ast_tools_enabled:
+        prompt += AST_TOOLS_PROMPT_SECTION
+    return prompt
+
+
 def get_agent_options(model: str = None, thinking_level: str | None = None) -> PIAgentOptions:
     """
     Get PI agent configuration options.
@@ -41,6 +49,7 @@ def get_agent_options(model: str = None, thinking_level: str | None = None) -> P
         PIAgentOptions configured for read-only code review
     """
     level = thinking_level or settings.pi_thinking_level
+    system_prompt = _build_system_prompt()
 
     # 1. Short name lookup
     if model and model in MODEL_REGISTRY:
@@ -48,7 +57,7 @@ def get_agent_options(model: str = None, thinking_level: str | None = None) -> P
         return PIAgentOptions(
             model=model_id,
             provider=provider,
-            system_prompt=REVIEW_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             thinking_level=level,
             max_turns=max_turns,
         )
@@ -59,7 +68,7 @@ def get_agent_options(model: str = None, thinking_level: str | None = None) -> P
         return PIAgentOptions(
             model=model_id,
             provider=provider,
-            system_prompt=REVIEW_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             thinking_level=level,
             max_turns=20,
         )
@@ -69,7 +78,7 @@ def get_agent_options(model: str = None, thinking_level: str | None = None) -> P
         return PIAgentOptions(
             model=model,
             provider="anthropic",
-            system_prompt=REVIEW_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             thinking_level=level,
             max_turns=20,
         )
@@ -81,7 +90,7 @@ def get_agent_options(model: str = None, thinking_level: str | None = None) -> P
         return PIAgentOptions(
             model=model_id,
             provider=provider,
-            system_prompt=REVIEW_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             thinking_level=level,
             max_turns=max_turns,
         )
@@ -89,7 +98,7 @@ def get_agent_options(model: str = None, thinking_level: str | None = None) -> P
     return PIAgentOptions(
         model=default_model,
         provider=settings.agent_provider,
-        system_prompt=REVIEW_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         thinking_level=level,
         max_turns=20,
     )

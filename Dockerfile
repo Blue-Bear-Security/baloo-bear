@@ -37,8 +37,8 @@ RUN pip install --no-cache-dir -e .
 RUN npm install -g @mariozechner/pi-coding-agent
 
 # Install AST tools extension dependencies
-COPY extensions/package.json /app/extensions/package.json
-RUN cd /app/extensions && npm install --production
+COPY extensions/package.json extensions/package-lock.json /app/extensions/
+RUN cd /app/extensions && npm ci --production
 
 # Copy application code
 COPY . .

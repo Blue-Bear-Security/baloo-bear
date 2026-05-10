@@ -342,10 +342,10 @@ def test_feedback_signals_section_formats_signals():
     assert "avoid re-flagging" in result
 
 
-def test_ast_tools_section_in_system_prompt():
-    """Review system prompt includes AST tools instructions."""
-    from baloo.agent.prompts import REVIEW_SYSTEM_PROMPT
+def test_ast_tools_section_in_prompt_section():
+    """AST tools prompt section contains tool names."""
+    from baloo.agent.prompts import AST_TOOLS_PROMPT_SECTION
 
-    assert "ast_outline" in REVIEW_SYSTEM_PROMPT
-    assert "ast_grep" in REVIEW_SYSTEM_PROMPT
-    assert "ast_symbols" in REVIEW_SYSTEM_PROMPT
+    assert "ast_outline" in AST_TOOLS_PROMPT_SECTION
+    assert "ast_grep" in AST_TOOLS_PROMPT_SECTION
+    assert "ast_symbols" in AST_TOOLS_PROMPT_SECTION

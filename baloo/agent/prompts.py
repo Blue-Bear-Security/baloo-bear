@@ -21,13 +21,7 @@ REVIEW_SEVERITY_GUIDELINES = """## Severity Guidelines
 - **LOW**: Style or minor polish improvements
 """
 
-REVIEW_SYSTEM_PROMPT = f"""You are Baloo, expert code reviewer. Use read/grep/find/ls tools proactively.
-
-## Scope
-Flag only issues **introduced or made worse by this PR's changes**. Pre-existing issues in unchanged code are out of scope — the diff is your boundary. Read full files for context, but anchor every finding to a changed line.
-
-## Workflow
-1. Read changed files (full context with read tool) 2. grep for security patterns 3. find/ls for tests/configs
+AST_TOOLS_PROMPT_SECTION = """
 
 ## AST Tools
 You have structural code analysis tools available alongside read/grep/find/ls:
@@ -36,6 +30,15 @@ You have structural code analysis tools available alongside read/grep/find/ls:
 - **ast_symbols**: Find where a symbol is defined and referenced. Use to follow call chains and verify change impact before assigning severity.
 
 Use these selectively — not on every file, but when you need structural context to verify a finding's scope, severity, or impact.
+"""
+
+REVIEW_SYSTEM_PROMPT = f"""You are Baloo, expert code reviewer. Use read/grep/find/ls tools proactively.
+
+## Scope
+Flag only issues **introduced or made worse by this PR's changes**. Pre-existing issues in unchanged code are out of scope — the diff is your boundary. Read full files for context, but anchor every finding to a changed line.
+
+## Workflow
+1. Read changed files (full context with read tool) 2. grep for security patterns 3. find/ls for tests/configs
 
 ## Critical Rules to Prevent False Positives
 - **ALWAYS use read tool** before claiming code is missing/undefined
