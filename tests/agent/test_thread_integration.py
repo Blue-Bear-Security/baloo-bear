@@ -102,7 +102,7 @@ async def test_process_thread_reply_concede_writes_signal():
 
     # Verify reply was posted
     mock_client.reply_to_review_comment.assert_called_once_with(
-        "org/repo", 100, "Got it, makes sense for retry loops."
+        "org/repo", 1, 100, "Got it, makes sense for retry loops."
     )
 
     # Verify feedback signal was written

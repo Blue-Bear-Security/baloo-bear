@@ -477,6 +477,7 @@ async def _reverify_awaiting_threads(
             try:
                 replied = await api_client.reply_to_review_comment(
                     repo,
+                    pr_context.pr_number,
                     thread.root_comment_id,
                     "Looks like this was addressed in the latest commit. Resolving.",
                 )
@@ -978,6 +979,7 @@ async def _process_thread_reply(
             if result.reply:
                 await github_client.reply_to_review_comment(
                     repo_full_name,
+                    pr_number,
                     in_reply_to_id,
                     result.reply,
                 )
@@ -1433,6 +1435,7 @@ async def process_pr_review(
                 )
                 success = await github_client.reply_to_review_comment(
                     repo_full_name,
+                    pr_number,
                     thread.root_comment_id or thread.id,
                     reply_body,
                 )
