@@ -118,6 +118,7 @@ async def test_reverify_fp_verdict_triggers_reply_and_resolve():
     assert resolved_count == 1
     mock_api.reply_to_review_comment.assert_called_once_with(
         "org/repo",
+        1,
         42,
         "Looks like this was addressed in the latest commit. Resolving.",
     )

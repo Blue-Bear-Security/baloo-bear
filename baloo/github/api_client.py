@@ -538,6 +538,7 @@ class GitHubAPIClient:
     async def reply_to_review_comment(
         self,
         repo_full_name: str,
+        pr_number: int,
         review_comment_id: int,
         comment: str,
     ) -> bool:
@@ -546,6 +547,7 @@ class GitHubAPIClient:
 
         Args:
             repo_full_name: Repository full name (owner/repo)
+            pr_number: Pull request number
             review_comment_id: ID of the review comment to reply to
             comment: Comment body
 
@@ -553,20 +555,17 @@ class GitHubAPIClient:
             True if reply was successful, False if comment is outdated (404)
         """
         async with httpx.AsyncClient() as client:
-            reply_url = (
-                f"{self.base_url}/repos/{repo_full_name}/pulls/comments/{review_comment_id}/replies"
-            )
+            reply_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments/{review_comment_id}/replies"
             response = await client.post(
                 reply_url,
                 headers=self._get_headers(),
                 json={"body": comment},
             )
 
-            # Handle outdated comments (GitHub returns 404 when comment line is null)
             if response.status_code == 404:
                 logger.warning(
-                    f"Cannot reply to comment {review_comment_id} - comment is outdated "
-                    f"(line no longer exists in latest commit)"
+                    f"Cannot reply to comment {review_comment_id} on PR #{pr_number} - "
+                    f"GitHub returned 404 (comment may be outdated or deleted)"
                 )
                 return False
 
