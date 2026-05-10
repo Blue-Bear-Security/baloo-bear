@@ -36,6 +36,10 @@ RUN pip install --no-cache-dir -e .
 # Install PI coding agent globally (provides the 'pi' CLI)
 RUN npm install -g @mariozechner/pi-coding-agent
 
+# Install AST tools extension dependencies
+COPY extensions/package.json extensions/package-lock.json /app/extensions/
+RUN cd /app/extensions && npm ci --production
+
 # Copy application code
 COPY . .
 

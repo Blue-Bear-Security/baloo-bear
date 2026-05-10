@@ -340,3 +340,12 @@ def test_feedback_signals_section_formats_signals():
     assert "except pass in retry loops" in result
     assert "@alice" in result
     assert "avoid re-flagging" in result
+
+
+def test_ast_tools_section_in_prompt_section():
+    """AST tools prompt section contains tool names."""
+    from baloo.agent.prompts import AST_TOOLS_PROMPT_SECTION
+
+    assert "ast_outline" in AST_TOOLS_PROMPT_SECTION
+    assert "ast_grep" in AST_TOOLS_PROMPT_SECTION
+    assert "ast_symbols" in AST_TOOLS_PROMPT_SECTION

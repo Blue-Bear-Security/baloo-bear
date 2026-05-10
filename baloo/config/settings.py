@@ -143,6 +143,12 @@ class Settings(BaseSettings):
         description="Days before unmatched feedback signals expire",
     )
 
+    # AST Tools Configuration
+    ast_tools_enabled: bool = Field(
+        default=True,
+        description="Enable AST analysis tools (outline, grep, symbols) for the review agent",
+    )
+
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(
         default=True,

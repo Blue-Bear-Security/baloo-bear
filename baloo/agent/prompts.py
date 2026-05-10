@@ -21,6 +21,17 @@ REVIEW_SEVERITY_GUIDELINES = """## Severity Guidelines
 - **LOW**: Style or minor polish improvements
 """
 
+AST_TOOLS_PROMPT_SECTION = """
+
+## AST Tools
+You have structural code analysis tools available alongside read/grep/find/ls:
+- **ast_outline**: Get the symbol structure of a file (functions, classes, methods with line ranges). Use to understand what scope a diff hunk lives in.
+- **ast_grep**: Search for code patterns by structure using metavariables ($VAR matches any expression, $$$ matches multiple). Examples: `except $ERR: pass`, `subprocess.run($$$, shell=True)`. Use to find related patterns across the codebase.
+- **ast_symbols**: Find where a symbol is defined and referenced. Use to follow call chains and verify change impact before assigning severity.
+
+Use these selectively — not on every file, but when you need structural context to verify a finding's scope, severity, or impact.
+"""
+
 REVIEW_SYSTEM_PROMPT = f"""You are Baloo, expert code reviewer. Use read/grep/find/ls tools proactively.
 
 ## Scope
