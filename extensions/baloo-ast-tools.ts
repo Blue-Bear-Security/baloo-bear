@@ -503,4 +503,215 @@ export default function balooAstTools(pi: ExtensionAPI): void {
       };
     },
   });
+
+  pi.registerTool({
+    name: "ast_symbols",
+    label: "AST Symbols",
+    description:
+      "Find where a symbol is defined and referenced across the codebase. " +
+      "Definitions are located via AST patterns (precise); references are located via text search (line contains symbol name). " +
+      "Useful for understanding how a function, class, or variable is used throughout the project.",
+    parameters: Type.Object({
+      name: Type.String({ description: "Symbol name to search for (e.g. 'validate_token')" }),
+      language: Type.String({ description: "Language: python, typescript, javascript, tsx, go" }),
+      path: Type.Optional(Type.String({ description: "Directory to search (defaults to cwd)" })),
+    }),
+    async execute(
+      _toolCallId: string,
+      params: { name: string; language: string; path?: string },
+      _signal: AbortSignal,
+      _onUpdate: unknown,
+      ctx: { cwd?: string },
+    ) {
+      const { name: symbolName, language } = params;
+      const searchPath = params.path ?? ctx.cwd ?? ".";
+      const langId = resolveLang(language);
+      const extensions = LANG_EXTS[language];
+
+      if (!extensions) {
+        return {
+          content: [{ type: "text" as const, text: `Unsupported language: ${language}` }],
+        };
+      }
+
+      // Collect files using the filtered variant (skips hidden dirs, node_modules, SKIP_DIRS)
+      function collectFilesFiltered(dirPath: string, exts: string[]): string[] {
+        const results: string[] = [];
+        try {
+          const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            if (entry.isDirectory()) {
+              if (
+                entry.name.startsWith(".") ||
+                entry.name === "node_modules" ||
+                SKIP_DIRS.has(entry.name)
+              ) {
+                continue;
+              }
+              results.push(...collectFilesFiltered(fullPath, exts));
+            } else if (exts.some((ext) => entry.name.endsWith(ext))) {
+              results.push(fullPath);
+            }
+          }
+        } catch {
+          // Ignore unreadable directories
+        }
+        return results;
+      }
+
+      // Determine if searchPath is a file or directory
+      let files: string[];
+      try {
+        const stat = fs.statSync(searchPath);
+        if (stat.isFile()) {
+          files = [searchPath];
+        } else {
+          files = collectFilesFiltered(searchPath, extensions);
+        }
+      } catch {
+        return {
+          content: [{ type: "text" as const, text: `Path not found: ${searchPath}` }],
+        };
+      }
+
+      // Build language-specific definition patterns
+      const defPatterns: string[] = [];
+      if (language === "python") {
+        defPatterns.push(
+          `def ${symbolName}($$$)`,
+          `class ${symbolName}($$$)`,
+          `class ${symbolName}:`,
+          `${symbolName} = $VALUE`,
+        );
+      } else if (
+        language === "typescript" ||
+        language === "javascript" ||
+        language === "tsx"
+      ) {
+        defPatterns.push(
+          `function ${symbolName}($$$)`,
+          `class ${symbolName} $$$`,
+          `const ${symbolName} = $$$`,
+          `let ${symbolName} = $$$`,
+          `interface ${symbolName} $$$`,
+          `type ${symbolName} = $$$`,
+          `export function ${symbolName}($$$)`,
+          `export class ${symbolName} $$$`,
+          `export const ${symbolName} = $$$`,
+        );
+      } else if (language === "go") {
+        defPatterns.push(
+          `func ${symbolName}($$$)`,
+          `func ($RECV) ${symbolName}($$$)`,
+          `type ${symbolName} $$$`,
+          `var ${symbolName} $$$`,
+        );
+      }
+
+      const MAX_DEFS = 20;
+      const MAX_REFS = 20;
+
+      interface SymbolMatch {
+        file: string;
+        line: number; // 1-indexed
+        text: string; // trimmed line text
+      }
+
+      const definitions: SymbolMatch[] = [];
+      // Track (file, line) pairs that are definitions, to exclude from references
+      const defLineSet = new Set<string>();
+      const references: SymbolMatch[] = [];
+
+      for (const filePath of files) {
+        const source = readFileText(filePath);
+        if (source === null) continue;
+
+        let tree;
+        try {
+          tree = parse(langId, source);
+        } catch {
+          continue;
+        }
+
+        const root = tree.root();
+        const sourceLines = source.split("\n");
+
+        // --- AST-based definition search ---
+        for (const pattern of defPatterns) {
+          if (definitions.length >= MAX_DEFS) break;
+          let matches;
+          try {
+            matches = root.findAll(pattern);
+          } catch {
+            continue;
+          }
+          for (const node of matches) {
+            if (definitions.length >= MAX_DEFS) break;
+            const lineIdx = node.range().start.line; // 0-indexed
+            const lineNum = lineIdx + 1; // 1-indexed
+            const key = `${filePath}:${lineNum}`;
+            if (defLineSet.has(key)) continue;
+            defLineSet.add(key);
+            definitions.push({
+              file: filePath,
+              line: lineNum,
+              text: (sourceLines[lineIdx] ?? "").trimEnd(),
+            });
+          }
+        }
+
+        // --- Text-based reference search ---
+        if (references.length < MAX_REFS) {
+          for (let i = 0; i < sourceLines.length; i++) {
+            if (references.length >= MAX_REFS) break;
+            const lineNum = i + 1;
+            const key = `${filePath}:${lineNum}`;
+            if (defLineSet.has(key)) continue; // already a definition
+            if (sourceLines[i].includes(symbolName)) {
+              references.push({
+                file: filePath,
+                line: lineNum,
+                text: sourceLines[i].trim(),
+              });
+            }
+          }
+        }
+      }
+
+      // --- Format output ---
+      const lines: string[] = [];
+      lines.push(`Symbol: ${symbolName}`);
+      lines.push("");
+
+      if (definitions.length === 0) {
+        lines.push("Defined in:");
+        lines.push("  (none found)");
+      } else {
+        lines.push("Defined in:");
+        for (const def of definitions) {
+          lines.push(`  ${def.file}:${def.line}  ${def.text}`);
+        }
+      }
+
+      lines.push("");
+
+      if (references.length === 0) {
+        lines.push("Referenced in:");
+        lines.push("  (none found)");
+      } else {
+        lines.push("Referenced in:");
+        for (const ref of references) {
+          lines.push(`  ${ref.file}:${ref.line}   ${ref.text}`);
+        }
+      }
+
+      const text = lines.join("\n");
+
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { definitions: definitions.length, references: references.length },
+      };
+    },
+  });
 }
