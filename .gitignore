@@ -215,6 +215,7 @@ nikui_results/
 
 # docs/plans — previously ignored, now tracked for feature design docs
 node_modules/
+extensions/node_modules/
 .husky/_/
 
 .DS_Store
