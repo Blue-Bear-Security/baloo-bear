@@ -92,3 +92,11 @@ def test_thread_agent_settings_defaults():
     assert s.thread_agent_max_concurrent == 3
     assert s.feedback_signals_enabled is True
     assert s.feedback_signals_ttl_days == 180
+
+
+def test_ast_tools_settings_defaults():
+    """AST tools settings have correct defaults."""
+    from baloo.config.settings import Settings
+
+    s = Settings()
+    assert s.ast_tools_enabled is True
