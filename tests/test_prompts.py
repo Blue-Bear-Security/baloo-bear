@@ -340,3 +340,12 @@ def test_feedback_signals_section_formats_signals():
     assert "except pass in retry loops" in result
     assert "@alice" in result
     assert "avoid re-flagging" in result
+
+
+def test_ast_tools_section_in_system_prompt():
+    """Review system prompt includes AST tools instructions."""
+    from baloo.agent.prompts import REVIEW_SYSTEM_PROMPT
+
+    assert "ast_outline" in REVIEW_SYSTEM_PROMPT
+    assert "ast_grep" in REVIEW_SYSTEM_PROMPT
+    assert "ast_symbols" in REVIEW_SYSTEM_PROMPT

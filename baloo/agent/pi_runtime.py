@@ -16,10 +16,11 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from baloo.agent.costs import normalize_usage
-from baloo.config.settings import get_settings
+from baloo.config.settings import get_settings, settings
 
 logger = logging.getLogger(__name__)
 
@@ -421,31 +422,9 @@ class PIAgentBase:
             "max_turns_reached": result.max_turns_reached,
         }
 
-    # -----------------------------------------------------------------
-    # Main query interface
-    # -----------------------------------------------------------------
-
-    async def run_query(self, query: str, review_logger: Any = None) -> tuple[Any, dict[str, Any]]:
-        """Run a query through the PI agent and return structured output + metadata.
-
-        Returns:
-            Tuple of (parsed_json_output_or_None, metadata_dict)
-        """
-        settings = get_settings()
-        start_time = time.time()
-        result = PIRunResult()
-
-        from baloo.agent.logger import ReviewLogger
-
-        if review_logger is None:
-            review_logger = ReviewLogger(review_id=None)
-
-        await review_logger.agent_started(
-            model=self.options.model, thinking_level=self.options.thinking_level
-        )
-
+    def _build_pi_command(self) -> list[str]:
+        """Build the PI CLI command list."""
         pi_binary = settings.pi_binary_path or "pi"
-        cwd = self.options.cwd or None
 
         cmd = [
             pi_binary,
@@ -460,10 +439,44 @@ class PIAgentBase:
         if self.options.no_tools:
             cmd.append("--no-tools")
         else:
-            # Read-only tools only — no bash, no write, no edit
             cmd.extend(["--tools", "read,grep,find,ls"])
-        # Inject system prompt
+
+            # Load AST tools extension when enabled
+            if settings.ast_tools_enabled:
+                ext_path = (
+                    Path(__file__).resolve().parent.parent.parent
+                    / "extensions"
+                    / "baloo-ast-tools.ts"
+                )
+                cmd.extend(["--extension", str(ext_path)])
+
         cmd.extend(["--system-prompt", self.options.system_prompt])
+        return cmd
+
+    # -----------------------------------------------------------------
+    # Main query interface
+    # -----------------------------------------------------------------
+
+    async def run_query(self, query: str, review_logger: Any = None) -> tuple[Any, dict[str, Any]]:
+        """Run a query through the PI agent and return structured output + metadata.
+
+        Returns:
+            Tuple of (parsed_json_output_or_None, metadata_dict)
+        """
+        start_time = time.time()
+        result = PIRunResult()
+
+        from baloo.agent.logger import ReviewLogger
+
+        if review_logger is None:
+            review_logger = ReviewLogger(review_id=None)
+
+        await review_logger.agent_started(
+            model=self.options.model, thinking_level=self.options.thinking_level
+        )
+
+        cmd = self._build_pi_command()
+        cwd = self.options.cwd or None
 
         logger.info(
             "%s: spawning PI process (model=%s, thinking=%s)",

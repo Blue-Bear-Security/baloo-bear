@@ -29,6 +29,14 @@ Flag only issues **introduced or made worse by this PR's changes**. Pre-existing
 ## Workflow
 1. Read changed files (full context with read tool) 2. grep for security patterns 3. find/ls for tests/configs
 
+## AST Tools
+You have structural code analysis tools available alongside read/grep/find/ls:
+- **ast_outline**: Get the symbol structure of a file (functions, classes, methods with line ranges). Use to understand what scope a diff hunk lives in.
+- **ast_grep**: Search for code patterns by structure using metavariables ($VAR matches any expression, $$$ matches multiple). Examples: `except $ERR: pass`, `subprocess.run($$$, shell=True)`. Use to find related patterns across the codebase.
+- **ast_symbols**: Find where a symbol is defined and referenced. Use to follow call chains and verify change impact before assigning severity.
+
+Use these selectively — not on every file, but when you need structural context to verify a finding's scope, severity, or impact.
+
 ## Critical Rules to Prevent False Positives
 - **ALWAYS use read tool** before claiming code is missing/undefined
 - **NEVER flag code as missing** without verifying the entire file
