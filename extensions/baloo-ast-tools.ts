@@ -17,6 +17,14 @@ registerDynamicLanguage({ python, go });
 
 type LangId = Lang | string;
 
+const LANG_EXTS: Record<string, string[]> = {
+  python: [".py", ".pyi"],
+  typescript: [".ts"],
+  tsx: [".tsx"],
+  javascript: [".js", ".jsx"],
+  go: [".go"],
+};
+
 const EXT_TO_LANG: Record<string, LangId> = {
   ".py": "python",
   ".pyi": "python",
@@ -267,6 +275,33 @@ export function collectFiles(dirPath: string, extensions: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Language resolver for ast_grep
+// ---------------------------------------------------------------------------
+
+function resolveLang(lang: string): LangId {
+  const map: Record<string, LangId> = {
+    python: "python",
+    typescript: Lang.TypeScript,
+    tsx: Lang.Tsx,
+    javascript: Lang.JavaScript,
+    go: "go",
+  };
+  return map[lang] ?? lang;
+}
+
+// ---------------------------------------------------------------------------
+// Directories to skip during file collection for ast_grep
+// ---------------------------------------------------------------------------
+
+const SKIP_DIRS = new Set([
+  "__pycache__",
+  ".venv",
+  "venv",
+  "dist",
+  "build",
+]);
+
+// ---------------------------------------------------------------------------
 // Extension entry point
 // ---------------------------------------------------------------------------
 
@@ -324,6 +359,147 @@ export default function balooAstTools(pi: ExtensionAPI): void {
       return {
         content: [{ type: "text" as const, text }],
         details: { symbolCount },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "ast_grep",
+    label: "AST Grep",
+    description:
+      "Search for code patterns by structure using ast-grep. " +
+      "Use $VAR to match any single expression/identifier, $$$ for multiple arguments or statements. " +
+      "Examples: 'except $ERR: pass', 'subprocess.run($$$, shell=True)', 'if err != nil { return $$$, $ERR }'. " +
+      "Supports Python, TypeScript, JavaScript, and Go.",
+    parameters: Type.Object({
+      pattern: Type.String({ description: "ast-grep pattern with metavariables ($VAR, $$$)" }),
+      language: Type.String({ description: "Language: python, typescript, javascript, tsx, go" }),
+      path: Type.Optional(Type.String({ description: "File or directory to search (defaults to cwd)" })),
+    }),
+    async execute(
+      _toolCallId: string,
+      params: { pattern: string; language: string; path?: string },
+      _signal: AbortSignal,
+      _onUpdate: unknown,
+      ctx: { cwd?: string },
+    ) {
+      const { pattern, language } = params;
+      const searchPath = params.path ?? ctx.cwd ?? ".";
+      const langId = resolveLang(language);
+      const extensions = LANG_EXTS[language];
+
+      if (!extensions) {
+        return {
+          content: [{ type: "text" as const, text: `Unsupported language: ${language}` }],
+        };
+      }
+
+      // Collect files, skipping extra directories beyond what collectFiles already skips
+      function collectFilesFiltered(dirPath: string, exts: string[]): string[] {
+        const results: string[] = [];
+        try {
+          const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+          for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            if (entry.isDirectory()) {
+              if (
+                entry.name.startsWith(".") ||
+                entry.name === "node_modules" ||
+                SKIP_DIRS.has(entry.name)
+              ) {
+                continue;
+              }
+              results.push(...collectFilesFiltered(fullPath, exts));
+            } else if (exts.some((ext) => entry.name.endsWith(ext))) {
+              results.push(fullPath);
+            }
+          }
+        } catch {
+          // Ignore unreadable directories
+        }
+        return results;
+      }
+
+      // Determine if searchPath is a file or directory
+      let files: string[];
+      try {
+        const stat = fs.statSync(searchPath);
+        if (stat.isFile()) {
+          files = [searchPath];
+        } else {
+          files = collectFilesFiltered(searchPath, extensions);
+        }
+      } catch {
+        return {
+          content: [{ type: "text" as const, text: `Path not found: ${searchPath}` }],
+        };
+      }
+
+      // Cap at 500 files
+      if (files.length > 500) {
+        files = files.slice(0, 500);
+      }
+
+      const MAX_MATCHES = 30;
+      const matchLines: string[] = [];
+      let totalMatches = 0;
+
+      outer: for (const filePath of files) {
+        const source = readFileText(filePath);
+        if (source === null) continue;
+
+        let tree;
+        try {
+          tree = parse(langId, source);
+        } catch {
+          continue;
+        }
+
+        const sourceLines = source.split("\n");
+        let matches;
+        try {
+          matches = tree.root().findAll(pattern);
+        } catch {
+          continue;
+        }
+
+        for (const node of matches) {
+          if (totalMatches >= MAX_MATCHES) break outer;
+
+          const range = node.range();
+          const matchLine = range.start.line; // 0-indexed
+          const displayLine = matchLine + 1;  // 1-indexed for display
+
+          // Collect context: 1 line before, the match line, 1 line after
+          const contextStart = Math.max(0, matchLine - 1);
+          const contextEnd = Math.min(sourceLines.length - 1, matchLine + 1);
+          const contextText = sourceLines
+            .slice(contextStart, contextEnd + 1)
+            .map((l, i) => `  ${l}`)
+            .join("\n");
+
+          matchLines.push(`${filePath}:${displayLine}\n${contextText}`);
+          totalMatches++;
+        }
+      }
+
+      if (totalMatches === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `No matches for pattern \`${pattern}\` in ${searchPath}`,
+            },
+          ],
+        };
+      }
+
+      const header = `Found ${totalMatches} match(es):\n`;
+      const text = header + "\n" + matchLines.join("\n\n");
+
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { matchCount: totalMatches },
       };
     },
   });
