@@ -499,6 +499,22 @@ class PIAgentBase:
             result = await self._drive_session(proc, query, start_time, review_logger)
         except Exception as exc:
             logger.error("%s: PI session error: %s", self.agent_name, exc)
+
+            # Capture stderr on exception to get API error context
+            if proc.stderr:
+                try:
+                    stderr_data = await asyncio.wait_for(proc.stderr.read(), timeout=0.5)
+                    if stderr_data:
+                        stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+                        if stderr_text:
+                            logger.error(
+                                "%s: PI stderr on exception: %s",
+                                self.agent_name,
+                                stderr_text[:2000],
+                            )
+                except Exception:
+                    pass
+
             result.is_error = True
             result.error_message = str(exc)
             # Re-raise so callers (e.g. fallback logic) can catch and retry
@@ -512,6 +528,21 @@ class PIAgentBase:
                 await proc.wait()
             raise err from exc
         finally:
+            # Capture any remaining stderr before cleanup
+            if proc.stderr:
+                try:
+                    stderr_data = await asyncio.wait_for(proc.stderr.read(), timeout=0.5)
+                    if stderr_data:
+                        stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+                        if stderr_text and len(stderr_text) > 10:  # Skip trivial output
+                            logger.info(
+                                "%s: PI stderr at cleanup: %s",
+                                self.agent_name,
+                                stderr_text[:1000],
+                            )
+                except Exception:
+                    pass
+
             # Ensure process is cleaned up
             if proc.returncode is None:
                 proc.kill()
@@ -703,6 +734,22 @@ Serialized payload:
                 result = await self._drive_session(proc, retry_prompt, start)
             finally:
                 self.options = original_opts
+
+                # Capture stderr from retry process
+                if proc.stderr:
+                    try:
+                        stderr_data = await asyncio.wait_for(proc.stderr.read(), timeout=0.5)
+                        if stderr_data:
+                            stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+                            if stderr_text:
+                                logger.warning(
+                                    "%s: JSON retry stderr: %s",
+                                    self.agent_name,
+                                    stderr_text[:1000],
+                                )
+                    except Exception:
+                        pass
+
                 if proc.returncode is None:
                     proc.kill()
                     await proc.wait()
@@ -873,5 +920,25 @@ Serialized payload:
         result.assistant_text = last_assistant_text
         result.all_assistant_texts = all_assistant_texts
         result.num_turns = turn_count
+
+        # Capture stderr to surface API error details
+        if proc.stderr:
+            try:
+                stderr_data = await asyncio.wait_for(proc.stderr.read(), timeout=1.0)
+                if stderr_data:
+                    stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+                    if stderr_text:
+                        log_level = logger.error if result.is_error else logger.warning
+                        log_level(
+                            "%s: PI stderr output: %s",
+                            self.agent_name,
+                            stderr_text[:2000],
+                        )
+                        if result.is_error and "error" in stderr_text.lower():
+                            result.error_message += f" | stderr: {stderr_text[:300]}"
+            except asyncio.TimeoutError:
+                pass
+            except Exception as stderr_err:
+                logger.debug("%s: Failed to read stderr: %s", self.agent_name, stderr_err)
 
         return result
