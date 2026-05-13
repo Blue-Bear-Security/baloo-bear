@@ -512,6 +512,22 @@ class PIAgentBase:
                 await proc.wait()
             raise err from exc
         finally:
+            # Capture stderr to surface API error details
+            if proc.stderr:
+                try:
+                    stderr_data = await asyncio.wait_for(proc.stderr.read(), timeout=0.5)
+                    if stderr_data:
+                        stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+                        if stderr_text and len(stderr_text) > 10:  # Skip trivial output
+                            log_level = logger.error if result.is_error else logger.info
+                            log_level(
+                                "%s: PI stderr: %s",
+                                self.agent_name,
+                                stderr_text[:2000],
+                            )
+                except Exception as stderr_err:
+                    logger.debug("%s: Failed to read stderr: %s", self.agent_name, stderr_err)
+
             # Ensure process is cleaned up
             if proc.returncode is None:
                 proc.kill()
@@ -703,6 +719,24 @@ Serialized payload:
                 result = await self._drive_session(proc, retry_prompt, start)
             finally:
                 self.options = original_opts
+
+                # Capture stderr from retry process
+                if proc.stderr:
+                    try:
+                        stderr_data = await asyncio.wait_for(proc.stderr.read(), timeout=0.5)
+                        if stderr_data:
+                            stderr_text = stderr_data.decode("utf-8", errors="replace").strip()
+                            if stderr_text:
+                                logger.warning(
+                                    "%s: JSON retry stderr: %s",
+                                    self.agent_name,
+                                    stderr_text[:1000],
+                                )
+                    except Exception as stderr_err:
+                        logger.debug(
+                            "%s: Failed to read JSON retry stderr: %s", self.agent_name, stderr_err
+                        )
+
                 if proc.returncode is None:
                     proc.kill()
                     await proc.wait()
