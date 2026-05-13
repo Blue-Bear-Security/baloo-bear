@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., 1.0.0)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -24,12 +29,19 @@ jobs:
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
           IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${REPO_NAME}"
 
-          # Extract version from release tag (e.g., v1.0.0 -> 1.0.0)
-          VERSION="${GITHUB_REF#refs/tags/}"
-          VERSION_NO_V="${VERSION#v}"
+          # Extract version from release tag or workflow_dispatch input
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION_NO_V="${{ github.event.inputs.version }}"
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+            VERSION_NO_V="${VERSION#v}"
+            BUILD_DATE="${{ github.event.release.created_at }}"
+          fi
 
           echo "version=${VERSION_NO_V}" >> "${GITHUB_OUTPUT}"
           echo "image_name=${IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "build_date=${BUILD_DATE}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -50,6 +62,7 @@ jobs:
           build-args: |
             BALOO_VERSION=${{ steps.meta.outputs.version }}
             BALOO_COMMIT_SHA=${{ github.sha }}
+            BALOO_BUILD_DATE=${{ steps.meta.outputs.build_date }}
           tags: |
             ${{ steps.meta.outputs.image_name }}:latest
             ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.version }}
@@ -59,6 +72,7 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.build_date }}
 
       - name: Publish summary
         run: |
