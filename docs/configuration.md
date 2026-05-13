@@ -38,7 +38,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `AGENT_MAX_TOKENS` | `4096` | Max output tokens |
 | `AGENT_TEMPERATURE` | `0.2` | Generation temperature |
 | `PI_BINARY_PATH` | `pi` | Path to PI binary |
-| `PI_THINKING_LEVEL` | `medium` | Thinking depth: `off`, `minimal`, `low`, `medium`, `high` |
+| `PI_THINKING_LEVEL` | `medium` | PI thinking level: `off`, `minimal`, `low`, `medium`, `high` |
 
 ## Review Behavior
 
@@ -52,7 +52,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 
 | Variable | Default | Description |
 |---|---|---|
-| `FP_VERIFICATION_ENABLED` | `false` | Enable LLM false-positive verification pass |
+| `FP_VERIFICATION_ENABLED` | `true` | Enable LLM false-positive verification pass |
 | `FP_VERIFICATION_MODEL` | `haiku` | Model for verification |
 | `FP_VERIFICATION_MAX_CONCURRENT` | `5` | Max parallel verification calls |
 | `FP_AUDIT_LOG_PATH` | `/var/log/baloo/fp-audit.jsonl` | Audit log path. Empty to disable |
