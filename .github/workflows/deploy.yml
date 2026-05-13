@@ -25,18 +25,21 @@ jobs:
 
       - name: Extract metadata
         id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_CREATED_AT: ${{ github.event.release.created_at }}
         run: |
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
           IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${REPO_NAME}"
 
           # Extract version from release tag or workflow_dispatch input
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION_NO_V="${{ github.event.inputs.version }}"
+            VERSION_NO_V="${INPUT_VERSION}"
             BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           else
             VERSION="${GITHUB_REF#refs/tags/}"
             VERSION_NO_V="${VERSION#v}"
-            BUILD_DATE="${{ github.event.release.created_at }}"
+            BUILD_DATE="${RELEASE_CREATED_AT}"
           fi
 
           echo "version=${VERSION_NO_V}" >> "${GITHUB_OUTPUT}"
