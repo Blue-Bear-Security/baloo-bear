@@ -1,16 +1,8 @@
 name: Build and Publish Container Image
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "baloo/**"
-      - "main.py"
-      - "pyproject.toml"
-      - "Dockerfile"
-      - "docker-compose.yml"
-      - ".github/workflows/deploy.yml"
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -29,14 +21,14 @@ jobs:
       - name: Extract metadata
         id: meta
         run: |
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          SHORT_SHA=$(echo "${GITHUB_SHA}" | cut -c1-7)
           REPO_NAME="${GITHUB_REPOSITORY#*/}"
           IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${REPO_NAME}"
 
-          echo "timestamp=${TIMESTAMP}" >> "${GITHUB_OUTPUT}"
-          echo "short_sha=${SHORT_SHA}" >> "${GITHUB_OUTPUT}"
-          echo "image_tag=${TIMESTAMP}-${SHORT_SHA}" >> "${GITHUB_OUTPUT}"
+          # Extract version from release tag (e.g., v1.0.0 -> 1.0.0)
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION_NO_V="${VERSION#v}"
+
+          echo "version=${VERSION_NO_V}" >> "${GITHUB_OUTPUT}"
           echo "image_name=${IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Docker Buildx
@@ -56,25 +48,23 @@ jobs:
           file: ./Dockerfile
           push: true
           build-args: |
-            BALOO_VERSION=${{ steps.meta.outputs.image_tag }}
+            BALOO_VERSION=${{ steps.meta.outputs.version }}
             BALOO_COMMIT_SHA=${{ github.sha }}
-            BALOO_BUILD_DATE=${{ steps.meta.outputs.timestamp }}
           tags: |
             ${{ steps.meta.outputs.image_name }}:latest
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.image_tag }}
-            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ steps.meta.outputs.timestamp }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
 
       - name: Publish summary
         run: |
-          echo "Image pushed successfully."
-          echo "Image: ${{ steps.meta.outputs.image_name }}"
-          echo "Tags:"
+          echo "✅ Image pushed successfully for release ${{ steps.meta.outputs.version }}"
+          echo ""
+          echo "**Image:** ${{ steps.meta.outputs.image_name }}"
+          echo "**Tags:**"
           echo "  - latest"
-          echo "  - ${{ steps.meta.outputs.image_tag }}"
-          echo "  - ${{ steps.meta.outputs.short_sha }}"
+          echo "  - ${{ steps.meta.outputs.version }}"
