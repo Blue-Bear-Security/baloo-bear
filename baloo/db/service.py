@@ -81,6 +81,7 @@ class ReviewService:
                         review_status="in_progress",
                         trigger_reason=trigger_reason,
                         started_at=started_at,
+                        installation_id=settings.installation_id,
                     )
                     session.add(review)
                     await session.flush()
@@ -145,6 +146,7 @@ class ReviewService:
                                 severity=f.get("severity", "MEDIUM"),
                                 category=f.get("category", "Quality"),
                                 body=f.get("body", ""),
+                                installation_id=settings.installation_id,
                             )
                             session.add(finding)
 
