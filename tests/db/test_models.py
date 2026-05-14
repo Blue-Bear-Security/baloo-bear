@@ -263,3 +263,23 @@ def test_feedback_signal_has_installation_id_column():
 
     cols = {c.key for c in inspect(FeedbackSignal).mapper.columns}
     assert "installation_id" in cols
+
+
+@pytest.mark.asyncio
+async def test_create_all_includes_installation_id():
+    """Verify create_all (fallback path) creates installation_id on all tables."""
+    from baloo.db.models import Base
+
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with engine.connect() as conn:
+        from sqlalchemy import text
+
+        for table in ["reviews", "findings", "review_logs", "finding_outcomes", "feedback_signals"]:
+            result = await conn.execute(text(f"PRAGMA table_info({table})"))
+            cols = [row[1] for row in result.fetchall()]
+            assert "installation_id" in cols, f"{table} missing installation_id column"
+
+    await engine.dispose()
