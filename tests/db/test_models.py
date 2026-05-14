@@ -156,6 +156,7 @@ def test_review_log_model_fields():
         "message",
         "raw_text",
         "metadata_json",
+        "installation_id",
     }
 
 
@@ -215,4 +216,50 @@ def test_feedback_signal_model_exists():
         "created_at",
         "last_matched_at",
         "times_matched",
+        "installation_id",
     }
+
+
+def test_review_has_installation_id_column():
+    from sqlalchemy import inspect
+
+    from baloo.db.models import Review
+
+    cols = {c.key for c in inspect(Review).mapper.columns}
+    assert "installation_id" in cols
+
+
+def test_finding_has_installation_id_column():
+    from sqlalchemy import inspect
+
+    from baloo.db.models import Finding
+
+    cols = {c.key for c in inspect(Finding).mapper.columns}
+    assert "installation_id" in cols
+
+
+def test_review_log_has_installation_id_column():
+    from sqlalchemy import inspect
+
+    from baloo.db.models import ReviewLog
+
+    cols = {c.key for c in inspect(ReviewLog).mapper.columns}
+    assert "installation_id" in cols
+
+
+def test_finding_outcome_has_installation_id_column():
+    from sqlalchemy import inspect
+
+    from baloo.db.models import FindingOutcome
+
+    cols = {c.key for c in inspect(FindingOutcome).mapper.columns}
+    assert "installation_id" in cols
+
+
+def test_feedback_signal_has_installation_id_column():
+    from sqlalchemy import inspect
+
+    from baloo.db.models import FeedbackSignal
+
+    cols = {c.key for c in inspect(FeedbackSignal).mapper.columns}
+    assert "installation_id" in cols
