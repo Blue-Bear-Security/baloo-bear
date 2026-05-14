@@ -283,3 +283,59 @@ async def test_create_all_includes_installation_id():
             assert "installation_id" in cols, f"{table} missing installation_id column"
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_only_deletes_own_tenant_logs():
+    """_cleanup_old_logs must not delete logs belonging to other tenants."""
+    from datetime import timedelta
+    from unittest.mock import MagicMock, patch
+
+    from sqlalchemy import select
+
+    from baloo.db.engine import _cleanup_old_logs
+    from baloo.db.models import Base, Review, ReviewLog
+
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    old_date = datetime.now(timezone.utc) - timedelta(days=60)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with factory() as session:
+        async with session.begin():
+            for inst_id in ["inst_a", "inst_b"]:
+                review = Review(
+                    repo_full_name="r",
+                    pr_number=1,
+                    review_status="approved",
+                    trigger_reason="t",
+                    started_at=old_date,
+                    installation_id=inst_id,
+                )
+                session.add(review)
+                await session.flush()
+                session.add(
+                    ReviewLog(
+                        review_id=review.id,
+                        created_at=old_date,
+                        event_type="test",
+                        message="old log",
+                        installation_id=inst_id,
+                    )
+                )
+
+    with patch("baloo.config.settings.get_settings") as mock_settings:
+        mock_instance = MagicMock()
+        mock_instance.installation_id = "inst_a"
+        mock_settings.return_value = mock_instance
+        await _cleanup_old_logs(engine, retention_days=30)
+
+    async with factory() as session:
+        result = await session.execute(select(ReviewLog))
+        remaining = result.scalars().all()
+        assert len(remaining) == 1
+        assert remaining[0].installation_id == "inst_b"
+
+    await engine.dispose()
