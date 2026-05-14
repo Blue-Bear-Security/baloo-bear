@@ -156,5 +156,12 @@ class FeedbackSignal(Base):
 
     __table_args__ = (
         Index("ix_feedback_signals_repo", "repo"),
-        Index("uq_feedback_signals_repo_cat_pattern", "repo", "category", "pattern", unique=True),
+        Index(
+            "uq_feedback_signals_repo_cat_pattern",
+            "repo",
+            "category",
+            "pattern",
+            "installation_id",
+            unique=True,
+        ),
     )

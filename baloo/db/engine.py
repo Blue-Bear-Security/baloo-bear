@@ -132,6 +132,8 @@ async def _cleanup_old_logs(engine, retention_days: int) -> None:
                 stmt = delete(ReviewLog).where(ReviewLog.created_at < cutoff)
                 if installation_id:
                     stmt = stmt.where(ReviewLog.installation_id == installation_id)
+                else:
+                    stmt = stmt.where(ReviewLog.installation_id.is_(None))
                 result = await session.execute(stmt)
                 deleted = result.rowcount
                 if deleted:

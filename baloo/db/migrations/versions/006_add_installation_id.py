@@ -34,8 +34,27 @@ def upgrade() -> None:
             op.add_column(table, sa.Column("installation_id", sa.String(255), nullable=True))
             op.create_index(f"ix_{table}_installation_id", table, ["installation_id"])
 
+    # Expand feedback_signals unique constraint to include installation_id so
+    # two tenants can share the same (repo, category, pattern) triple.
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("feedback_signals")}
+    if "uq_feedback_signals_repo_cat_pattern" in existing_indexes:
+        op.drop_index("uq_feedback_signals_repo_cat_pattern", table_name="feedback_signals")
+    op.create_index(
+        "uq_feedback_signals_repo_cat_pattern",
+        "feedback_signals",
+        ["repo", "category", "pattern", "installation_id"],
+        unique=True,
+    )
+
 
 def downgrade() -> None:
+    op.drop_index("uq_feedback_signals_repo_cat_pattern", table_name="feedback_signals")
+    op.create_index(
+        "uq_feedback_signals_repo_cat_pattern",
+        "feedback_signals",
+        ["repo", "category", "pattern"],
+        unique=True,
+    )
     for table in reversed(TABLES):
         op.drop_index(f"ix_{table}_installation_id", table_name=table)
         op.drop_column(table, "installation_id")
