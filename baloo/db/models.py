@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -156,12 +157,27 @@ class FeedbackSignal(Base):
 
     __table_args__ = (
         Index("ix_feedback_signals_repo", "repo"),
+        # Two partial unique indexes instead of one 4-column index: PostgreSQL
+        # treats NULLs as distinct in unique indexes, so a single index on
+        # (repo, category, pattern, installation_id) would allow duplicate
+        # (repo, category, pattern, NULL) rows, breaking single-tenant isolation.
         Index(
-            "uq_feedback_signals_repo_cat_pattern",
+            "uq_feedback_signals_null_tenant",
+            "repo",
+            "category",
+            "pattern",
+            unique=True,
+            postgresql_where=text("installation_id IS NULL"),
+            sqlite_where=text("installation_id IS NULL"),
+        ),
+        Index(
+            "uq_feedback_signals_with_tenant",
             "repo",
             "category",
             "pattern",
             "installation_id",
             unique=True,
+            postgresql_where=text("installation_id IS NOT NULL"),
+            sqlite_where=text("installation_id IS NOT NULL"),
         ),
     )
