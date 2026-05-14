@@ -89,6 +89,12 @@ class Settings(BaseSettings):
         default=False, description="Enable database persistence for review data"
     )
 
+    # Multi-Tenant Configuration
+    installation_id: str | None = Field(
+        default=None,
+        description="GitHub installation ID for tenant scoping (required in shared-DB deployments)",
+    )
+
     # Dashboard Configuration
     dashboard_enabled: bool = Field(default=True, description="Enable the review history dashboard")
     dashboard_username: str = Field(default="", description="Dashboard basic auth username")

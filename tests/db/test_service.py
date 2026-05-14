@@ -212,3 +212,20 @@ async def test_complete_review_exception_raises_error():
             )
 
     reset_engine()
+
+
+def test_settings_installation_id_defaults_to_none():
+    from baloo.config.settings import get_settings
+
+    settings = get_settings()
+    assert settings.installation_id is None
+
+
+def test_settings_installation_id_from_env(monkeypatch):
+    from baloo.config.settings import get_settings, reset_settings
+
+    monkeypatch.setenv("INSTALLATION_ID", "inst_abc123")
+    reset_settings()
+    settings = get_settings()
+    assert settings.installation_id == "inst_abc123"
+    reset_settings()
