@@ -503,6 +503,7 @@ async def _reverify_awaiting_threads(
 
                 from baloo.db.engine import get_session_factory
                 from baloo.db.models import Finding, FindingOutcome
+                from baloo.db.tenant import apply_tenant_filter
 
                 session_factory = get_session_factory(settings.database_url)
                 async with session_factory() as session:
@@ -512,6 +513,9 @@ async def _reverify_awaiting_threads(
                             Finding.review_id == db_review_id,
                             Finding.file_path == (thread.path or ""),
                             Finding.line_number == thread.line,
+                        )
+                        finding_stmt = apply_tenant_filter(
+                            finding_stmt, Finding, settings.installation_id
                         )
                         finding_result = await session.execute(finding_stmt)
                         finding = finding_result.scalars().first()
