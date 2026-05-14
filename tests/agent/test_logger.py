@@ -79,3 +79,31 @@ class TestReviewLoggerEvents:
         logger = ReviewLogger(review_id=42, session=mock_session)
         # Should not raise
         await logger.agent_started(model="test", thinking_level="off")
+
+
+@pytest.mark.asyncio
+async def test_review_logger_sets_installation_id_on_rows():
+    """ReviewLogger populates installation_id on ReviewLog rows."""
+    logged_rows = []
+    mock_session = MagicMock()
+    mock_session.add = lambda row: logged_rows.append(row)
+    mock_session.flush = AsyncMock()
+
+    rl = ReviewLogger(review_id=1, session=mock_session, installation_id="inst_log")
+    await rl.agent_started(model="claude", thinking_level="medium")
+
+    assert len(logged_rows) == 1
+    assert logged_rows[0].installation_id == "inst_log"
+
+
+@pytest.mark.asyncio
+async def test_review_logger_installation_id_none_by_default():
+    logged_rows = []
+    mock_session = MagicMock()
+    mock_session.add = lambda row: logged_rows.append(row)
+    mock_session.flush = AsyncMock()
+
+    rl = ReviewLogger(review_id=1, session=mock_session)
+    await rl.agent_started(model="claude", thinking_level="medium")
+
+    assert logged_rows[0].installation_id is None
