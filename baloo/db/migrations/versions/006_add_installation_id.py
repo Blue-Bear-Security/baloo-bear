@@ -65,14 +65,25 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("uq_feedback_signals_with_tenant", table_name="feedback_signals")
-    op.drop_index("uq_feedback_signals_null_tenant", table_name="feedback_signals")
-    op.create_index(
-        "uq_feedback_signals_repo_cat_pattern",
-        "feedback_signals",
-        ["repo", "category", "pattern"],
-        unique=True,
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_indexes = {idx["name"] for idx in inspector.get_indexes("feedback_signals")}
+
+    for idx in ("uq_feedback_signals_with_tenant", "uq_feedback_signals_null_tenant"):
+        if idx in existing_indexes:
+            op.drop_index(idx, table_name="feedback_signals")
+    if "uq_feedback_signals_repo_cat_pattern" not in existing_indexes:
+        op.create_index(
+            "uq_feedback_signals_repo_cat_pattern",
+            "feedback_signals",
+            ["repo", "category", "pattern"],
+            unique=True,
+        )
+
     for table in reversed(TABLES):
-        op.drop_index(f"ix_{table}_installation_id", table_name=table)
-        op.drop_column(table, "installation_id")
+        existing_cols = {c["name"] for c in inspector.get_columns(table)}
+        if "installation_id" in existing_cols:
+            existing_table_indexes = {idx["name"] for idx in inspector.get_indexes(table)}
+            if f"ix_{table}_installation_id" in existing_table_indexes:
+                op.drop_index(f"ix_{table}_installation_id", table_name=table)
+            op.drop_column(table, "installation_id")

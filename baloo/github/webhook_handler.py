@@ -19,6 +19,7 @@ from baloo.agent.pi_runtime import PIAgentBase
 from baloo.config.settings import settings
 from baloo.db.engine import close_db, init_db
 from baloo.db.service import ReviewCompleteDTO, ReviewService
+from baloo.db.tenant import apply_tenant_filter
 from baloo.fidelity.fidelity_analyzer import analyze_fidelity
 from baloo.fidelity.fidelity_report import (
     ERROR_FIDELITY_SENTINEL,
@@ -503,7 +504,6 @@ async def _reverify_awaiting_threads(
 
                 from baloo.db.engine import get_session_factory
                 from baloo.db.models import Finding, FindingOutcome
-                from baloo.db.tenant import apply_tenant_filter
 
                 session_factory = get_session_factory(settings.database_url)
                 async with session_factory() as session:
@@ -524,6 +524,9 @@ async def _reverify_awaiting_threads(
                             # Update existing FindingOutcome row if present
                             outcome_stmt = select(FindingOutcome).where(
                                 FindingOutcome.finding_id == finding.id
+                            )
+                            outcome_stmt = apply_tenant_filter(
+                                outcome_stmt, FindingOutcome, settings.installation_id
                             )
                             outcome_result = await session.execute(outcome_stmt)
                             outcome_row = outcome_result.scalars().first()

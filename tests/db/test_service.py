@@ -231,6 +231,16 @@ def test_settings_installation_id_from_env(monkeypatch):
     reset_settings()
 
 
+def test_settings_installation_id_empty_string_becomes_none(monkeypatch):
+    from baloo.config.settings import get_settings, reset_settings
+
+    monkeypatch.setenv("INSTALLATION_ID", "")
+    reset_settings()
+    settings = get_settings()
+    assert settings.installation_id is None
+    reset_settings()
+
+
 async def test_start_review_sets_installation_id(db_session_factory, monkeypatch):
     """Test that start_review populates installation_id from settings."""
     monkeypatch.setenv("INSTALLATION_ID", "inst_xyz")

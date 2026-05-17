@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
 from baloo.db.models import FeedbackSignal
+from baloo.db.tenant import apply_tenant_filter
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,6 @@ class FeedbackService:
                     .where(FeedbackSignal.pattern == pattern)
                     .limit(1)
                 )
-                from baloo.db.tenant import apply_tenant_filter
-
                 stmt = apply_tenant_filter(stmt, FeedbackSignal, settings.installation_id)
                 existing = (await session.execute(stmt)).scalar_one_or_none()
                 if existing:
@@ -96,8 +95,6 @@ class FeedbackService:
         session_factory = get_session_factory(settings.database_url)
         async with session_factory() as session:
             from sqlalchemy import select
-
-            from baloo.db.tenant import apply_tenant_filter
 
             stmt = (
                 select(FeedbackSignal)
