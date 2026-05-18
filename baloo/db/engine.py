@@ -115,21 +115,26 @@ async def init_db(database_url: str) -> None:
 
 
 async def _cleanup_old_logs(engine, retention_days: int) -> None:
-    """Delete review_logs older than retention_days."""
+    """Delete review_logs older than retention_days, scoped to current installation."""
     from datetime import datetime, timedelta, timezone
 
     from sqlalchemy import delete
 
+    from baloo.config.settings import get_settings
     from baloo.db.models import ReviewLog
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    installation_id = get_settings().installation_id
     try:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             async with session.begin():
-                result = await session.execute(
-                    delete(ReviewLog).where(ReviewLog.created_at < cutoff)
-                )
+                stmt = delete(ReviewLog).where(ReviewLog.created_at < cutoff)
+                if installation_id:
+                    stmt = stmt.where(ReviewLog.installation_id == installation_id)
+                else:
+                    stmt = stmt.where(ReviewLog.installation_id.is_(None))
+                result = await session.execute(stmt)
                 deleted = result.rowcount
                 if deleted:
                     logger.info(

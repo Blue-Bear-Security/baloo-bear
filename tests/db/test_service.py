@@ -212,3 +212,100 @@ async def test_complete_review_exception_raises_error():
             )
 
     reset_engine()
+
+
+def test_settings_installation_id_defaults_to_none():
+    from baloo.config.settings import get_settings
+
+    settings = get_settings()
+    assert settings.installation_id is None
+
+
+def test_settings_installation_id_from_env(monkeypatch):
+    from baloo.config.settings import get_settings, reset_settings
+
+    monkeypatch.setenv("INSTALLATION_ID", "inst_abc123")
+    reset_settings()
+    settings = get_settings()
+    assert settings.installation_id == "inst_abc123"
+    reset_settings()
+
+
+def test_settings_installation_id_empty_string_becomes_none(monkeypatch):
+    from baloo.config.settings import get_settings, reset_settings
+
+    monkeypatch.setenv("INSTALLATION_ID", "")
+    reset_settings()
+    settings = get_settings()
+    assert settings.installation_id is None
+    reset_settings()
+
+
+async def test_start_review_sets_installation_id(db_session_factory, monkeypatch):
+    """Test that start_review populates installation_id from settings."""
+    monkeypatch.setenv("INSTALLATION_ID", "inst_xyz")
+    from baloo.config.settings import reset_settings
+
+    reset_settings()
+
+    review_id = await ReviewService.start_review(
+        repo_full_name="owner/repo",
+        pr_number=99,
+        trigger_reason="pull_request:opened",
+        started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    async with db_session_factory() as session:
+        review = await session.get(Review, review_id)
+        assert review.installation_id == "inst_xyz"
+    reset_settings()
+
+
+async def test_start_review_installation_id_none_when_unset(db_session_factory):
+    """Test that start_review sets installation_id to None when not configured."""
+    review_id = await ReviewService.start_review(
+        repo_full_name="owner/repo",
+        pr_number=100,
+        trigger_reason="pull_request:opened",
+        started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    async with db_session_factory() as session:
+        review = await session.get(Review, review_id)
+        assert review.installation_id is None
+
+
+async def test_complete_review_sets_installation_id_on_findings(db_session_factory, monkeypatch):
+    """Test that complete_review populates installation_id on findings."""
+    monkeypatch.setenv("INSTALLATION_ID", "inst_xyz")
+    from baloo.config.settings import reset_settings
+
+    reset_settings()
+
+    review_id = await ReviewService.start_review(
+        repo_full_name="owner/repo",
+        pr_number=101,
+        trigger_reason="pull_request:opened",
+        started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    await ReviewService.complete_review(
+        review_id=review_id,
+        data=ReviewCompleteDTO(
+            review_status="approved",
+            findings=[
+                {
+                    "file_path": "x.py",
+                    "line_number": 1,
+                    "severity": "HIGH",
+                    "category": "Security",
+                    "body": "test finding",
+                }
+            ],
+        ),
+    )
+
+    async with db_session_factory() as session:
+        result = await session.execute(select(Finding).where(Finding.review_id == review_id))
+        findings = result.scalars().all()
+        assert all(f.installation_id == "inst_xyz" for f in findings)
+    reset_settings()

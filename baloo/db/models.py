@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -47,6 +48,7 @@ class Review(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_category: Mapped[str | None] = mapped_column(String(50), nullable=True)
     fallback_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    installation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     findings: Mapped[list["Finding"]] = relationship(
         "Finding", back_populates="review", cascade="all, delete-orphan"
@@ -74,6 +76,7 @@ class Finding(Base):
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="Quality")
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    installation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     review: Mapped["Review"] = relationship("Review", back_populates="findings")
 
@@ -94,6 +97,7 @@ class ReviewLog(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    installation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     review: Mapped["Review"] = relationship("Review", back_populates="logs")
 
@@ -120,6 +124,7 @@ class FindingOutcome(Base):
     labeled_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
+    installation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     finding: Mapped["Finding"] = relationship("Finding")
     review: Mapped["Review"] = relationship("Review")
@@ -148,8 +153,31 @@ class FeedbackSignal(Base):
     )
     last_matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     times_matched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    installation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     __table_args__ = (
         Index("ix_feedback_signals_repo", "repo"),
-        Index("uq_feedback_signals_repo_cat_pattern", "repo", "category", "pattern", unique=True),
+        # Two partial unique indexes instead of one 4-column index: PostgreSQL
+        # treats NULLs as distinct in unique indexes, so a single index on
+        # (repo, category, pattern, installation_id) would allow duplicate
+        # (repo, category, pattern, NULL) rows, breaking single-tenant isolation.
+        Index(
+            "uq_feedback_signals_null_tenant",
+            "repo",
+            "category",
+            "pattern",
+            unique=True,
+            postgresql_where=text("installation_id IS NULL"),
+            sqlite_where=text("installation_id IS NULL"),
+        ),
+        Index(
+            "uq_feedback_signals_with_tenant",
+            "repo",
+            "category",
+            "pattern",
+            "installation_id",
+            unique=True,
+            postgresql_where=text("installation_id IS NOT NULL"),
+            sqlite_where=text("installation_id IS NOT NULL"),
+        ),
     )

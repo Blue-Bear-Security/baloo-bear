@@ -6,8 +6,12 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from baloo.db.engine import reset_engine
 from baloo.db.feedback_service import FeedbackService
+from baloo.db.models import Base, FeedbackSignal
 
 
 @pytest.fixture
@@ -124,3 +128,70 @@ def test_format_signals_for_prompt_formats_correctly():
     assert "@alice" in result
     assert "Security" in result
     assert "shell=True" in result
+
+
+@pytest.fixture
+async def db_session_factory():
+    """Set up an in-memory SQLite database and patch the session factory."""
+    reset_engine()
+
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    with patch("baloo.db.feedback_service.get_session_factory", return_value=factory):
+        yield factory
+
+    await engine.dispose()
+    reset_engine()
+
+
+@pytest.mark.asyncio
+async def test_write_signal_sets_installation_id(db_session_factory):
+    """Test that write_signal populates installation_id from settings."""
+    with patch("baloo.db.feedback_service.get_settings") as mock_settings:
+        mock_settings.return_value.database_url = "sqlite+aiosqlite://"
+        mock_settings.return_value.database_enabled = True
+        mock_settings.return_value.feedback_signals_enabled = True
+        mock_settings.return_value.installation_id = "inst_abc"
+        mock_settings.return_value.feedback_signals_ttl_days = 180
+
+        await FeedbackService.write_signal(
+            repo="owner/repo", pattern="test", category="Security", developer="alice"
+        )
+
+    async with db_session_factory() as session:
+        result = await session.execute(select(FeedbackSignal))
+        signals = result.scalars().all()
+        assert len(signals) == 1
+        assert signals[0].installation_id == "inst_abc"
+
+
+@pytest.mark.asyncio
+async def test_get_signals_filters_by_installation_id(db_session_factory):
+    """Signals from a different tenant must not be returned."""
+    async with db_session_factory() as session:
+        async with session.begin():
+            session.add(
+                FeedbackSignal(
+                    repo="owner/repo",
+                    pattern="other tenant pattern",
+                    category="Security",
+                    developer="bob",
+                    installation_id="other_tenant",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+
+    with patch("baloo.db.feedback_service.get_settings") as mock_settings:
+        mock_settings.return_value.database_url = "sqlite+aiosqlite://"
+        mock_settings.return_value.database_enabled = True
+        mock_settings.return_value.feedback_signals_enabled = True
+        mock_settings.return_value.installation_id = "inst_abc"
+        mock_settings.return_value.feedback_signals_ttl_days = 180
+
+        signals = await FeedbackService.get_signals_for_repo("owner/repo")
+
+    assert len(signals) == 0

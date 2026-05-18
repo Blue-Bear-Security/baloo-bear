@@ -70,9 +70,10 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_ENABLED` | `false` | Enable PostgreSQL persistence |
+| `DATABASE_ENABLED` | `true` | Enable PostgreSQL persistence |
 | `DATABASE_URL` | — | PostgreSQL connection URL. Auto-set in docker-compose |
-| `DASHBOARD_ENABLED` | `false` | Enable review history dashboard |
+| `INSTALLATION_ID` | — | GitHub installation ID for tenant scoping. Set when multiple Baloo instances share a database |
+| `DASHBOARD_ENABLED` | `true` | Enable review history dashboard |
 | `DASHBOARD_USERNAME` | — | Dashboard basic auth username |
 | `DASHBOARD_PASSWORD` | — | Dashboard basic auth password |
 | `LOG_RETENTION_DAYS` | `30` | Days to retain execution logs (0 to disable cleanup) |

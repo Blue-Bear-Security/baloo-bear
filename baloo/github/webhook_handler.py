@@ -19,6 +19,7 @@ from baloo.agent.pi_runtime import PIAgentBase
 from baloo.config.settings import settings
 from baloo.db.engine import close_db, init_db
 from baloo.db.service import ReviewCompleteDTO, ReviewService
+from baloo.db.tenant import apply_tenant_filter
 from baloo.fidelity.fidelity_analyzer import analyze_fidelity
 from baloo.fidelity.fidelity_report import (
     ERROR_FIDELITY_SENTINEL,
@@ -73,6 +74,12 @@ async def lifespan(app: FastAPI):
     if settings.database_enabled and settings.database_url:
         logger.info("Database enabled, initializing...")
         await init_db(settings.database_url)
+    elif settings.database_enabled:
+        logger.warning(
+            "DATABASE_ENABLED=true but DATABASE_URL is not set — "
+            "database features will be unavailable. "
+            "Set DATABASE_URL to a valid PostgreSQL connection string."
+        )
     yield
     if settings.database_enabled:
         await close_db()
@@ -513,6 +520,9 @@ async def _reverify_awaiting_threads(
                             Finding.file_path == (thread.path or ""),
                             Finding.line_number == thread.line,
                         )
+                        finding_stmt = apply_tenant_filter(
+                            finding_stmt, Finding, settings.installation_id
+                        )
                         finding_result = await session.execute(finding_stmt)
                         finding = finding_result.scalars().first()
 
@@ -520,6 +530,9 @@ async def _reverify_awaiting_threads(
                             # Update existing FindingOutcome row if present
                             outcome_stmt = select(FindingOutcome).where(
                                 FindingOutcome.finding_id == finding.id
+                            )
+                            outcome_stmt = apply_tenant_filter(
+                                outcome_stmt, FindingOutcome, settings.installation_id
                             )
                             outcome_result = await session.execute(outcome_stmt)
                             outcome_row = outcome_result.scalars().first()

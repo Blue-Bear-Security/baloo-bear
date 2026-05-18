@@ -10,6 +10,7 @@ from sqlalchemy import select
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
 from baloo.db.models import Finding, FindingOutcome, Review
+from baloo.db.tenant import apply_tenant_filter
 from baloo.github.api_client import GitHubAPIClient
 from baloo.outcomes.signals import collect_thread_signals, detect_code_change
 
@@ -125,6 +126,7 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
     """
     try:
         settings = get_settings()
+        tenant_id = settings.installation_id
         session_factory = get_session_factory(settings.database_url)
 
         # Snapshot finding data from DB
@@ -134,6 +136,7 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
                 .join(Review, Finding.review_id == Review.id)
                 .where(Review.repo_full_name == repo_full_name, Review.pr_number == pr_number)
             )
+            stmt = apply_tenant_filter(stmt, Review, tenant_id)
             result = await session.execute(stmt)
             findings = result.scalars().all()
 
@@ -149,6 +152,7 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
             existing_stmt = select(FindingOutcome.finding_id).where(
                 FindingOutcome.finding_id.in_([f.id for f in findings])
             )
+            existing_stmt = apply_tenant_filter(existing_stmt, FindingOutcome, tenant_id)
             existing_result = await session.execute(existing_stmt)
             existing_finding_ids = set(existing_result.scalars().all())
 
@@ -211,6 +215,7 @@ async def label_pr_outcomes(repo_full_name: str, pr_number: int, installation_id
                             pr_number=pr_number,
                             outcome=outcome,
                             signals=signals,
+                            installation_id=tenant_id,
                         )
                     )
 

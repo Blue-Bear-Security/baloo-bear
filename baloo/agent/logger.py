@@ -19,9 +19,12 @@ class ReviewLogger:
     Errors are swallowed to avoid crashing the review pipeline.
     """
 
-    def __init__(self, review_id: int | None, session: Any = None):
+    def __init__(
+        self, review_id: int | None, session: Any = None, installation_id: str | None = None
+    ):
         self._review_id = review_id
         self._session = session
+        self._installation_id = installation_id
 
     @property
     def active(self) -> bool:
@@ -44,6 +47,7 @@ class ReviewLogger:
                 message=message,
                 raw_text=raw_text,
                 metadata_json=json.dumps(metadata) if metadata else None,
+                installation_id=self._installation_id,
             )
             self._session.add(row)
             await self._session.flush()

@@ -234,3 +234,127 @@ async def test_label_pr_outcomes_idempotent(db_factory):
 
         rows = (await session.execute(select(FindingOutcome))).scalars().all()
         assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tenant isolation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def db_session_factory():
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from baloo.db.engine import reset_engine
+    from baloo.db.models import Base
+
+    reset_engine()
+    engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    with patch("baloo.outcomes.labeler.get_session_factory", return_value=factory):
+        yield factory
+    await engine.dispose()
+    reset_engine()
+
+
+@pytest.mark.asyncio
+async def test_label_pr_outcomes_sets_installation_id(db_session_factory):
+    """FindingOutcome rows are written with installation_id from settings."""
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from baloo.db.models import Finding, FindingOutcome, Review
+    from baloo.outcomes.labeler import label_pr_outcomes
+
+    async with db_session_factory() as session:
+        async with session.begin():
+            review = Review(
+                repo_full_name="owner/repo",
+                pr_number=77,
+                review_status="approved",
+                trigger_reason="test",
+                started_at=datetime.now(timezone.utc),
+                installation_id="inst_outcomes",
+            )
+            session.add(review)
+            await session.flush()
+            session.add(
+                Finding(
+                    review_id=review.id,
+                    file_path="x.py",
+                    line_number=1,
+                    severity="HIGH",
+                    category="Security",
+                    body="test",
+                    installation_id="inst_outcomes",
+                )
+            )
+
+    with patch("baloo.outcomes.labeler.get_settings") as mock_settings:
+        mock_settings.return_value.database_url = "sqlite+aiosqlite://"
+        mock_settings.return_value.installation_id = "inst_outcomes"
+        with patch(
+            "baloo.outcomes.labeler.fetch_merge_signals",
+            new=AsyncMock(return_value=("", [])),
+        ):
+            await label_pr_outcomes("owner/repo", 77, 12345)
+
+    async with db_session_factory() as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(FindingOutcome))
+        outcomes = result.scalars().all()
+        assert len(outcomes) == 1
+        assert outcomes[0].installation_id == "inst_outcomes"
+
+
+@pytest.mark.asyncio
+async def test_label_pr_outcomes_ignores_other_tenant_findings(db_session_factory):
+    """label_pr_outcomes must not see findings belonging to another installation."""
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from baloo.db.models import Finding, FindingOutcome, Review
+    from baloo.outcomes.labeler import label_pr_outcomes
+
+    async with db_session_factory() as session:
+        async with session.begin():
+            review = Review(
+                repo_full_name="owner/repo",
+                pr_number=88,
+                review_status="approved",
+                trigger_reason="test",
+                started_at=datetime.now(timezone.utc),
+                installation_id="other_tenant",
+            )
+            session.add(review)
+            await session.flush()
+            session.add(
+                Finding(
+                    review_id=review.id,
+                    file_path="x.py",
+                    line_number=1,
+                    severity="HIGH",
+                    category="Security",
+                    body="test",
+                    installation_id="other_tenant",
+                )
+            )
+
+    with patch("baloo.outcomes.labeler.get_settings") as mock_settings:
+        mock_settings.return_value.database_url = "sqlite+aiosqlite://"
+        mock_settings.return_value.installation_id = "inst_current"
+        with patch(
+            "baloo.outcomes.labeler.fetch_merge_signals",
+            new=AsyncMock(return_value=("", [])),
+        ):
+            await label_pr_outcomes("owner/repo", 88, 12345)
+
+    async with db_session_factory() as session:
+        from sqlalchemy import select
+
+        result = await session.execute(select(FindingOutcome))
+        outcomes = result.scalars().all()
+        assert len(outcomes) == 0
