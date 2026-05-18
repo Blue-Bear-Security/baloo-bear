@@ -74,6 +74,12 @@ async def lifespan(app: FastAPI):
     if settings.database_enabled and settings.database_url:
         logger.info("Database enabled, initializing...")
         await init_db(settings.database_url)
+    elif settings.database_enabled:
+        logger.warning(
+            "DATABASE_ENABLED=true but DATABASE_URL is not set — "
+            "database features will be unavailable. "
+            "Set DATABASE_URL to a valid PostgreSQL connection string."
+        )
     yield
     if settings.database_enabled:
         await close_db()
