@@ -50,9 +50,6 @@ GitHub App that:
 - `baloo/processor/` - Review processing (filtering, formatting, decisions)
 - `baloo/config/` - Configuration management
 
-## Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features.
 
 ## Workflow Guidelines
 

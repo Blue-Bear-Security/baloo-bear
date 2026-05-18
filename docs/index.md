@@ -169,10 +169,6 @@ uv run black --check baloo # format check
 
 See [development.md](development.md) for the full contributor guide.
 
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for planned features including multi-model review with judge, conversational thread replies, and AST-enriched context.
-
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](contributing.md) for workflow and conventions, and [AGENTS.md](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/AGENTS.md) for AI-agent-specific guidance.

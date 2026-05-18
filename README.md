@@ -185,10 +185,6 @@ uv run python scripts/local_review.py --git-workdir /path/to/other-repo --base o
 
 See [docs/development.md](docs/development.md) for the full contributor guide.
 
-## Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features including multi-model review with judge, conversational thread replies, and AST-enriched context.
-
 ## Support
 
 - **Issues & Bug Reports**: [GitHub Issues](https://github.com/Blue-Bear-Security/baloo-bear/issues)
