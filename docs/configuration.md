@@ -27,6 +27,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `APP_PORT` | `8000` | Bind port |
 | `LOG_LEVEL` | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR |
 | `MAX_CONCURRENT_REVIEWS` | `3` | Max PRs reviewed simultaneously |
+| `REVIEW_STALE_TIMEOUT_MINUTES` | `30` | Minutes after which an in-progress review is considered abandoned and can be superseded by a new one (used with `DATABASE_ENABLED=true`) |
 
 ## Agent
 

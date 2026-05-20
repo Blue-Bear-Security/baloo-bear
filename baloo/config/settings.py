@@ -44,6 +44,10 @@ class Settings(BaseSettings):
         default=3,
         description="Maximum number of PR reviews to process concurrently",
     )
+    review_stale_timeout_minutes: int = Field(
+        default=30,
+        description="Minutes after which an in-progress review is considered stale and can be superseded",
+    )
 
     # Agent Configuration
     agent_provider: str = Field(

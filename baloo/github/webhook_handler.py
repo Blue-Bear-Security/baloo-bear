@@ -18,7 +18,7 @@ from baloo.agent.config import get_agent_options
 from baloo.agent.pi_runtime import PIAgentBase
 from baloo.config.settings import settings
 from baloo.db.engine import close_db, init_db
-from baloo.db.service import ReviewCompleteDTO, ReviewService
+from baloo.db.service import DuplicateReviewError, ReviewCompleteDTO, ReviewService
 from baloo.db.tenant import apply_tenant_filter
 from baloo.fidelity.fidelity_analyzer import analyze_fidelity
 from baloo.fidelity.fidelity_report import (
@@ -152,6 +152,34 @@ def cancel_existing_review(repo_full_name: str, pr_number: int) -> None:
             logger.info(f"Cancelling redundant review for {repo_full_name}#{pr_number}")
             task.cancel()
         del active_reviews[key]
+
+
+_REVIEW_CANCEL_POLL_SECONDS = 15
+
+
+async def _monitor_review_cancellation(
+    review_id: int,
+    main_task: asyncio.Task,
+    repo_full_name: str,
+    pr_number: int,
+) -> None:
+    """Poll the DB and cancel the main task if another replica superseded this review."""
+    while not main_task.done():
+        await asyncio.sleep(_REVIEW_CANCEL_POLL_SECONDS)
+        if main_task.done():
+            return
+        try:
+            if await ReviewService.is_review_cancelled(review_id):
+                logger.info(
+                    "Review %d for %s#%s was superseded by a new commit — stopping",
+                    review_id,
+                    repo_full_name,
+                    pr_number,
+                )
+                main_task.cancel()
+                return
+        except Exception as exc:
+            logger.warning("Failed to poll cancellation status for review %d: %s", review_id, exc)
 
 
 @app.get("/")
@@ -790,6 +818,7 @@ async def handle_webhook(
                         f"pull_request:{action}",
                         True,
                         before_sha if action == "synchronize" else None,
+                        head_sha or "",
                     )
                 )
                 active_reviews[(repo_name, pr_number)] = task
@@ -1093,6 +1122,7 @@ async def process_pr_review(
     trigger_reason: str = "pull_request",
     notify_progress: bool = True,
     synchronize_base_sha: str | None = None,
+    head_sha: str = "",
 ) -> None:
     """
     Process a PR review in the background.
@@ -1112,6 +1142,7 @@ async def process_pr_review(
     review_start_time = time.time()
     db_review_id: int | None = None
     progress_comment_id: int | None = None
+    cancel_monitor: asyncio.Task | None = None
 
     try:
         async with semaphore:
@@ -1123,12 +1154,41 @@ async def process_pr_review(
 
             # Create in-progress review row in database
             if settings.database_enabled:
-                db_review_id = await ReviewService.start_review(
-                    repo_full_name=repo_full_name,
-                    pr_number=pr_number,
-                    trigger_reason=trigger_reason,
-                    started_at=datetime.fromtimestamp(review_start_time, tz=timezone.utc),
-                )
+                if not head_sha:
+                    logger.warning(
+                        "Missing head_sha for %s#%s — skipping DB-level dedup",
+                        repo_full_name,
+                        pr_number,
+                    )
+                else:
+                    try:
+                        db_review_id = await ReviewService.start_review(
+                            repo_full_name=repo_full_name,
+                            pr_number=pr_number,
+                            commit_sha=head_sha,
+                            trigger_reason=trigger_reason,
+                            started_at=datetime.fromtimestamp(review_start_time, tz=timezone.utc),
+                        )
+                    except DuplicateReviewError:
+                        logger.info(
+                            "Skipping review for %s#%s@%s: another replica is already reviewing this commit",
+                            repo_full_name,
+                            pr_number,
+                            head_sha,
+                        )
+                        return
+
+                # Start a background monitor that cancels this task if another replica
+                # marks this review as cancelled (cross-replica new-commit supersede).
+                if db_review_id is not None:
+                    cancel_monitor = asyncio.create_task(
+                        _monitor_review_cancellation(
+                            db_review_id,
+                            asyncio.current_task(),  # type: ignore[arg-type]
+                            repo_full_name,
+                            pr_number,
+                        )
+                    )
 
             # Initialize GitHub client
             github_client = GitHubAPIClient(installation_id)
@@ -1733,6 +1793,9 @@ async def process_pr_review(
             except Exception:
                 pass
     finally:
+        # Stop the cross-replica cancellation monitor
+        if cancel_monitor and not cancel_monitor.done():
+            cancel_monitor.cancel()
         # Clean up the task registry
         key = (repo_full_name, pr_number)
         if active_reviews.get(key) == asyncio.current_task():

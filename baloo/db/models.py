@@ -61,6 +61,15 @@ class Review(Base):
         Index("ix_reviews_repo_pr", "repo_full_name", "pr_number"),
         Index("ix_reviews_started_at", "started_at"),
         Index("ix_reviews_error_category", "error_category"),
+        Index(
+            "uq_reviews_active_sha",
+            "repo_full_name",
+            "pr_number",
+            "commit_sha",
+            unique=True,
+            sqlite_where=text("review_status = 'in_progress'"),
+            postgresql_where=text("review_status = 'in_progress'"),
+        ),
     )
 
 

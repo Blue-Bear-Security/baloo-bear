@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, Field
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
@@ -23,6 +25,12 @@ class ReviewServiceError(Exception):
 
 class ReviewNotFoundError(ReviewServiceError):
     """Raised when a review is not found in the database."""
+
+    pass
+
+
+class DuplicateReviewError(ReviewServiceError):
+    """Raised when a review is already in progress for the given PR."""
 
     pass
 
@@ -59,6 +67,7 @@ class ReviewService:
         pr_number: int,
         trigger_reason: str,
         started_at: datetime,
+        commit_sha: str = "",
     ) -> int:
         """
         Create an in-progress review row at the start of a review.
@@ -72,23 +81,70 @@ class ReviewService:
         try:
             settings = get_settings()
             session_factory = get_session_factory(settings.database_url)
+            stale_cutoff = started_at - timedelta(minutes=settings.review_stale_timeout_minutes)
 
             async with session_factory() as session:
+                # TX1: persist cancellations before attempting the insert so they
+                # are never rolled back by a subsequent IntegrityError.
+                async with session.begin():
+                    # Cancel in-progress reviews for the same PR on a different SHA —
+                    # a new commit has arrived and the old review is now obsolete.
+                    await session.execute(
+                        update(Review)
+                        .where(
+                            Review.repo_full_name == repo_full_name,
+                            Review.pr_number == pr_number,
+                            Review.commit_sha != commit_sha,
+                            Review.review_status == "in_progress",
+                        )
+                        .values(
+                            review_status="cancelled",
+                            error_message="superseded by new commit",
+                        )
+                    )
+
+                    # Mark stale in-progress reviews for the same SHA as error so the
+                    # unique partial index won't block a retry.
+                    await session.execute(
+                        update(Review)
+                        .where(
+                            Review.repo_full_name == repo_full_name,
+                            Review.pr_number == pr_number,
+                            Review.commit_sha == commit_sha,
+                            Review.review_status == "in_progress",
+                            Review.started_at < stale_cutoff,
+                        )
+                        .values(
+                            review_status="error",
+                            error_message="stale: review abandoned mid-flight",
+                            error_category="stale",
+                        )
+                    )
+
+                # TX2: insert the new review row; raise DuplicateReviewError on conflict.
                 async with session.begin():
                     review = Review(
                         repo_full_name=repo_full_name,
                         pr_number=pr_number,
+                        commit_sha=commit_sha,
                         review_status="in_progress",
                         trigger_reason=trigger_reason,
                         started_at=started_at,
                         installation_id=settings.installation_id,
                     )
                     session.add(review)
-                    await session.flush()
+                    try:
+                        await session.flush()
+                    except IntegrityError as exc:
+                        raise DuplicateReviewError(
+                            f"Review already in progress for {repo_full_name}#{pr_number}"
+                        ) from exc
 
-                logger.info(f"Started review {review.id} for " f"{repo_full_name}#{pr_number}")
+                logger.info(f"Started review {review.id} for {repo_full_name}#{pr_number}")
                 return review.id
 
+        except DuplicateReviewError:
+            raise
         except Exception as e:
             logger.error(f"Failed to start review for {repo_full_name}#{pr_number}: {e}")
             raise ReviewServiceError(f"Failed to start review: {e}") from e
@@ -160,3 +216,16 @@ class ReviewService:
         except Exception as e:
             logger.error(f"Failed to complete review {review_id}: {e}")
             raise ReviewServiceError(f"Failed to complete review: {e}") from e
+
+    @staticmethod
+    async def is_review_cancelled(review_id: int) -> bool:
+        """Return True if the review row has been marked cancelled (by another replica)."""
+        try:
+            settings = get_settings()
+            session_factory = get_session_factory(settings.database_url)
+            async with session_factory() as session:
+                review = await session.get(Review, review_id)
+                return review is not None and review.review_status == "cancelled"
+        except Exception as e:
+            logger.warning(f"Failed to check cancellation status for review {review_id}: {e}")
+            return False
