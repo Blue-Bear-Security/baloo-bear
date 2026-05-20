@@ -30,11 +30,18 @@ def get_session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
+_MIGRATION_LOCK_KEY = 7756279  # arbitrary fixed key for baloo migration advisory lock
+
+
 def _run_alembic_migrations(database_url: str) -> bool:
     """Run Alembic migrations synchronously.
 
     Uses a sync connection to avoid nested-async-loop issues when
     called from within an already-running event loop.
+
+    On PostgreSQL, a session-level advisory lock serializes concurrent
+    startup across replicas — the second pod blocks until the first
+    finishes, then runs upgrade head as a no-op.
 
     If the database was previously managed by ``create_all`` (no
     ``alembic_version`` table), we stamp the baseline revision
@@ -67,25 +74,44 @@ def _run_alembic_migrations(database_url: str) -> bool:
         "script_location", str(project_root / "baloo" / "db" / "migrations")
     )
 
-    # If the DB already has tables but no alembic_version table,
-    # stamp the initial migration so Alembic doesn't try to re-create.
-    try:
-        import sqlalchemy
+    import sqlalchemy
 
-        sync_engine = sqlalchemy.create_engine(sync_url)
-        inspector = sqlalchemy.inspect(sync_engine)
-        tables = inspector.get_table_names()
+    is_postgres = sync_url.startswith("postgresql")
+    sync_engine = sqlalchemy.create_engine(sync_url)
+    try:
+        with sync_engine.connect() as conn:
+            if is_postgres:
+                try:
+                    conn.execute(
+                        sqlalchemy.text("SELECT pg_advisory_lock(:key)"),
+                        {"key": _MIGRATION_LOCK_KEY},
+                    )
+                    logger.info("Acquired migration advisory lock")
+                except Exception:
+                    logger.warning(
+                        "Could not acquire advisory lock, proceeding without serialization",
+                        exc_info=True,
+                    )
+
+            # If the DB already has tables but no alembic_version table,
+            # stamp the initial migration so Alembic doesn't try to re-create.
+            try:
+                inspector = sqlalchemy.inspect(conn)
+                tables = inspector.get_table_names()
+                if "reviews" in tables and "alembic_version" not in tables:
+                    logger.info(
+                        "Existing DB without alembic_version detected, "
+                        "stamping baseline revision 001"
+                    )
+                    command.stamp(alembic_cfg, "001")
+            except Exception as e:
+                logger.warning("Could not inspect DB for stamping: %s", e)
+
+            command.upgrade(alembic_cfg, "head")
+            # Advisory lock released automatically when connection closes
+    finally:
         sync_engine.dispose()
 
-        if "reviews" in tables and "alembic_version" not in tables:
-            logger.info(
-                "Existing DB without alembic_version detected, " "stamping baseline revision 001"
-            )
-            command.stamp(alembic_cfg, "001")
-    except Exception as e:
-        logger.warning("Could not inspect DB for stamping: %s", e)
-
-    command.upgrade(alembic_cfg, "head")
     return True
 
 
