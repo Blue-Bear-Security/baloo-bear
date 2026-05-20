@@ -61,3 +61,12 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for planned features.
 - Use descriptive branch names such as `feat/review-routing` or `fix/checks-api-fallback`.
 - Semantic commits are preferred when practical.
 - Before pushing, address open review comments explicitly: fix, decline with reasoning, or explain the tradeoff.
+
+## Adding Environment Variables
+
+When adding a new setting to `baloo/config/settings.py`, always update all four of these in the same change:
+
+1. `.env.example` — add the variable with its default value
+2. `docker-compose.yml` — add `VAR_NAME: ${VAR_NAME:-default}`
+3. `docs/configuration.md` — add a row to the relevant table with variable, default, and description
+4. Alembic migration (if the setting affects the database schema)
