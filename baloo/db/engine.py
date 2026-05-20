@@ -81,11 +81,17 @@ def _run_alembic_migrations(database_url: str) -> bool:
     try:
         with sync_engine.connect() as conn:
             if is_postgres:
-                conn.execute(
-                    sqlalchemy.text("SELECT pg_advisory_lock(:key)"),
-                    {"key": _MIGRATION_LOCK_KEY},
-                )
-                logger.info("Acquired migration advisory lock")
+                try:
+                    conn.execute(
+                        sqlalchemy.text("SELECT pg_advisory_lock(:key)"),
+                        {"key": _MIGRATION_LOCK_KEY},
+                    )
+                    logger.info("Acquired migration advisory lock")
+                except Exception:
+                    logger.warning(
+                        "Could not acquire advisory lock, proceeding without serialization",
+                        exc_info=True,
+                    )
 
             # If the DB already has tables but no alembic_version table,
             # stamp the initial migration so Alembic doesn't try to re-create.
