@@ -84,6 +84,8 @@ class ReviewService:
             stale_cutoff = started_at - timedelta(minutes=settings.review_stale_timeout_minutes)
 
             async with session_factory() as session:
+                # TX1: persist cancellations before attempting the insert so they
+                # are never rolled back by a subsequent IntegrityError.
                 async with session.begin():
                     # Cancel in-progress reviews for the same PR on a different SHA —
                     # a new commit has arrived and the old review is now obsolete.
@@ -119,6 +121,8 @@ class ReviewService:
                         )
                     )
 
+                # TX2: insert the new review row; raise DuplicateReviewError on conflict.
+                async with session.begin():
                     review = Review(
                         repo_full_name=repo_full_name,
                         pr_number=pr_number,

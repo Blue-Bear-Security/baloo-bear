@@ -1154,33 +1154,41 @@ async def process_pr_review(
 
             # Create in-progress review row in database
             if settings.database_enabled:
-                try:
-                    db_review_id = await ReviewService.start_review(
-                        repo_full_name=repo_full_name,
-                        pr_number=pr_number,
-                        commit_sha=head_sha,
-                        trigger_reason=trigger_reason,
-                        started_at=datetime.fromtimestamp(review_start_time, tz=timezone.utc),
-                    )
-                except DuplicateReviewError:
-                    logger.info(
-                        "Skipping review for %s#%s@%s: another replica is already reviewing this commit",
+                if not head_sha:
+                    logger.warning(
+                        "Missing head_sha for %s#%s — skipping DB-level dedup",
                         repo_full_name,
                         pr_number,
-                        head_sha,
                     )
-                    return
+                else:
+                    try:
+                        db_review_id = await ReviewService.start_review(
+                            repo_full_name=repo_full_name,
+                            pr_number=pr_number,
+                            commit_sha=head_sha,
+                            trigger_reason=trigger_reason,
+                            started_at=datetime.fromtimestamp(review_start_time, tz=timezone.utc),
+                        )
+                    except DuplicateReviewError:
+                        logger.info(
+                            "Skipping review for %s#%s@%s: another replica is already reviewing this commit",
+                            repo_full_name,
+                            pr_number,
+                            head_sha,
+                        )
+                        return
 
                 # Start a background monitor that cancels this task if another replica
                 # marks this review as cancelled (cross-replica new-commit supersede).
-                cancel_monitor = asyncio.create_task(
-                    _monitor_review_cancellation(
-                        db_review_id,
-                        asyncio.current_task(),  # type: ignore[arg-type]
-                        repo_full_name,
-                        pr_number,
+                if db_review_id is not None:
+                    cancel_monitor = asyncio.create_task(
+                        _monitor_review_cancellation(
+                            db_review_id,
+                            asyncio.current_task(),  # type: ignore[arg-type]
+                            repo_full_name,
+                            pr_number,
+                        )
                     )
-                )
 
             # Initialize GitHub client
             github_client = GitHubAPIClient(installation_id)
