@@ -62,7 +62,11 @@ class BalooAgent(PIAgentBase):
                 if settings.database_enabled:
                     factory = get_session_factory(settings.database_url)
                     logger_session = factory()
-                    review_logger = ReviewLogger(review_id=review_id, session=logger_session)
+                    review_logger = ReviewLogger(
+                        review_id=review_id,
+                        session=logger_session,
+                        installation_id=settings.installation_id,
+                    )
 
             # Run agent using base class
             structured_data, metadata = await self._run_with_fallback(

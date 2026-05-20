@@ -16,4 +16,3 @@
 
 ## Reference
 - **[Configuration](configuration.md)** — Full environment variable reference
-- **[ROADMAP](ROADMAP.md)** — Planned features

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
 from baloo.db.models import FeedbackSignal
+from baloo.db.tenant import apply_tenant_filter
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class FeedbackService:
                     .where(FeedbackSignal.pattern == pattern)
                     .limit(1)
                 )
+                stmt = apply_tenant_filter(stmt, FeedbackSignal, settings.installation_id)
                 existing = (await session.execute(stmt)).scalar_one_or_none()
                 if existing:
                     logger.info(
@@ -66,6 +68,7 @@ class FeedbackService:
                     thread_url=thread_url,
                     pr_number=pr_number,
                     created_at=datetime.now(timezone.utc),
+                    installation_id=settings.installation_id,
                 )
                 session.add(signal)
 
@@ -99,6 +102,7 @@ class FeedbackService:
                 .where(FeedbackSignal.created_at > cutoff)
                 .order_by(FeedbackSignal.created_at.desc())
             )
+            stmt = apply_tenant_filter(stmt, FeedbackSignal, settings.installation_id)
             result = await session.execute(stmt)
             return list(result.scalars().all())
 

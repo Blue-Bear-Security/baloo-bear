@@ -65,9 +65,9 @@ class ReviewService:
     async def start_review(
         repo_full_name: str,
         pr_number: int,
-        commit_sha: str,
         trigger_reason: str,
         started_at: datetime,
+        commit_sha: str = "",
     ) -> int:
         """
         Create an in-progress review row at the start of a review.
@@ -126,6 +126,7 @@ class ReviewService:
                         review_status="in_progress",
                         trigger_reason=trigger_reason,
                         started_at=started_at,
+                        installation_id=settings.installation_id,
                     )
                     session.add(review)
                     try:
@@ -197,6 +198,7 @@ class ReviewService:
                                 severity=f.get("severity", "MEDIUM"),
                                 category=f.get("category", "Quality"),
                                 body=f.get("body", ""),
+                                installation_id=settings.installation_id,
                             )
                             session.add(finding)
 

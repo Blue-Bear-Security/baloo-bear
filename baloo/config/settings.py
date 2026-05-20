@@ -3,7 +3,7 @@
 import logging
 import os
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,19 @@ class Settings(BaseSettings):
     database_enabled: bool = Field(
         default=False, description="Enable database persistence for review data"
     )
+
+    # Multi-Tenant Configuration
+    installation_id: str | None = Field(
+        default=None,
+        description="GitHub installation ID for tenant scoping (required in shared-DB deployments)",
+    )
+
+    @field_validator("installation_id", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: object) -> object:
+        if v == "":
+            return None
+        return v
 
     # Dashboard Configuration
     dashboard_enabled: bool = Field(default=True, description="Enable the review history dashboard")

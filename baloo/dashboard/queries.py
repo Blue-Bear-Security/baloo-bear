@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from baloo.config.settings import get_settings
 from baloo.db.engine import get_session_factory
 from baloo.db.models import Finding, FindingOutcome, Review, ReviewLog
+from baloo.db.tenant import apply_tenant_filter
 
 
 class DashboardService:
@@ -19,93 +20,100 @@ class DashboardService:
     async def get_overview_stats() -> dict:
         settings = get_settings()
         factory = get_session_factory(settings.database_url)
+        installation_id = settings.installation_id
 
         async with factory() as session:
             now = datetime.now(timezone.utc)
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-            total = (await session.execute(select(func.count(Review.id)))).scalar() or 0
+            total_stmt = apply_tenant_filter(select(func.count(Review.id)), Review, installation_id)
+            total = (await session.execute(total_stmt)).scalar() or 0
 
-            today = (
-                await session.execute(
-                    select(func.count(Review.id)).where(Review.started_at >= today_start)
-                )
-            ).scalar() or 0
+            today_stmt = apply_tenant_filter(
+                select(func.count(Review.id)).where(Review.started_at >= today_start),
+                Review,
+                installation_id,
+            )
+            today = (await session.execute(today_stmt)).scalar() or 0
 
-            avg_duration = (
-                await session.execute(
-                    select(func.avg(Review.duration_seconds)).where(
-                        Review.duration_seconds.is_not(None)
-                    )
-                )
-            ).scalar()
+            avg_dur_stmt = apply_tenant_filter(
+                select(func.avg(Review.duration_seconds)).where(
+                    Review.duration_seconds.is_not(None)
+                ),
+                Review,
+                installation_id,
+            )
+            avg_duration = (await session.execute(avg_dur_stmt)).scalar()
 
-            approved_count = (
-                await session.execute(
-                    select(func.count(Review.id)).where(Review.review_status == "approved")
-                )
-            ).scalar() or 0
+            approved_stmt = apply_tenant_filter(
+                select(func.count(Review.id)).where(Review.review_status == "approved"),
+                Review,
+                installation_id,
+            )
+            approved_count = (await session.execute(approved_stmt)).scalar() or 0
 
             approval_rate = round(approved_count / total * 100, 1) if total else 0.0
 
             # Severity breakdown from findings
-            severity_rows = (
-                await session.execute(
-                    select(Finding.severity, func.count(Finding.id)).group_by(Finding.severity)
-                )
-            ).all()
+            severity_stmt = apply_tenant_filter(
+                select(Finding.severity, func.count(Finding.id)).group_by(Finding.severity),
+                Finding,
+                installation_id,
+            )
+            severity_rows = (await session.execute(severity_stmt)).all()
             severity = {row[0]: row[1] for row in severity_rows}
 
             # Error / agent_error counts
             error_statuses = ["error", "agent_error"]
-            errors_total = (
-                await session.execute(
-                    select(func.count(Review.id)).where(Review.review_status.in_(error_statuses))
-                )
-            ).scalar() or 0
+            errors_total_stmt = apply_tenant_filter(
+                select(func.count(Review.id)).where(Review.review_status.in_(error_statuses)),
+                Review,
+                installation_id,
+            )
+            errors_total = (await session.execute(errors_total_stmt)).scalar() or 0
 
-            errors_today = (
-                await session.execute(
-                    select(func.count(Review.id)).where(
-                        Review.review_status.in_(error_statuses),
-                        Review.started_at >= today_start,
-                    )
-                )
-            ).scalar() or 0
+            errors_today_stmt = apply_tenant_filter(
+                select(func.count(Review.id)).where(
+                    Review.review_status.in_(error_statuses),
+                    Review.started_at >= today_start,
+                ),
+                Review,
+                installation_id,
+            )
+            errors_today = (await session.execute(errors_today_stmt)).scalar() or 0
 
             error_rate = round(errors_total / total * 100, 1) if total else 0.0
 
             # Error category breakdown
-            error_category_rows = (
-                await session.execute(
-                    select(Review.error_category, func.count(Review.id))
-                    .where(Review.error_category.is_not(None))
-                    .group_by(Review.error_category)
-                    .order_by(func.count(Review.id).desc())
-                )
-            ).all()
+            error_cat_stmt = apply_tenant_filter(
+                select(Review.error_category, func.count(Review.id))
+                .where(Review.error_category.is_not(None))
+                .group_by(Review.error_category)
+                .order_by(func.count(Review.id).desc()),
+                Review,
+                installation_id,
+            )
+            error_category_rows = (await session.execute(error_cat_stmt)).all()
             error_categories = {row[0]: row[1] for row in error_category_rows}
 
             # Recent failures
-            recent_failures = (
-                (
-                    await session.execute(
-                        select(Review)
-                        .where(Review.review_status.in_(error_statuses))
-                        .order_by(Review.started_at.desc())
-                        .limit(5)
-                    )
-                )
-                .scalars()
-                .all()
+            recent_failures_stmt = apply_tenant_filter(
+                select(Review)
+                .where(Review.review_status.in_(error_statuses))
+                .order_by(Review.started_at.desc())
+                .limit(5),
+                Review,
+                installation_id,
             )
+            recent_failures = (await session.execute(recent_failures_stmt)).scalars().all()
 
             # Recent reviews
-            recent = (
-                (await session.execute(select(Review).order_by(Review.started_at.desc()).limit(5)))
-                .scalars()
-                .all()
+            recent_stmt = apply_tenant_filter(
+                select(Review).order_by(Review.started_at.desc()).limit(5),
+                Review,
+                installation_id,
             )
+            recent = (await session.execute(recent_stmt)).scalars().all()
 
             # Reviews per hour (last 24h)
             last_24h = now - timedelta(hours=24)
@@ -119,17 +127,18 @@ class DashboardService:
                 # Default to SQLite
                 hour_label = func.strftime("%Y-%m-%d %H:00", Review.started_at)
 
-            hourly_rows = (
-                await session.execute(
-                    select(
-                        hour_label.label("hour"),
-                        func.count(Review.id),
-                    )
-                    .where(Review.started_at >= last_24h)
-                    .group_by("hour")
-                    .order_by("hour")
+            hourly_stmt = apply_tenant_filter(
+                select(
+                    hour_label.label("hour"),
+                    func.count(Review.id),
                 )
-            ).all()
+                .where(Review.started_at >= last_24h)
+                .group_by("hour")
+                .order_by("hour"),
+                Review,
+                installation_id,
+            )
+            hourly_rows = (await session.execute(hourly_stmt)).all()
 
         return {
             "total_reviews": total,
@@ -156,10 +165,14 @@ class DashboardService:
     ) -> dict:
         settings = get_settings()
         factory = get_session_factory(settings.database_url)
+        installation_id = settings.installation_id
 
         async with factory() as session:
             q = select(Review)
             count_q = select(func.count(Review.id))
+
+            q = apply_tenant_filter(q, Review, installation_id)
+            count_q = apply_tenant_filter(count_q, Review, installation_id)
 
             if repo_filter:
                 q = q.where(Review.repo_full_name == repo_filter)
@@ -184,15 +197,12 @@ class DashboardService:
             reviews = (await session.execute(q)).scalars().all()
 
             # Distinct repos for filter dropdown
-            repos = (
-                (
-                    await session.execute(
-                        select(Review.repo_full_name).distinct().order_by(Review.repo_full_name)
-                    )
-                )
-                .scalars()
-                .all()
+            repos_stmt = apply_tenant_filter(
+                select(Review.repo_full_name).distinct().order_by(Review.repo_full_name),
+                Review,
+                installation_id,
             )
+            repos = (await session.execute(repos_stmt)).scalars().all()
 
         total_pages = max(1, -(-total // per_page))  # ceil division
         return {
@@ -209,30 +219,39 @@ class DashboardService:
     async def get_review_detail(review_id: int) -> Review | None:
         settings = get_settings()
         factory = get_session_factory(settings.database_url)
+        installation_id = settings.installation_id
 
         async with factory() as session:
-            result = await session.execute(
-                select(Review).options(selectinload(Review.findings)).where(Review.id == review_id)
+            stmt = apply_tenant_filter(
+                select(Review).options(selectinload(Review.findings)).where(Review.id == review_id),
+                Review,
+                installation_id,
             )
+            result = await session.execute(stmt)
             return result.scalars().first()
 
     @staticmethod
     async def get_review_logs(review_id: int) -> list[ReviewLog]:
         settings = get_settings()
         factory = get_session_factory(settings.database_url)
+        installation_id = settings.installation_id
 
         async with factory() as session:
-            result = await session.execute(
+            stmt = apply_tenant_filter(
                 select(ReviewLog)
                 .where(ReviewLog.review_id == review_id)
-                .order_by(ReviewLog.created_at.asc())
+                .order_by(ReviewLog.created_at.asc()),
+                ReviewLog,
+                installation_id,
             )
+            result = await session.execute(stmt)
             return result.scalars().all()
 
     @staticmethod
     async def get_analytics_data(days: int = 30) -> dict:
         settings = get_settings()
         factory = get_session_factory(settings.database_url)
+        installation_id = settings.installation_id
 
         async with factory() as session:
             now = datetime.now(timezone.utc)
@@ -242,34 +261,50 @@ class DashboardService:
             # Reviews per day
             daily_rows = (
                 await session.execute(
-                    select(
-                        func.date(Review.started_at).label("day"),
-                        func.count(Review.id),
+                    apply_tenant_filter(
+                        select(
+                            func.date(Review.started_at).label("day"),
+                            func.count(Review.id),
+                        )
+                        .where(Review.started_at >= since)
+                        .group_by(func.date(Review.started_at))
+                        .order_by(func.date(Review.started_at)),
+                        Review,
+                        installation_id,
                     )
-                    .where(Review.started_at >= since)
-                    .group_by(func.date(Review.started_at))
-                    .order_by(func.date(Review.started_at))
                 )
             ).all()
 
             # Current period stats
+            error_statuses = ["error", "agent_error"]
             total_cost = (
                 await session.execute(
-                    select(func.sum(Review.cost_usd)).where(Review.started_at >= since)
+                    apply_tenant_filter(
+                        select(func.sum(Review.cost_usd)).where(Review.started_at >= since),
+                        Review,
+                        installation_id,
+                    )
                 )
             ).scalar() or 0
-            error_statuses = ["error", "agent_error"]
             error_total = (
                 await session.execute(
-                    select(func.count(Review.id)).where(
-                        Review.started_at >= since,
-                        Review.review_status.in_(error_statuses),
+                    apply_tenant_filter(
+                        select(func.count(Review.id)).where(
+                            Review.started_at >= since,
+                            Review.review_status.in_(error_statuses),
+                        ),
+                        Review,
+                        installation_id,
                     )
                 )
             ).scalar() or 0
             total_in_period = (
                 await session.execute(
-                    select(func.count(Review.id)).where(Review.started_at >= since)
+                    apply_tenant_filter(
+                        select(func.count(Review.id)).where(Review.started_at >= since),
+                        Review,
+                        installation_id,
+                    )
                 )
             ).scalar() or 0
             success_rate = (
@@ -281,24 +316,36 @@ class DashboardService:
             # Previous period stats for trends
             prev_total_cost = (
                 await session.execute(
-                    select(func.sum(Review.cost_usd)).where(
-                        Review.started_at >= prev_since, Review.started_at < since
+                    apply_tenant_filter(
+                        select(func.sum(Review.cost_usd)).where(
+                            Review.started_at >= prev_since, Review.started_at < since
+                        ),
+                        Review,
+                        installation_id,
                     )
                 )
             ).scalar() or 0
             prev_error_total = (
                 await session.execute(
-                    select(func.count(Review.id)).where(
-                        Review.started_at >= prev_since,
-                        Review.started_at < since,
-                        Review.review_status.in_(error_statuses),
+                    apply_tenant_filter(
+                        select(func.count(Review.id)).where(
+                            Review.started_at >= prev_since,
+                            Review.started_at < since,
+                            Review.review_status.in_(error_statuses),
+                        ),
+                        Review,
+                        installation_id,
                     )
                 )
             ).scalar() or 0
             prev_total_in_period = (
                 await session.execute(
-                    select(func.count(Review.id)).where(
-                        Review.started_at >= prev_since, Review.started_at < since
+                    apply_tenant_filter(
+                        select(func.count(Review.id)).where(
+                            Review.started_at >= prev_since, Review.started_at < since
+                        ),
+                        Review,
+                        installation_id,
                     )
                 )
             ).scalar() or 0
@@ -311,59 +358,79 @@ class DashboardService:
             # Status distribution (current period)
             status_rows = (
                 await session.execute(
-                    select(Review.review_status, func.count(Review.id))
-                    .where(Review.started_at >= since)
-                    .group_by(Review.review_status)
+                    apply_tenant_filter(
+                        select(Review.review_status, func.count(Review.id))
+                        .where(Review.started_at >= since)
+                        .group_by(Review.review_status),
+                        Review,
+                        installation_id,
+                    )
                 )
             ).all()
 
             # Severity distribution from findings (current period)
             severity_rows = (
                 await session.execute(
-                    select(Finding.severity, func.count(Finding.id))
-                    .join(Review)
-                    .where(Review.started_at >= since)
-                    .group_by(Finding.severity)
+                    apply_tenant_filter(
+                        select(Finding.severity, func.count(Finding.id))
+                        .join(Review)
+                        .where(Review.started_at >= since)
+                        .group_by(Finding.severity),
+                        Review,
+                        installation_id,
+                    )
                 )
             ).all()
 
             # Top repos (current period)
             repo_rows = (
                 await session.execute(
-                    select(Review.repo_full_name, func.count(Review.id))
-                    .where(Review.started_at >= since)
-                    .group_by(Review.repo_full_name)
-                    .order_by(func.count(Review.id).desc())
-                    .limit(10)
+                    apply_tenant_filter(
+                        select(Review.repo_full_name, func.count(Review.id))
+                        .where(Review.started_at >= since)
+                        .group_by(Review.repo_full_name)
+                        .order_by(func.count(Review.id).desc())
+                        .limit(10),
+                        Review,
+                        installation_id,
+                    )
                 )
             ).all()
 
             # Error category breakdown for the period
             error_category_rows = (
                 await session.execute(
-                    select(Review.error_category, func.count(Review.id))
-                    .where(
-                        Review.started_at >= since,
-                        Review.error_category.is_not(None),
+                    apply_tenant_filter(
+                        select(Review.error_category, func.count(Review.id))
+                        .where(
+                            Review.started_at >= since,
+                            Review.error_category.is_not(None),
+                        )
+                        .group_by(Review.error_category)
+                        .order_by(func.count(Review.id).desc()),
+                        Review,
+                        installation_id,
                     )
-                    .group_by(Review.error_category)
-                    .order_by(func.count(Review.id).desc())
                 )
             ).all()
 
             # Daily error counts
             daily_error_rows = (
                 await session.execute(
-                    select(
-                        func.date(Review.started_at).label("day"),
-                        func.count(Review.id),
+                    apply_tenant_filter(
+                        select(
+                            func.date(Review.started_at).label("day"),
+                            func.count(Review.id),
+                        )
+                        .where(
+                            Review.started_at >= since,
+                            Review.review_status.in_(error_statuses),
+                        )
+                        .group_by(func.date(Review.started_at))
+                        .order_by(func.date(Review.started_at)),
+                        Review,
+                        installation_id,
                     )
-                    .where(
-                        Review.started_at >= since,
-                        Review.review_status.in_(error_statuses),
-                    )
-                    .group_by(func.date(Review.started_at))
-                    .order_by(func.date(Review.started_at))
                 )
             ).all()
 
@@ -388,6 +455,7 @@ class DashboardService:
     async def get_outcomes_data(days: int = 90, repo_filter: str | None = None) -> dict:
         settings = get_settings()
         factory = get_session_factory(settings.database_url)
+        installation_id = settings.installation_id
 
         async with factory() as session:
             now = datetime.now(timezone.utc)
@@ -397,6 +465,8 @@ class DashboardService:
                 filters = [FindingOutcome.labeled_at >= since]
                 if repo_filter:
                     filters.append(FindingOutcome.repo_full_name == repo_filter)
+                if installation_id:
+                    filters.append(FindingOutcome.installation_id == installation_id)
                 return filters
 
             # --- Totals and rates ---
@@ -523,17 +593,14 @@ class DashboardService:
             ]
 
             # --- Repos for filter dropdown ---
-            repos = (
-                (
-                    await session.execute(
-                        select(FindingOutcome.repo_full_name)
-                        .distinct()
-                        .order_by(FindingOutcome.repo_full_name)
-                    )
-                )
-                .scalars()
-                .all()
+            repos_stmt = apply_tenant_filter(
+                select(FindingOutcome.repo_full_name)
+                .distinct()
+                .order_by(FindingOutcome.repo_full_name),
+                FindingOutcome,
+                installation_id,
             )
+            repos = (await session.execute(repos_stmt)).scalars().all()
 
         return {
             "total": total,
