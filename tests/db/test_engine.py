@@ -8,7 +8,13 @@ def _run_with_mocks(database_url: str, *, lock_raises: bool = False):
     """Exercise _run_alembic_migrations with all external dependencies mocked."""
     mock_conn = MagicMock()
     if lock_raises:
-        mock_conn.execute.side_effect = Exception("lock error")
+
+        def _selective_execute(*args, **_kwargs):
+            if args and "pg_advisory_lock" in str(args[0]):
+                raise Exception("lock error")
+            return MagicMock()
+
+        mock_conn.execute.side_effect = _selective_execute
 
     mock_engine = MagicMock()
     mock_engine.connect.return_value.__enter__ = lambda _: mock_conn
