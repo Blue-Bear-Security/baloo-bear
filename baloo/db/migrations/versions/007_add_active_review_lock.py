@@ -1,7 +1,7 @@
 """Add partial unique index to enforce one active review per PR.
 
-Revision ID: 006
-Revises: 005
+Revision ID: 007
+Revises: 006
 Create Date: 2026-05-19
 """
 
@@ -10,8 +10,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "006"
-down_revision: str = "005"
+revision: str = "007"
+down_revision: str = "006"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
