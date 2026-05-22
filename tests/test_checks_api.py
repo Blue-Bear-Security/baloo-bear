@@ -11,8 +11,6 @@ from baloo.github.models import ReviewComment
 @pytest.mark.asyncio
 async def test_create_check_run():
     """Test creating a check run."""
-    client = GitHubChecksClient(installation_id=123)
-
     with patch("baloo.github.checks_api.GitHubAuth") as mock_auth_class:
         # Mock authentication
         mock_auth = MagicMock()
@@ -25,12 +23,12 @@ async def test_create_check_run():
             mock_response.json = MagicMock(return_value={"id": 12345})
             mock_response.raise_for_status = MagicMock()
 
-            # Setup mock client context manager
+            # Setup mock client
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
-            # Reinitialize client to use mocked auth
+            # Create client to use mocked auth and http client
             client = GitHubChecksClient(installation_id=123)
 
             # Call the method
@@ -83,10 +81,10 @@ async def test_add_annotations_includes_category():
             mock_response = AsyncMock()
             mock_response.raise_for_status = MagicMock()
 
-            # Setup mock client context manager
+            # Setup mock client
             mock_client = AsyncMock()
             mock_client.patch.return_value = mock_response
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
             # Initialize client with mocked auth
             client = GitHubChecksClient(installation_id=123)
@@ -130,7 +128,7 @@ async def test_add_annotations_empty_list():
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
             # Initialize client with mocked auth
             client = GitHubChecksClient(installation_id=123)
@@ -169,7 +167,7 @@ async def test_add_annotations_truncates_to_50():
             # Setup mock client
             mock_client = AsyncMock()
             mock_client.patch.return_value = mock_response
-            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_client_class.return_value = mock_client
 
             # Initialize client with mocked auth
             client = GitHubChecksClient(installation_id=123)
@@ -203,7 +201,7 @@ async def test_create_check_run_with_different_conclusions():
 
                 mock_client = AsyncMock()
                 mock_client.post.return_value = mock_response
-                mock_client_class.return_value.__aenter__.return_value = mock_client
+                mock_client_class.return_value = mock_client
 
                 # Initialize client with mocked auth
                 client = GitHubChecksClient(installation_id=123)
