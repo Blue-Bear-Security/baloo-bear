@@ -39,21 +39,43 @@ Score: 85/100
 - Added logout endpoint (not planned but reasonable)
 ```
 
+## Real-World Example: BlueDen
+
+The [BlueDen](https://github.com/Blue-Bear-Security/blueden) monorepo uses fidelity analysis as part of its standard engineering workflow. Their `AGENTS.md` requires:
+
+> *When writing design specs during brainstorming, save them to `docs/plans/DEN-XXXX.md` (where `DEN-XXXX` is the Linear ticket ID for the current task)*
+
+Their Baloo configuration:
+
+```bash
+TICKET_ID_PREFIX=DEN
+FIDELITY_PLAN_PATH_PATTERN=docs/plans/{ticket_id}.md
+```
+
+When a developer opens a PR from branch `feat/DEN-456/add-session-tracking`, Baloo:
+
+1. Extracts `DEN-456` from the branch name
+2. Fetches `docs/plans/DEN-456.md` from the PR branch
+3. Compares the plan against the diff
+4. Posts the fidelity report alongside the code review
+
+This closes the loop between what was planned in Linear, what was specced in the plan file, and what was actually implemented.
+
 ## Plan File Format
 
 Plan files are freeform markdown. Baloo works best when the plan lists concrete deliverables:
 
 ```markdown
-# PROJ-123 — Add Authentication
+# DEN-456 — Add Session Tracking
 
 ## Planned Changes
-- Add JWT middleware in `app/middleware/auth.py`
-- Create `/api/auth/login` and `/api/auth/refresh` endpoints
-- Add rate limiting (10 req/min) to all auth endpoints
-- Write integration tests in `tests/api/test_auth.py`
+- Add `SessionTracker` Lambda in `services/data-pipeline/`
+- Store session events in `session_events` DynamoDB table
+- Emit `session.started` / `session.ended` events to the event bus
+- Write integration tests in `tests/integration/test_session_tracker.py`
 
 ## Out of Scope
-- OAuth2 provider integration (separate ticket)
+- Session replay UI (separate ticket DEN-489)
 ```
 
 ## Impact on Approval

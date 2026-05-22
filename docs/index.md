@@ -16,7 +16,8 @@ Baloo is a **GitHub App** that automatically reviews pull requests using LLMs. I
 ## Why Baloo?
 
 - **Catches what linters can't** — logic errors, silent failures, security antipatterns, missing error handling
-- **Respects your conventions** — reads `AGENTS.md` and `CONTRIBUTING.md` from your repo and enforces them
+- **Enforces your team's exact rules** — reads `AGENTS.md` and `CONTRIBUTING.md` and flags branch names missing ticket IDs, unpinned dependency versions, missing tests, architectural violations — whatever your team has written down
+- **Closes the plan-to-PR loop** — compares each PR against its linked design doc and scores how faithfully the implementation matched what was planned
 - **Posts like a teammate** — inline comments on specific lines, severity labels, approval/request-changes decisions
 - **Runs on every push** — new commits get reviewed automatically, with discussion thread tracking across iterations
 - **Self-hosted & private** — your code never leaves your infrastructure; bring your own API keys
@@ -46,9 +47,9 @@ Inline comments appear on the exact lines:
 | **Agentic review** | Uses [PI](https://github.com/mariozechner/pi-coding-agent) to read files, grep patterns, and explore the repo — not just the diff |
 | **Multi-model** | Supports Claude (Sonnet, Haiku, Opus) and Gemini (Flash, Pro) with automatic fallback |
 | **Severity routing** | CRITICAL/HIGH → request changes; MEDIUM → Checks API annotations; LOW → filtered |
-| **Guideline enforcement** | Reads repo-level `AGENTS.md` / `CONTRIBUTING.md` and flags violations |
+| **Guideline enforcement** | Reads repo-level `AGENTS.md` / `CONTRIBUTING.md` and flags violations as CRITICAL — branch naming, commit format, dependency pinning rules, architecture rules, anything documented |
 | **Discussion tracking** | Follows up on existing threads, skips duplicates, detects addressed feedback |
-| **Fidelity analysis** | Optionally compares PR against design plan documents |
+| **Fidelity analysis** | Compares PR changes against a linked design plan (`docs/plans/{ticket_id}.md`), scores 0–100, and factors the score into approval decisions |
 | **FP reduction** | Optional second LLM pass to verify findings and drop false positives |
 | **Dashboard** | Optional PostgreSQL-backed review history UI with cost tracking |
 | **Dependabot-aware** | Specialized review logic for dependency update PRs |
