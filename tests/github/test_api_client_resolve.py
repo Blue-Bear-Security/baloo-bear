@@ -2,36 +2,37 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from baloo.github.api_client import GitHubAPIClient
 
 
+def _mock_response(body: dict | None = None) -> MagicMock:
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = body or {}
+    return resp
+
+
+def _make_client() -> tuple[GitHubAPIClient, AsyncMock]:
+    mock_http = AsyncMock(spec=httpx.AsyncClient)
+    auth = MagicMock()
+    auth.get_installation_token.return_value = "tok"
+    client = GitHubAPIClient(installation_id=1, http_client=mock_http, auth=auth)
+    return client, mock_http
+
+
 @pytest.mark.asyncio
 async def test_resolve_review_thread_success():
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {
-        "data": {"resolveReviewThread": {"thread": {"id": "PRT_x", "isResolved": True}}}
-    }
+    client, mock_http = _make_client()
+    mock_http.post.return_value = _mock_response(
+        {"data": {"resolveReviewThread": {"thread": {"id": "PRT_x", "isResolved": True}}}}
+    )
 
-    with (
-        patch("httpx.AsyncClient") as mock_client_cls,
-        patch(
-            "baloo.github.auth.GitHubAuth.get_installation_token",
-            return_value="tok",
-        ),
-    ):
-        mock_http = AsyncMock()
-        mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-        mock_http.__aexit__ = AsyncMock(return_value=False)
-        mock_http.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_http
-
-        client = GitHubAPIClient(installation_id=1)
-        result = await client.resolve_review_thread("PRT_x")
+    result = await client.resolve_review_thread("PRT_x")
 
     assert result is True
     call_kwargs = mock_http.post.call_args
@@ -42,45 +43,19 @@ async def test_resolve_review_thread_success():
 
 @pytest.mark.asyncio
 async def test_resolve_review_thread_graphql_error_returns_false():
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {"errors": [{"message": "not found"}]}
+    client, mock_http = _make_client()
+    mock_http.post.return_value = _mock_response({"errors": [{"message": "not found"}]})
 
-    with (
-        patch("httpx.AsyncClient") as mock_client_cls,
-        patch(
-            "baloo.github.auth.GitHubAuth.get_installation_token",
-            return_value="tok",
-        ),
-    ):
-        mock_http = AsyncMock()
-        mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-        mock_http.__aexit__ = AsyncMock(return_value=False)
-        mock_http.post = AsyncMock(return_value=mock_response)
-        mock_client_cls.return_value = mock_http
-
-        client = GitHubAPIClient(installation_id=1)
-        result = await client.resolve_review_thread("PRT_bad")
+    result = await client.resolve_review_thread("PRT_bad")
 
     assert result is False
 
 
 @pytest.mark.asyncio
 async def test_resolve_review_thread_http_exception_returns_false():
-    with (
-        patch("httpx.AsyncClient") as mock_client_cls,
-        patch(
-            "baloo.github.auth.GitHubAuth.get_installation_token",
-            return_value="tok",
-        ),
-    ):
-        mock_http = AsyncMock()
-        mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-        mock_http.__aexit__ = AsyncMock(return_value=False)
-        mock_http.post = AsyncMock(side_effect=Exception("network error"))
-        mock_client_cls.return_value = mock_http
+    client, mock_http = _make_client()
+    mock_http.post.side_effect = Exception("network error")
 
-        client = GitHubAPIClient(installation_id=1)
-        result = await client.resolve_review_thread("PRT_x")
+    result = await client.resolve_review_thread("PRT_x")
 
     assert result is False
