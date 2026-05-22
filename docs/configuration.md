@@ -73,7 +73,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 |---|---|---|
 | `DATABASE_ENABLED` | `true` | Enable PostgreSQL persistence |
 | `DATABASE_URL` | — | PostgreSQL connection URL. Auto-set in docker-compose |
-| `INSTALLATION_ID` | — | GitHub installation ID for tenant scoping. Set when multiple Baloo instances share a database |
+| `INSTALLATION_ID` | — | GitHub installation ID for this broker. If set, broker only processes webhooks for this installation and scopes all DB queries to this tenant. Unset = serve all installations |
 | `DASHBOARD_ENABLED` | `true` | Enable review history dashboard |
 | `DASHBOARD_USERNAME` | — | Dashboard basic auth username |
 | `DASHBOARD_PASSWORD` | — | Dashboard basic auth password |
@@ -100,3 +100,57 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | Variable | Default | Description |
 |---|---|---|
 | `AST_TOOLS_ENABLED` | `true` | Enable AST analysis tools (outline, grep, symbols) for the review agent |
+
+## Multi-Broker Deployment
+
+Baloo supports running multiple broker instances against a shared database for high availability and horizontal scale.
+
+### Shared Model (recommended for HA)
+
+All brokers handle any installation. A load balancer distributes incoming webhooks. If two brokers race on a GitHub retry, the duplicate-review unique index discards the second silently.
+
+```
+GitHub → Load Balancer → Broker A  (INSTALLATION_ID unset)
+                       → Broker B  (INSTALLATION_ID unset)
+                       → Broker C  (INSTALLATION_ID unset)
+         (all share one database)
+```
+
+**Minimal nginx upstream config:**
+```nginx
+upstream baloo {
+    server broker-a:8000;
+    server broker-b:8000;
+    server broker-c:8000;
+}
+```
+
+### Dedicated Mode
+
+Each broker is scoped to one installation via `INSTALLATION_ID`. Webhooks for other installations are silently acknowledged and dropped.
+
+```
+GitHub → Load Balancer → Broker A  (INSTALLATION_ID=111)
+                       → Broker B  (INSTALLATION_ID=222)
+```
+
+Each broker only sees its own installation's data in the database.
+
+### Health Checks
+
+Each broker exposes `GET /health`:
+
+```json
+{ "status": "ok", "installation_id": "111" }
+```
+
+`"*"` means the broker handles all installations. Use this endpoint for load balancer health probes.
+
+### Webhook Security
+
+Every webhook is validated before processing:
+1. HMAC-SHA256 signature verification (confirms payload is from GitHub)
+2. `installation_id` present in payload
+3. Installation filter — if `INSTALLATION_ID` is set, drop webhooks for other installations
+4. Installation token fetch — confirms installation is active and Baloo has valid auth
+5. Repository access check — confirms the repo in the payload belongs to this installation (prevents cross-tenant payloads)
