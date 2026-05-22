@@ -21,16 +21,24 @@ def _enum_value(value: object) -> object:
 class GitHubChecksClient:
     """Client for interacting with GitHub Checks API."""
 
-    def __init__(self, installation_id: int):
+    def __init__(
+        self,
+        installation_id: int,
+        http_client: httpx.AsyncClient | None = None,
+        auth: GitHubAuth | None = None,
+    ):
         """
         Initialize GitHub Checks API client.
 
         Args:
             installation_id: GitHub App installation ID
+            http_client: Optional httpx.AsyncClient for HTTP requests (created if not provided)
+            auth: Optional GitHubAuth instance (created if not provided)
         """
         self.installation_id = installation_id
-        self.auth = GitHubAuth()
+        self.auth = auth or GitHubAuth()
         self.base_url = "https://api.github.com"
+        self._http = http_client or httpx.AsyncClient()
 
     def _get_headers(self) -> dict[str, str]:
         """Get headers for GitHub API requests."""
@@ -57,24 +65,23 @@ class GitHubChecksClient:
         Returns:
             Check run ID as string
         """
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/check-runs"
-            payload = {
-                "name": name,
-                "head_sha": commit_sha,
-                "status": "completed",
-                "conclusion": conclusion,
-                "output": {"title": name, "summary": summary},
-            }
+        url = f"{self.base_url}/repos/{repo_full_name}/check-runs"
+        payload = {
+            "name": name,
+            "head_sha": commit_sha,
+            "status": "completed",
+            "conclusion": conclusion,
+            "output": {"title": name, "summary": summary},
+        }
 
-            logger.debug(f"Creating check run: {name} for {repo_full_name}@{commit_sha[:7]}")
+        logger.debug(f"Creating check run: {name} for {repo_full_name}@{commit_sha[:7]}")
 
-            response = await client.post(url, headers=self._get_headers(), json=payload)
-            response.raise_for_status()
-            data = response.json()
+        response = await self._http.post(url, headers=self._get_headers(), json=payload)
+        response.raise_for_status()
+        data = response.json()
 
-            logger.info(f"Created check run ID {data['id']} for {repo_full_name}")
-            return str(data["id"])
+        logger.info(f"Created check run ID {data['id']} for {repo_full_name}")
+        return str(data["id"])
 
     async def add_annotations(
         self, repo_full_name: str, check_run_id: str, findings: list[ReviewComment]
@@ -114,22 +121,21 @@ class GitHubChecksClient:
             }
             annotations.append(annotation)
 
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/check-runs/{check_run_id}"
-            payload = {
-                "output": {
-                    "title": "Baloo Code Quality",
-                    "summary": f"Found {len(findings)} code quality issue(s)",
-                    "annotations": annotations,
-                }
+        url = f"{self.base_url}/repos/{repo_full_name}/check-runs/{check_run_id}"
+        payload = {
+            "output": {
+                "title": "Baloo Code Quality",
+                "summary": f"Found {len(findings)} code quality issue(s)",
+                "annotations": annotations,
             }
+        }
 
-            logger.debug(f"Adding {len(annotations)} annotations to check run {check_run_id}")
+        logger.debug(f"Adding {len(annotations)} annotations to check run {check_run_id}")
 
-            response = await client.patch(url, headers=self._get_headers(), json=payload)
-            response.raise_for_status()
+        response = await self._http.patch(url, headers=self._get_headers(), json=payload)
+        response.raise_for_status()
 
-            logger.info(
-                f"Added {len(annotations)} annotations to check run {check_run_id} "
-                f"for {repo_full_name}"
-            )
+        logger.info(
+            f"Added {len(annotations)} annotations to check run {check_run_id} "
+            f"for {repo_full_name}"
+        )
