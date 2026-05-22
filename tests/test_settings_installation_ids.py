@@ -1,7 +1,5 @@
 """Tests for INSTALLATION_IDS setting parsing and backward compatibility."""
 
-import pytest
-
 
 class TestInstallationIds:
     def test_empty_by_default(self):
