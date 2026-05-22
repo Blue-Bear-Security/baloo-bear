@@ -121,3 +121,29 @@ class TestValidateWebhookSecurity:
             result = await _validate_webhook_security(111, None)
 
         assert result is None
+
+
+class TestHealthEndpoint:
+    def test_health_returns_ok_with_wildcard_when_unrestricted(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from baloo.github.webhook_handler import app
+
+        monkeypatch.setenv("INSTALLATION_ID", "")
+        client = TestClient(app)
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "installation_id": "*"}
+
+    def test_health_returns_installation_id_when_configured(self, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from baloo.github.webhook_handler import app
+
+        monkeypatch.setenv("INSTALLATION_ID", "111")
+        client = TestClient(app)
+        response = client.get("/health")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "installation_id": "111"}
