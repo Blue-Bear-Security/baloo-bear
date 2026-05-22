@@ -134,16 +134,16 @@ def _enum_value(value) -> str:
 class GitHubAPIClient:
     """Client for interacting with GitHub API."""
 
-    def __init__(self, installation_id: int):
-        """
-        Initialize GitHub API client.
-
-        Args:
-            installation_id: GitHub App installation ID
-        """
+    def __init__(
+        self,
+        installation_id: int,
+        http_client: httpx.AsyncClient | None = None,
+        auth: GitHubAuth | None = None,
+    ):
         self.installation_id = installation_id
-        self.auth = GitHubAuth()
+        self.auth = auth or GitHubAuth()
         self.base_url = "https://api.github.com"
+        self._http = http_client or httpx.AsyncClient()
 
     def _get_headers(self) -> dict[str, str]:
         """Get headers for GitHub API requests."""
@@ -165,131 +165,111 @@ class GitHubAPIClient:
         Returns:
             PRContext with all PR information
         """
-        async with httpx.AsyncClient() as client:
-            headers = self._get_headers()
+        headers = self._get_headers()
 
-            # Fetch PR details
-            pr_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}"
-            pr_response = await client.get(pr_url, headers=headers)
-            pr_response.raise_for_status()
-            pr_data = pr_response.json()
+        pr_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}"
+        pr_response = await self._http.get(pr_url, headers=headers)
+        pr_response.raise_for_status()
+        pr_data = pr_response.json()
 
-            # Fetch files changed
-            files_url = f"{pr_url}/files"
-            files_data = await self._fetch_paginated_json(client, files_url, headers=headers)
+        files_url = f"{pr_url}/files"
+        files_data = await self._fetch_paginated_json(files_url)
 
-            # Convert to FileChange models
-            files_changed = [
-                FileChange(
-                    filename=file["filename"],
-                    status=file["status"],
-                    additions=file["additions"],
-                    deletions=file["deletions"],
-                    changes=file["changes"],
-                    patch=file.get("patch"),
-                )
-                for file in files_data
-            ]
-
-            # Get full diff
-            # GitHub returns 406 if diff is too large (>30MB or very large PRs)
-            diff_response = await client.get(
-                pr_url,
-                headers={**headers, "Accept": "application/vnd.github.v3.diff"},
+        files_changed = [
+            FileChange(
+                filename=file["filename"],
+                status=file["status"],
+                additions=file["additions"],
+                deletions=file["deletions"],
+                changes=file["changes"],
+                patch=file.get("patch"),
             )
+            for file in files_data
+        ]
 
-            if diff_response.status_code == 406:
-                # PR is too large for full diff - construct from individual file patches
-                logger.warning(
-                    f"PR {repo_full_name}#{pr_number} diff too large (406), "
-                    f"constructing from {len(files_changed)} file patches"
-                )
-                diff_parts = []
-                for file in files_changed:
-                    if file.patch:
-                        diff_parts.append(f"diff --git a/{file.filename} b/{file.filename}")
-                        diff_parts.append(file.patch)
-                diff = "\n".join(diff_parts) if diff_parts else "# Diff too large to display"
-            else:
-                diff_response.raise_for_status()
-                diff = diff_response.text
+        diff_response = await self._http.get(
+            pr_url,
+            headers={**headers, "Accept": "application/vnd.github.v3.diff"},
+        )
 
-            # Fetch discussion data
-            review_comments_url = (
-                f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
+        if diff_response.status_code == 406:
+            logger.warning(
+                f"PR {repo_full_name}#{pr_number} diff too large (406), "
+                f"constructing from {len(files_changed)} file patches"
             )
-            issue_comments_url = (
-                f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
-            )
-            reviews_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
+            diff_parts = []
+            for file in files_changed:
+                if file.patch:
+                    diff_parts.append(f"diff --git a/{file.filename} b/{file.filename}")
+                    diff_parts.append(file.patch)
+            diff = "\n".join(diff_parts) if diff_parts else "# Diff too large to display"
+        else:
+            diff_response.raise_for_status()
+            diff = diff_response.text
 
-            review_comments = await self._fetch_paginated_json(
-                client, review_comments_url, headers=headers
-            )
-            issue_comments = await self._fetch_paginated_json(
-                client, issue_comments_url, headers=headers
-            )
-            reviews = await self._fetch_paginated_json(client, reviews_url, headers=headers)
+        review_comments_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
+        issue_comments_url = f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
+        reviews_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
 
-            discussion_threads: list[DiscussionThread] = build_review_threads(review_comments)
+        review_comments = await self._fetch_paginated_json(review_comments_url)
+        issue_comments = await self._fetch_paginated_json(issue_comments_url)
+        reviews = await self._fetch_paginated_json(reviews_url)
 
-            # Overlay the authoritative isResolved state from GraphQL.
-            # The REST API doesn't expose thread resolution, so without
-            # this call we rely on a keyword heuristic which is unreliable.
-            resolved_ids, outdated_ids, thread_node_ids = await self.fetch_resolved_thread_ids(
-                repo_full_name, pr_number
-            )
-            _apply_resolved_thread_state(
-                discussion_threads, resolved_ids, outdated_ids, thread_node_ids
-            )
+        discussion_threads: list[DiscussionThread] = build_review_threads(review_comments)
 
-            general_comments: list[DiscussionComment] = build_general_discussion(
-                issue_comments, reviews
-            )
-            discussion_digest, awaiting_count = build_discussion_digest(
-                discussion_threads, general_comments
-            )
+        resolved_ids, outdated_ids, thread_node_ids = await self.fetch_resolved_thread_ids(
+            repo_full_name, pr_number
+        )
+        _apply_resolved_thread_state(
+            discussion_threads, resolved_ids, outdated_ids, thread_node_ids
+        )
 
-            # Fetch guidelines files and commits from the reviewed repo concurrently
-            head_sha = pr_data["head"]["sha"]
-            commits_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/commits"
-            agents_md, contributing_md, commits_data = await asyncio.gather(
-                self.get_file_content(repo_full_name, "AGENTS.md", ref=head_sha),
-                self.get_file_content(repo_full_name, "CONTRIBUTING.md", ref=head_sha),
-                self._fetch_paginated_json(client, commits_url, headers=headers),
-            )
-            guidelines_parts = [c for c in [agents_md, contributing_md] if c]
-            repo_guidelines = "\n\n---\n\n".join(guidelines_parts) if guidelines_parts else None
-            commit_messages = [
-                c["commit"]["message"].split("\n")[0] for c in commits_data if c.get("commit")
-            ]
+        general_comments: list[DiscussionComment] = build_general_discussion(
+            issue_comments, reviews
+        )
+        discussion_digest, awaiting_count = build_discussion_digest(
+            discussion_threads, general_comments
+        )
 
-            metadata = PRMetadata(
-                repo_full_name=repo_full_name,
-                pr_number=pr_number,
-                title=pr_data["title"],
-                description=pr_data.get("body"),
-                author=pr_data["user"]["login"],
-                base_branch=pr_data["base"]["ref"],
-                head_branch=pr_data["head"]["ref"],
-                head_sha=pr_data["head"]["sha"],
-                files_changed=files_changed,
-                repo_guidelines=repo_guidelines,
-                commit_messages=commit_messages,
-            )
+        head_sha = pr_data["head"]["sha"]
+        commits_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/commits"
+        agents_md, contributing_md, commits_data = await asyncio.gather(
+            self.get_file_content(repo_full_name, "AGENTS.md", ref=head_sha),
+            self.get_file_content(repo_full_name, "CONTRIBUTING.md", ref=head_sha),
+            self._fetch_paginated_json(commits_url),
+        )
+        guidelines_parts = [c for c in [agents_md, contributing_md] if c]
+        repo_guidelines = "\n\n---\n\n".join(guidelines_parts) if guidelines_parts else None
+        commit_messages = [
+            c["commit"]["message"].split("\n")[0] for c in commits_data if c.get("commit")
+        ]
 
-            discussion = PRDiscussionContext(
-                threads=discussion_threads,
-                issue_comments=general_comments,
-                digest=discussion_digest,
-                awaiting_response_count=awaiting_count,
-            )
+        metadata = PRMetadata(
+            repo_full_name=repo_full_name,
+            pr_number=pr_number,
+            title=pr_data["title"],
+            description=pr_data.get("body"),
+            author=pr_data["user"]["login"],
+            base_branch=pr_data["base"]["ref"],
+            head_branch=pr_data["head"]["ref"],
+            head_sha=pr_data["head"]["sha"],
+            files_changed=files_changed,
+            repo_guidelines=repo_guidelines,
+            commit_messages=commit_messages,
+        )
 
-            return PRContext(
-                metadata=metadata,
-                discussion=discussion,
-                diff=diff,
-            )
+        discussion = PRDiscussionContext(
+            threads=discussion_threads,
+            issue_comments=general_comments,
+            digest=discussion_digest,
+            awaiting_response_count=awaiting_count,
+        )
+
+        return PRContext(
+            metadata=metadata,
+            discussion=discussion,
+            diff=diff,
+        )
 
     async def get_changed_scope_between_commits(
         self, repo_full_name: str, base_sha: str, head_sha: str
@@ -299,10 +279,9 @@ class GitHubAPIClient:
             return set(), {}, [], ""
 
         compare_url = f"{self.base_url}/repos/{repo_full_name}/compare/{base_sha}...{head_sha}"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(compare_url, headers=self._get_headers())
-            response.raise_for_status()
-            compare_data = response.json()
+        response = await self._http.get(compare_url, headers=self._get_headers())
+        response.raise_for_status()
+        compare_data = response.json()
 
         files = compare_data.get("files", [])
         changed_paths = {file.get("filename") for file in files if file.get("filename")}
@@ -352,10 +331,6 @@ class GitHubAPIClient:
             review_result: Review result to post
             diff: Full unified diff of the PR (used for line validation)
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         # ---- validate comment line numbers against the diff ----
         valid_comments = list(review_result.comments)
         dropped_comments: list[DroppedReviewComment] = []
@@ -427,73 +402,63 @@ class GitHubAPIClient:
                     pr_number,
                 )
 
-        async with httpx.AsyncClient() as client:
-            # Determine review event
-            # Note: We intentionally never use REQUEST_CHANGES to avoid blocking PRs.
-            # Baloo provides feedback via comments but lets humans make merge decisions.
-            if review_result.approve:
-                event = "APPROVE"
-            else:
-                event = "COMMENT"
+        # Determine review event
+        # Note: We intentionally never use REQUEST_CHANGES to avoid blocking PRs.
+        # Baloo provides feedback via comments but lets humans make merge decisions.
+        if review_result.approve:
+            event = "APPROVE"
+        else:
+            event = "COMMENT"
 
-            # Build review payload
-            review_payload = {
-                "body": review_result.summary,
-                "event": event,
-                "comments": [
-                    {
-                        "path": comment.path,
-                        "line": comment.line,
-                        "body": f"**[{comment.severity.value}] {comment.category.value}** - {comment.body}",
-                    }
-                    for comment in valid_comments
-                ],
-            }
+        # Build review payload
+        review_payload = {
+            "body": review_result.summary,
+            "event": event,
+            "comments": [
+                {
+                    "path": comment.path,
+                    "line": comment.line,
+                    "body": f"**[{comment.severity.value}] {comment.category.value}** - {comment.body}",
+                }
+                for comment in valid_comments
+            ],
+        }
 
-            # Post review
-            review_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
+        # Post review
+        review_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
 
-            try:
-                response = await client.post(
-                    review_url, headers=self._get_headers(), json=review_payload
-                )
-                response.raise_for_status()
-                logger.info(
-                    f"Successfully posted review with {len(valid_comments)} inline comments"
+        try:
+            response = await self._http.post(
+                review_url, headers=self._get_headers(), json=review_payload
+            )
+            response.raise_for_status()
+            logger.info(f"Successfully posted review with {len(valid_comments)} inline comments")
+            return PostedReviewResult(
+                attempted=len(review_result.comments),
+                posted=len(valid_comments),
+                dropped=dropped_comments,
+                github_rejected=False,
+            )
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 422:
+                # Validation should have prevented this, but if GitHub
+                # still rejects the review, log and move on rather than
+                # falling back to issue comments (which can't be resolved
+                # and break dedup).
+                logger.error(
+                    "GitHub rejected review despite line validation (422). " "Error: %s",
+                    e.response.text,
                 )
                 return PostedReviewResult(
                     attempted=len(review_result.comments),
-                    posted=len(valid_comments),
+                    posted=0,
                     dropped=dropped_comments,
-                    github_rejected=False,
+                    github_rejected=True,
                 )
-
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 422:
-                    # Validation should have prevented this, but if GitHub
-                    # still rejects the review, log and move on rather than
-                    # falling back to issue comments (which can't be resolved
-                    # and break dedup).
-                    logger.error(
-                        "GitHub rejected review despite line validation (422). " "Error: %s",
-                        e.response.text,
-                    )
-                    return PostedReviewResult(
-                        attempted=len(review_result.comments),
-                        posted=0,
-                        dropped=dropped_comments,
-                        github_rejected=True,
-                    )
-                else:
-                    # Other HTTP error - re-raise
-                    raise
-
-        return PostedReviewResult(
-            attempted=len(review_result.comments),
-            posted=len(valid_comments),
-            dropped=dropped_comments,
-            github_rejected=False,
-        )
+            else:
+                # Other HTTP error - re-raise
+                raise
 
     async def post_comment(self, repo_full_name: str, pr_number: int, comment: str) -> int:
         """
@@ -507,15 +472,14 @@ class GitHubAPIClient:
         Returns:
             The comment ID
         """
-        async with httpx.AsyncClient() as client:
-            comment_url = f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
-            response = await client.post(
-                comment_url,
-                headers=self._get_headers(),
-                json={"body": comment},
-            )
-            response.raise_for_status()
-            return response.json()["id"]
+        comment_url = f"{self.base_url}/repos/{repo_full_name}/issues/{pr_number}/comments"
+        response = await self._http.post(
+            comment_url,
+            headers=self._get_headers(),
+            json={"body": comment},
+        )
+        response.raise_for_status()
+        return response.json()["id"]
 
     async def edit_comment(self, repo_full_name: str, comment_id: int, comment: str) -> None:
         """
@@ -526,14 +490,13 @@ class GitHubAPIClient:
             comment_id: The comment ID to edit
             comment: New comment text
         """
-        async with httpx.AsyncClient() as client:
-            comment_url = f"{self.base_url}/repos/{repo_full_name}/issues/comments/{comment_id}"
-            response = await client.patch(
-                comment_url,
-                headers=self._get_headers(),
-                json={"body": comment},
-            )
-            response.raise_for_status()
+        comment_url = f"{self.base_url}/repos/{repo_full_name}/issues/comments/{comment_id}"
+        response = await self._http.patch(
+            comment_url,
+            headers=self._get_headers(),
+            json={"body": comment},
+        )
+        response.raise_for_status()
 
     async def reply_to_review_comment(
         self,
@@ -554,23 +517,20 @@ class GitHubAPIClient:
         Returns:
             True if reply was successful, False if comment is outdated (404)
         """
-        async with httpx.AsyncClient() as client:
-            reply_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments/{review_comment_id}/replies"
-            response = await client.post(
-                reply_url,
-                headers=self._get_headers(),
-                json={"body": comment},
+        reply_url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments/{review_comment_id}/replies"
+        response = await self._http.post(
+            reply_url,
+            headers=self._get_headers(),
+            json={"body": comment},
+        )
+        if response.status_code == 404:
+            logger.warning(
+                f"Cannot reply to comment {review_comment_id} on PR #{pr_number} - "
+                f"GitHub returned 404 (comment may be outdated or deleted)"
             )
-
-            if response.status_code == 404:
-                logger.warning(
-                    f"Cannot reply to comment {review_comment_id} on PR #{pr_number} - "
-                    f"GitHub returned 404 (comment may be outdated or deleted)"
-                )
-                return False
-
-            response.raise_for_status()
-            return True
+            return False
+        response.raise_for_status()
+        return True
 
     async def resolve_review_thread(self, thread_node_id: str) -> bool:
         """Resolve a pull request review thread via GraphQL mutation.
@@ -589,22 +549,21 @@ class GitHubAPIClient:
         }
         """
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://api.github.com/graphql",
-                    headers=self._get_headers(),
-                    json={"query": mutation, "variables": {"threadId": thread_node_id}},
+            response = await self._http.post(
+                "https://api.github.com/graphql",
+                headers=self._get_headers(),
+                json={"query": mutation, "variables": {"threadId": thread_node_id}},
+            )
+            response.raise_for_status()
+            body = response.json()
+            if "errors" in body:
+                logger.warning(
+                    "GraphQL error resolving thread %s: %s",
+                    thread_node_id,
+                    body["errors"],
                 )
-                response.raise_for_status()
-                body = response.json()
-                if "errors" in body:
-                    logger.warning(
-                        "GraphQL error resolving thread %s: %s",
-                        thread_node_id,
-                        body["errors"],
-                    )
-                    return False
-                return True
+                return False
+            return True
         except Exception as exc:
             logger.warning("Failed to resolve thread %s: %s", thread_node_id, exc)
             return False
@@ -620,11 +579,10 @@ class GitHubAPIClient:
         Returns:
             Dict with commit info including parents, message, and files changed
         """
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/commits/{commit_sha}"
-            response = await client.get(url, headers=self._get_headers())
-            response.raise_for_status()
-            return response.json()
+        url = f"{self.base_url}/repos/{repo_full_name}/commits/{commit_sha}"
+        response = await self._http.get(url, headers=self._get_headers())
+        response.raise_for_status()
+        return response.json()
 
     async def _commit_is_ancestor_of_branch(
         self, repo_full_name: str, commit_sha: str, branch: str
@@ -635,19 +593,18 @@ class GitHubAPIClient:
         status "ahead" when branch is ahead of commit (commit is an ancestor)
         or "identical" when they are the same commit.
         """
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/compare/{commit_sha}...{branch}"
-            response = await client.get(url, headers=self._get_headers())
-            if response.status_code != 200:
-                logger.warning(
-                    "compare API returned %d for %s...%s in %s; treating as non-ancestor",
-                    response.status_code,
-                    commit_sha,
-                    branch,
-                    repo_full_name,
-                )
-                return False
-            return response.json().get("status") in ("ahead", "identical")
+        url = f"{self.base_url}/repos/{repo_full_name}/compare/{commit_sha}...{branch}"
+        response = await self._http.get(url, headers=self._get_headers())
+        if response.status_code != 200:
+            logger.warning(
+                "compare API returned %d for %s...%s in %s; treating as non-ancestor",
+                response.status_code,
+                commit_sha,
+                branch,
+                repo_full_name,
+            )
+            return False
+        return response.json().get("status") in ("ahead", "identical")
 
     async def is_merge_or_sync_commit(
         self, repo_full_name: str, commit_sha: str, base_branch: str
@@ -716,33 +673,31 @@ class GitHubAPIClient:
         Returns:
             File content as string, or None if file not found
         """
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/contents/{path}"
-            params = {}
-            if ref:
-                params["ref"] = ref
+        url = f"{self.base_url}/repos/{repo_full_name}/contents/{path}"
+        params = {}
+        if ref:
+            params["ref"] = ref
 
-            try:
-                response = await client.get(url, headers=self._get_headers(), params=params)
+        try:
+            response = await self._http.get(url, headers=self._get_headers(), params=params)
 
-                if response.status_code == 404:
-                    logger.debug(f"File not found: {repo_full_name}/{path}")
-                    return None
-
-                response.raise_for_status()
-                data = response.json()
-
-                # GitHub returns base64-encoded content for files
-                if data.get("type") == "file" and data.get("content"):
-                    content = base64.b64decode(data["content"]).decode("utf-8")
-                    return content
-
-                logger.warning(f"Unexpected content type for {path}: {data.get('type')}")
+            if response.status_code == 404:
+                logger.debug(f"File not found: {repo_full_name}/{path}")
                 return None
 
-            except httpx.HTTPStatusError as e:
-                logger.warning(f"Failed to fetch file {path}: {e}")
-                return None
+            response.raise_for_status()
+            data = response.json()
+
+            if data.get("type") == "file" and data.get("content"):
+                content = base64.b64decode(data["content"]).decode("utf-8")
+                return content
+
+            logger.warning(f"Unexpected content type for {path}: {data.get('type')}")
+            return None
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Failed to fetch file {path}: {e}")
+            return None
 
     async def list_directory(
         self, repo_full_name: str, path: str, ref: str | None = None
@@ -758,29 +713,27 @@ class GitHubAPIClient:
         Returns:
             List of filenames in the directory, or empty list if not found
         """
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/contents/{path}"
-            params = {}
-            if ref:
-                params["ref"] = ref
+        url = f"{self.base_url}/repos/{repo_full_name}/contents/{path}"
+        params = {}
+        if ref:
+            params["ref"] = ref
 
-            try:
-                response = await client.get(url, headers=self._get_headers(), params=params)
+        try:
+            response = await self._http.get(url, headers=self._get_headers(), params=params)
 
-                if response.status_code == 404:
-                    return []
-
-                response.raise_for_status()
-                data = response.json()
-
-                # GitHub returns a list of items for directories
-                if isinstance(data, list):
-                    return [item["name"] for item in data if item.get("type") == "file"]
-
+            if response.status_code == 404:
                 return []
 
-            except httpx.HTTPStatusError:
-                return []
+            response.raise_for_status()
+            data = response.json()
+
+            if isinstance(data, list):
+                return [item["name"] for item in data if item.get("type") == "file"]
+
+            return []
+
+        except httpx.HTTPStatusError:
+            return []
 
     async def fetch_resolved_thread_ids(
         self, repo_full_name: str, pr_number: int
@@ -821,56 +774,55 @@ class GitHubAPIClient:
         cursor: str | None = None
 
         try:
-            async with httpx.AsyncClient() as client:
-                headers = self._get_headers()
-                while True:
-                    variables: dict = {
-                        "owner": owner,
-                        "repo": repo,
-                        "pr": pr_number,
-                        "cursor": cursor,
-                    }
-                    resp = await client.post(
-                        "https://api.github.com/graphql",
-                        headers=headers,
-                        json={"query": query, "variables": variables},
+            headers = self._get_headers()
+            while True:
+                variables: dict = {
+                    "owner": owner,
+                    "repo": repo,
+                    "pr": pr_number,
+                    "cursor": cursor,
+                }
+                resp = await self._http.post(
+                    "https://api.github.com/graphql",
+                    headers=headers,
+                    json={"query": query, "variables": variables},
+                )
+                resp.raise_for_status()
+                body = resp.json()
+
+                if "errors" in body:
+                    logger.warning(
+                        "GraphQL errors fetching resolved threads: %s",
+                        body["errors"],
                     )
-                    resp.raise_for_status()
-                    body = resp.json()
+                    break
 
-                    if "errors" in body:
-                        logger.warning(
-                            "GraphQL errors fetching resolved threads: %s",
-                            body["errors"],
-                        )
-                        break
+                threads_data = (
+                    body.get("data", {})
+                    .get("repository", {})
+                    .get("pullRequest", {})
+                    .get("reviewThreads", {})
+                )
+                for node in threads_data.get("nodes", []):
+                    if node is None:
+                        continue
+                    comments = node.get("comments", {}).get("nodes", [])
+                    if not comments or not comments[0].get("databaseId"):
+                        continue
+                    db_id = comments[0]["databaseId"]
+                    thread_node_id = node.get("id")
+                    if thread_node_id:
+                        node_id_map[db_id] = thread_node_id
+                    if node.get("isResolved"):
+                        resolved_ids.add(db_id)
+                    elif node.get("isOutdated"):
+                        outdated_ids.add(db_id)
 
-                    threads_data = (
-                        body.get("data", {})
-                        .get("repository", {})
-                        .get("pullRequest", {})
-                        .get("reviewThreads", {})
-                    )
-                    for node in threads_data.get("nodes", []):
-                        if node is None:
-                            continue
-                        comments = node.get("comments", {}).get("nodes", [])
-                        if not comments or not comments[0].get("databaseId"):
-                            continue
-                        db_id = comments[0]["databaseId"]
-                        thread_node_id = node.get("id")
-                        if thread_node_id:
-                            node_id_map[db_id] = thread_node_id
-                        if node.get("isResolved"):
-                            resolved_ids.add(db_id)
-                        elif node.get("isOutdated"):
-                            outdated_ids.add(db_id)
-
-                    page_info = threads_data.get("pageInfo", {})
-                    if page_info.get("hasNextPage"):
-                        cursor = page_info["endCursor"]
-                    else:
-                        break
+                page_info = threads_data.get("pageInfo", {})
+                if page_info.get("hasNextPage"):
+                    cursor = page_info["endCursor"]
+                else:
+                    break
 
         except Exception as exc:
             logger.warning(
@@ -892,30 +844,23 @@ class GitHubAPIClient:
         Returns:
             List of raw comment dicts from the GitHub API
         """
-        async with httpx.AsyncClient() as client:
-            url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
-            return await self._fetch_paginated_json(client, url, headers=self._get_headers())
+        url = f"{self.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
+        return await self._fetch_paginated_json(url)
 
-    async def _fetch_paginated_json(
-        self,
-        client: httpx.AsyncClient,
-        url: str,
-        *,
-        headers: dict[str, str],
-    ) -> list[dict]:
+    async def _fetch_paginated_json(self, url: str) -> list[dict]:
         """Fetch all pages from a GitHub REST collection endpoint."""
         results: list[dict] = []
         page = 1
+        headers = self._get_headers()
 
         while True:
-            response = await client.get(
+            response = await self._http.get(
                 url, headers=headers, params={"per_page": 100, "page": page}
             )
             response.raise_for_status()
             data = response.json()
             if not data:
                 break
-
             results.extend(data)
             if len(data) < 100:
                 break
