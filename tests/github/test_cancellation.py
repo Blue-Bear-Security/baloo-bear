@@ -73,6 +73,10 @@ async def test_cancels_redundant_review():
     # We patch process_pr_review in webhook_handler where it is used
     with (
         patch("baloo.github.webhook_handler.verify_webhook_signature", return_value=True),
+        patch(
+            "baloo.github.webhook_handler._validate_webhook_security",
+            new=AsyncMock(return_value=None),
+        ),
         patch("baloo.github.webhook_handler.process_pr_review", side_effect=mock_process_review),
         patch("baloo.github.webhook_handler.GitHubAPIClient") as mock_github_client_class,
     ):

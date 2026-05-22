@@ -32,7 +32,7 @@ from baloo.fidelity.models import FidelityResult
 from baloo.fidelity.plan_fetcher import fetch_plan_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
 from baloo.github.api_client import GitHubAPIClient, PostedReviewResult
-from baloo.github.auth import verify_webhook_signature
+from baloo.github.auth import verify_repo_belongs_to_installation, verify_webhook_signature
 from baloo.github.models import (
     DiscussionComment,
     DiscussionThread,
@@ -742,6 +742,61 @@ def _match_thread(
     return best_match
 
 
+async def _validate_webhook_security(
+    installation_id: int | None,
+    repo_full_name: str | None,
+) -> dict | None:
+    """
+    Validate installation identity and repo ownership for an incoming webhook.
+
+    Returns a skip-response dict if the webhook should be silently skipped,
+    None if all checks pass. Raises HTTPException on security violations.
+    """
+    import httpx
+
+    from baloo.config.settings import get_settings
+    from baloo.github.auth import GitHubAuth
+
+    if installation_id is None:
+        raise HTTPException(status_code=400, detail="Missing installation_id")
+
+    current_settings = get_settings()
+
+    # If this broker is scoped to a specific installation, drop anything else silently
+    if (
+        current_settings.installation_id
+        and str(installation_id) != current_settings.installation_id
+    ):
+        logger.debug(
+            "Webhook skipped — installation %s not configured for this broker",
+            installation_id,
+        )
+        return {"status": "skipped", "reason": "installation not configured for this broker"}
+
+    # Confirm this installation has active auth
+    try:
+        GitHubAuth().get_installation_token(installation_id)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Token fetch failed for installation %s: %s", installation_id, exc)
+        raise HTTPException(status_code=403, detail="Invalid installation")
+
+    # Confirm the repository belongs to this installation
+    if repo_full_name and not await verify_repo_belongs_to_installation(
+        installation_id, repo_full_name
+    ):
+        logger.warning(
+            "Repo %s not accessible for installation %s — possible cross-tenant payload",
+            repo_full_name,
+            installation_id,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Repository not accessible for this installation",
+        )
+
+    return None
+
+
 @app.post("/webhook")
 async def handle_webhook(
     request: Request, background_tasks: BackgroundTasks
@@ -767,6 +822,13 @@ async def handle_webhook(
     # Parse event type and payload
     event = request.headers.get("X-GitHub-Event")
     payload = await request.json()
+
+    # Security validation: confirm installation identity and repo ownership
+    _installation_id = payload.get("installation", {}).get("id")
+    _repo_full_name = payload.get("repository", {}).get("full_name")
+    _skip = await _validate_webhook_security(_installation_id, _repo_full_name)
+    if _skip is not None:
+        return _skip
 
     logger.info(f"Received {event} event")
 

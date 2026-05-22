@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -71,14 +71,18 @@ def test_thread_comment_ignored_when_disabled(mock_settings, mock_verify, client
     """Thread comments are ignored when thread agent is disabled."""
     mock_settings.thread_agent_enabled = False
 
-    response = client.post(
-        "/webhook",
-        json=_make_review_comment_payload(),
-        headers={
-            "X-GitHub-Event": "pull_request_review_comment",
-            "X-Hub-Signature-256": "sha256=fake",
-        },
-    )
+    with patch(
+        "baloo.github.webhook_handler._validate_webhook_security",
+        new=AsyncMock(return_value=None),
+    ):
+        response = client.post(
+            "/webhook",
+            json=_make_review_comment_payload(),
+            headers={
+                "X-GitHub-Event": "pull_request_review_comment",
+                "X-Hub-Signature-256": "sha256=fake",
+            },
+        )
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ignored"
@@ -92,14 +96,18 @@ def test_thread_comment_ignored_when_no_reply_to(mock_settings, mock_verify, cli
 
     payload = _make_review_comment_payload(in_reply_to_id=None)
 
-    response = client.post(
-        "/webhook",
-        json=payload,
-        headers={
-            "X-GitHub-Event": "pull_request_review_comment",
-            "X-Hub-Signature-256": "sha256=fake",
-        },
-    )
+    with patch(
+        "baloo.github.webhook_handler._validate_webhook_security",
+        new=AsyncMock(return_value=None),
+    ):
+        response = client.post(
+            "/webhook",
+            json=payload,
+            headers={
+                "X-GitHub-Event": "pull_request_review_comment",
+                "X-Hub-Signature-256": "sha256=fake",
+            },
+        )
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ignored"
@@ -113,14 +121,18 @@ def test_thread_comment_ignored_when_author_is_baloo(mock_settings, mock_verify,
 
     payload = _make_review_comment_payload(comment_author="baloo-bear[bot]")
 
-    response = client.post(
-        "/webhook",
-        json=payload,
-        headers={
-            "X-GitHub-Event": "pull_request_review_comment",
-            "X-Hub-Signature-256": "sha256=fake",
-        },
-    )
+    with patch(
+        "baloo.github.webhook_handler._validate_webhook_security",
+        new=AsyncMock(return_value=None),
+    ):
+        response = client.post(
+            "/webhook",
+            json=payload,
+            headers={
+                "X-GitHub-Event": "pull_request_review_comment",
+                "X-Hub-Signature-256": "sha256=fake",
+            },
+        )
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ignored"
