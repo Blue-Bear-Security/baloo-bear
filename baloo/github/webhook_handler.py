@@ -189,14 +189,13 @@ async def root() -> dict[str, str]:
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health() -> dict[str, str]:
     """Health check endpoint for load balancer probes."""
     from baloo.config.settings import get_settings
 
-    current_settings = get_settings()
     return {
         "status": "ok",
-        "installation_id": current_settings.installation_id or "*",
+        "installation_id": get_settings().installation_id or "*",
     }
 
 
