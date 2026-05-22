@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import importlib
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -99,3 +100,68 @@ class TestWebhookPreVerified:
         monkeypatch.delenv("WEBHOOK_PRE_VERIFIED", raising=False)
 
         assert _verify(payload, "sha256=invalid") is False
+
+
+class TestVerifyRepoBelongsToInstallation:
+    """Tests for verify_repo_belongs_to_installation."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_repo_accessible(self, monkeypatch):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        monkeypatch.setattr(
+            "baloo.github.auth.GitHubAuth.get_installation_token",
+            lambda self, iid: "tok",
+        )
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            from baloo.github.auth import verify_repo_belongs_to_installation
+
+            result = await verify_repo_belongs_to_installation(111, "org/repo")
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_repo_not_found(self, monkeypatch):
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        monkeypatch.setattr(
+            "baloo.github.auth.GitHubAuth.get_installation_token",
+            lambda self, iid: "tok",
+        )
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            from baloo.github.auth import verify_repo_belongs_to_installation
+
+            result = await verify_repo_belongs_to_installation(111, "org/other-repo")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_token_fetch_fails(self, monkeypatch):
+        import httpx
+
+        def raise_http_error(self, iid):
+            raise httpx.HTTPStatusError("404", request=MagicMock(), response=MagicMock())
+
+        monkeypatch.setattr("baloo.github.auth.GitHubAuth.get_installation_token", raise_http_error)
+
+        from baloo.github.auth import verify_repo_belongs_to_installation
+
+        result = await verify_repo_belongs_to_installation(999, "org/repo")
+
+        assert result is False

@@ -3,7 +3,7 @@
 import logging
 import os
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        enable_decoding=False,
     )
 
     # GitHub App Configuration
@@ -105,6 +106,30 @@ class Settings(BaseSettings):
         if v == "":
             return None
         return v
+
+    installation_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Comma-separated list of GitHub installation IDs this broker serves. "
+            "Empty = serve all installations. "
+            "Backfilled from INSTALLATION_ID if unset."
+        ),
+    )
+
+    @field_validator("installation_ids", mode="before")
+    @classmethod
+    def parse_installation_ids(cls, v: object) -> list[str]:
+        if not v:
+            return []
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        return [x.strip() for x in str(v).split(",") if x.strip()]
+
+    @model_validator(mode="after")
+    def backfill_installation_ids(self) -> "Settings":
+        if not self.installation_ids and self.installation_id:
+            self.installation_ids = [self.installation_id]
+        return self
 
     # Dashboard Configuration
     dashboard_enabled: bool = Field(default=True, description="Enable the review history dashboard")
