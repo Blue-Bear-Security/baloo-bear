@@ -145,6 +145,15 @@ class GitHubAPIClient:
         self.base_url = "https://api.github.com"
         self._http = http_client or httpx.AsyncClient()
 
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def __aenter__(self) -> GitHubAPIClient:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.aclose()
+
     def _get_headers(self) -> dict[str, str]:
         """Get headers for GitHub API requests."""
         token = self.auth.get_installation_token(self.installation_id)

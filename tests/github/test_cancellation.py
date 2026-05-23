@@ -80,6 +80,8 @@ async def test_cancels_redundant_review():
         # Setup mock GitHub client instance
         mock_github = MagicMock()
         mock_github.is_merge_or_sync_commit = AsyncMock(return_value=(False, ""))
+        mock_github.__aenter__ = AsyncMock(return_value=mock_github)
+        mock_github.__aexit__ = AsyncMock(return_value=None)
         mock_github_client_class.return_value = mock_github
 
         # Use AsyncClient with ASGITransport to avoid Task cancellation on response

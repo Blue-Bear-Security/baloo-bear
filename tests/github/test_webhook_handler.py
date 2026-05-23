@@ -83,6 +83,7 @@ def test_total_review_cost_includes_fp_verification_cost():
 async def test_review_summary_uses_actionable_findings_after_resolved_thread_skip():
     """Review body counts should reflect deduped actionable findings, not raw agent output."""
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock()
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -162,6 +163,7 @@ async def test_review_summary_uses_actionable_findings_after_resolved_thread_ski
 async def test_progress_comment_reports_dropped_inline_findings_internally():
     """Progress comments should not imply every actionable finding was posted inline."""
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -242,6 +244,7 @@ async def test_progress_comment_reports_dropped_inline_findings_internally():
 @pytest.mark.asyncio
 async def test_synchronize_scoped_mode_posts_only_latest_push_related_findings():
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock()
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -341,6 +344,7 @@ async def test_synchronize_scoped_mode_posts_only_latest_push_related_findings()
 @pytest.mark.asyncio
 async def test_synchronize_scoped_mode_passes_scoped_context_to_agent():
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock()
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -428,6 +432,7 @@ async def test_synchronize_scoped_mode_passes_scoped_context_to_agent():
 @pytest.mark.asyncio
 async def test_collapses_near_duplicate_findings_in_same_run():
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock()
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -495,6 +500,7 @@ async def test_collapses_near_duplicate_findings_in_same_run():
 @pytest.mark.asyncio
 async def test_dedup_keeps_higher_severity_when_similar_findings_overlap():
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock()
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -601,6 +607,7 @@ async def test_does_not_repost_missing_plan_fidelity_report():
     """Do not post the missing-plan fidelity report more than once per PR."""
 
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -670,6 +677,7 @@ async def test_does_not_repost_no_ticket_fidelity_report():
     """Do not post the no-ticket fidelity report more than once per PR."""
 
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -735,6 +743,7 @@ async def test_does_not_repost_error_fidelity_report():
     """Do not post the fidelity error report more than once per PR."""
 
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -811,6 +820,7 @@ async def _process_review_with_existing_fidelity_comment(
     fidelity_result: FidelityResult | None = None,
 ) -> list[str]:
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -951,6 +961,7 @@ async def test_updates_progress_comment_when_no_actionable_findings():
 
     # Mock GitHub client
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)  # Return comment ID
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -1013,6 +1024,7 @@ async def test_posts_approval_when_auto_approve_enabled():
 
     # Mock GitHub client
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
     mock_github_client.reply_to_review_comment = AsyncMock()
@@ -1065,6 +1077,7 @@ async def test_approves_clean_review_with_high_fidelity_score():
 
     # Mock GitHub client
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -1139,6 +1152,7 @@ async def test_approves_with_medium_issues_when_high_fidelity():
 
     # Mock GitHub client
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -1226,6 +1240,7 @@ async def test_does_not_approve_with_low_fidelity_score():
 
     # Mock GitHub client
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock()
@@ -1298,6 +1313,7 @@ async def test_does_not_approve_with_low_fidelity_score():
 async def test_fidelity_and_agent_review_run_concurrently_when_fidelity_enabled():
     """When fidelity is enabled, both fidelity analysis and agent review are invoked."""
     mock_github_client = MagicMock()
+    mock_github_client.aclose = AsyncMock()
     mock_github_client.post_comment = AsyncMock(return_value=12345)
     mock_github_client.edit_comment = AsyncMock()
     mock_github_client.post_review = AsyncMock(
