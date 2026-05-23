@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import httpx
 from sqlalchemy import select
 
 from baloo.config.settings import get_settings
@@ -50,29 +49,26 @@ async def fetch_merge_signals(
         path, line, is_resolved, comments: [{author, body, is_baloo}]
     """
     client = GitHubAPIClient(installation_id)
-    headers = client._get_headers()
 
-    async with httpx.AsyncClient() as http:
-        # Fetch PR diff
-        pr_url = f"{client.base_url}/repos/{repo_full_name}/pulls/{pr_number}"
-        diff_resp = await http.get(
-            pr_url,
-            headers={**headers, "Accept": "application/vnd.github.v3.diff"},
+    # Fetch PR diff
+    pr_url = f"{client.base_url}/repos/{repo_full_name}/pulls/{pr_number}"
+    diff_resp = await client._http.get(
+        pr_url,
+        headers={**client._get_headers(), "Accept": "application/vnd.github.v3.diff"},
+    )
+    if diff_resp.status_code == 406:
+        logger.warning(
+            "PR %s#%d diff too large (406), code-change detection will be skipped",
+            repo_full_name,
+            pr_number,
         )
-        if diff_resp.status_code == 406:
-            logger.warning(
-                "PR %s#%d diff too large (406), code-change detection will be skipped",
-                repo_full_name,
-                pr_number,
-            )
-            diff_text = ""
-        else:
-            diff_resp.raise_for_status()
-            diff_text = diff_resp.text
+        diff_text = ""
+    else:
+        diff_resp.raise_for_status()
+        diff_text = diff_resp.text
 
-        # Fetch review comments (paginated)
-        comments_url = f"{client.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
-        raw_comments = await client._fetch_paginated_json(http, comments_url, headers=headers)
+    # Fetch review comments (paginated)
+    raw_comments = await client.fetch_review_comments(repo_full_name, pr_number)
 
     # Fetch resolved thread IDs via GraphQL
     resolved_ids, _outdated_ids, _thread_node_ids = (
