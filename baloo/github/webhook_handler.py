@@ -1795,9 +1795,12 @@ async def process_pr_review(
         # Stop the cross-replica cancellation monitor
         if cancel_monitor and not cancel_monitor.done():
             cancel_monitor.cancel()
-        if github_client is not None:
-            await github_client.aclose()
-        # Clean up the task registry
+        # Clean up registry before any I/O so a failed aclose() can't block it
         key = (repo_full_name, pr_number)
         if active_reviews.get(key) == asyncio.current_task():
             del active_reviews[key]
+        if github_client is not None:
+            try:
+                await github_client.aclose()
+            except Exception:
+                logger.debug("Failed to close github_client", exc_info=True)
