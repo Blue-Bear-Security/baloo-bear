@@ -76,6 +76,10 @@ def test_merged_pr_triggers_label_pr_outcomes(client):
             return_value=True,
         ),
         patch(
+            "baloo.github.webhook_handler._validate_webhook_security",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
             "baloo.github.webhook_handler.label_pr_outcomes",
             new_callable=AsyncMock,
         ) as mock_label,
@@ -97,6 +101,10 @@ def test_closed_not_merged_does_not_trigger_labeling(client):
         patch(
             "baloo.github.webhook_handler.verify_webhook_signature",
             return_value=True,
+        ),
+        patch(
+            "baloo.github.webhook_handler._validate_webhook_security",
+            new=AsyncMock(return_value=None),
         ),
         patch(
             "baloo.github.webhook_handler.label_pr_outcomes",

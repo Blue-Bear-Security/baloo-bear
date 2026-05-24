@@ -120,3 +120,26 @@ class GitHubAuth:
         self._installation_tokens[installation_id] = (token, expires_at)
 
         return token
+
+
+async def verify_repo_belongs_to_installation(installation_id: int, repo_full_name: str) -> bool:
+    """Return True if repo_full_name is accessible under the given installation token."""
+    import httpx
+
+    auth = GitHubAuth()
+    try:
+        token = auth.get_installation_token(installation_id)
+    except httpx.HTTPStatusError:
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://api.github.com/repos/{repo_full_name}",
+            headers=headers,
+        )
+    return response.status_code == 200
