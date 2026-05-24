@@ -858,10 +858,10 @@ async def handle_webhook(
                 before_sha = payload.get("before")
 
                 if action == "synchronize" and head_sha:
-                    github_client = GitHubAPIClient(webhook_payload.installation.id)
-                    is_merge, merge_reason = await github_client.is_merge_or_sync_commit(
-                        repo_name, head_sha, base_branch
-                    )
+                    async with GitHubAPIClient(webhook_payload.installation.id) as _gc:
+                        is_merge, merge_reason = await _gc.is_merge_or_sync_commit(
+                            repo_name, head_sha, base_branch
+                        )
                     if is_merge:
                         logger.info(f"Skipping review for {repo_name}#{pr_number}: {merge_reason}")
                         return {"status": "skipped", "reason": merge_reason}
@@ -1007,104 +1007,103 @@ async def _process_thread_reply(
     semaphore = get_thread_agent_semaphore()
     async with semaphore:
         try:
-            github_client = GitHubAPIClient(installation_id)
-
-            # Fetch all review comments for this PR
-            all_review_comments = await github_client.fetch_review_comments(
-                repo_full_name, pr_number
-            )
-
-            # Build the thread: find all comments in this thread chain
-            thread_comments_raw = []
-            for c in all_review_comments:
-                root_id = c.get("in_reply_to_id") or c.get("id")
-                if root_id == in_reply_to_id or c.get("id") == in_reply_to_id:
-                    thread_comments_raw.append(c)
-
-            # Sort by creation time
-            thread_comments_raw.sort(key=lambda c: c.get("created_at", ""))
-
-            # Build DiscussionComment objects
-            thread_comments = [
-                build_discussion_comment(
-                    c,
-                    source="review_comment",
-                    path=c.get("path"),
-                    line=c.get("line") or c.get("original_line"),
+            async with GitHubAPIClient(installation_id) as github_client:
+                # Fetch all review comments for this PR
+                all_review_comments = await github_client.fetch_review_comments(
+                    repo_full_name, pr_number
                 )
-                for c in thread_comments_raw
-            ]
 
-            if not any(c.is_baloo for c in thread_comments):
-                logger.info("Thread %s is not a Baloo thread, skipping", in_reply_to_id)
-                return
+                # Build the thread: find all comments in this thread chain
+                thread_comments_raw = []
+                for c in all_review_comments:
+                    root_id = c.get("in_reply_to_id") or c.get("id")
+                    if root_id == in_reply_to_id or c.get("id") == in_reply_to_id:
+                        thread_comments_raw.append(c)
 
-            # Check escalation cap
-            baloo_message_count = sum(1 for c in thread_comments if c.is_baloo)
-            if baloo_message_count >= settings.thread_agent_max_replies:
-                logger.info(
-                    "Thread %s hit escalation cap (%d Baloo messages), skipping",
-                    in_reply_to_id,
-                    baloo_message_count,
-                )
-                return
+                # Sort by creation time
+                thread_comments_raw.sort(key=lambda c: c.get("created_at", ""))
 
-            # Fetch code context around the finding location
-            file_path = comment_data.get("path", "")
-            line_number = comment_data.get("line") or comment_data.get("original_line") or 0
-
-            code_context = ""
-            if file_path and head_sha:
-                file_content = await github_client.get_file_content(
-                    repo_full_name, file_path, ref=head_sha
-                )
-                if file_content:
-                    lines = file_content.splitlines()
-                    start = max(0, line_number - 31)
-                    end = min(len(lines), line_number + 30)
-                    code_context = "\n".join(
-                        f"{i+1}: {line}" for i, line in enumerate(lines[start:end], start=start)
+                # Build DiscussionComment objects
+                thread_comments = [
+                    build_discussion_comment(
+                        c,
+                        source="review_comment",
+                        path=c.get("path"),
+                        line=c.get("line") or c.get("original_line"),
                     )
+                    for c in thread_comments_raw
+                ]
 
-            # Run the thread agent
-            agent = ThreadAgent()
-            result = await agent.classify(
-                thread_comments=thread_comments,
-                code_context=code_context,
-                file_path=file_path,
-                line_number=line_number,
-            )
+                if not any(c.is_baloo for c in thread_comments):
+                    logger.info("Thread %s is not a Baloo thread, skipping", in_reply_to_id)
+                    return
 
-            logger.info(
-                "Thread agent result for %s#%s thread %s: %s (reply=%s)",
-                repo_full_name,
-                pr_number,
-                in_reply_to_id,
-                result.classification,
-                bool(result.reply),
-            )
+                # Check escalation cap
+                baloo_message_count = sum(1 for c in thread_comments if c.is_baloo)
+                if baloo_message_count >= settings.thread_agent_max_replies:
+                    logger.info(
+                        "Thread %s hit escalation cap (%d Baloo messages), skipping",
+                        in_reply_to_id,
+                        baloo_message_count,
+                    )
+                    return
 
-            # Post reply if needed
-            if result.reply:
-                await github_client.reply_to_review_comment(
+                # Fetch code context around the finding location
+                file_path = comment_data.get("path", "")
+                line_number = comment_data.get("line") or comment_data.get("original_line") or 0
+
+                code_context = ""
+                if file_path and head_sha:
+                    file_content = await github_client.get_file_content(
+                        repo_full_name, file_path, ref=head_sha
+                    )
+                    if file_content:
+                        lines = file_content.splitlines()
+                        start = max(0, line_number - 31)
+                        end = min(len(lines), line_number + 30)
+                        code_context = "\n".join(
+                            f"{i+1}: {line}" for i, line in enumerate(lines[start:end], start=start)
+                        )
+
+                # Run the thread agent
+                agent = ThreadAgent()
+                result = await agent.classify(
+                    thread_comments=thread_comments,
+                    code_context=code_context,
+                    file_path=file_path,
+                    line_number=line_number,
+                )
+
+                logger.info(
+                    "Thread agent result for %s#%s thread %s: %s (reply=%s)",
                     repo_full_name,
                     pr_number,
                     in_reply_to_id,
-                    result.reply,
+                    result.classification,
+                    bool(result.reply),
                 )
 
-            # Write feedback signal on concession
-            if result.classification == "disagreed_valid" and result.feedback_signal:
-                comment_url = comment_data.get("html_url", "")
-                await FeedbackService.write_signal(
-                    repo=repo_full_name,
-                    pattern=result.feedback_signal["pattern"],
-                    category=result.feedback_signal.get("category", ""),
-                    developer=(comment_data.get("user") or {}).get("login", "unknown"),
-                    file_glob=result.feedback_signal.get("file_glob"),
-                    thread_url=comment_url,
-                    pr_number=pr_number,
-                )
+                # Post reply if needed
+                if result.reply:
+                    await github_client.reply_to_review_comment(
+                        repo_full_name,
+                        pr_number,
+                        in_reply_to_id,
+                        result.reply,
+                    )
+
+                # Write feedback signal on concession
+                if result.classification == "disagreed_valid" and result.feedback_signal:
+                    comment_url = comment_data.get("html_url", "")
+                    await FeedbackService.write_signal(
+                        repo=repo_full_name,
+                        pattern=result.feedback_signal["pattern"],
+                        category=result.feedback_signal.get("category", ""),
+                        developer=(comment_data.get("user") or {}).get("login", "unknown"),
+                        file_glob=result.feedback_signal.get("file_glob"),
+                        thread_url=comment_url,
+                        pr_number=pr_number,
+                    )
 
         except Exception as exc:
             logger.error(
@@ -1210,6 +1209,7 @@ async def process_pr_review(
     db_review_id: int | None = None
     progress_comment_id: int | None = None
     cancel_monitor: asyncio.Task | None = None
+    github_client: GitHubAPIClient | None = None
 
     try:
         async with semaphore:
@@ -1603,21 +1603,20 @@ async def process_pr_review(
                 try:
                     from baloo.github.checks_api import GitHubChecksClient
 
-                    checks_client = GitHubChecksClient(installation_id)
+                    async with GitHubChecksClient(installation_id) as checks_client:
+                        check_run_id = await checks_client.create_check_run(
+                            repo_full_name=repo_full_name,
+                            commit_sha=pr_context.head_sha,
+                            name="Baloo Code Quality",
+                            conclusion="neutral",
+                            summary=f"Found {len(routed['checks'])} code quality issue(s) (MEDIUM severity)",
+                        )
 
-                    check_run_id = await checks_client.create_check_run(
-                        repo_full_name=repo_full_name,
-                        commit_sha=pr_context.head_sha,
-                        name="Baloo Code Quality",
-                        conclusion="neutral",
-                        summary=f"Found {len(routed['checks'])} code quality issue(s) (MEDIUM severity)",
-                    )
-
-                    await checks_client.add_annotations(
-                        repo_full_name=repo_full_name,
-                        check_run_id=check_run_id,
-                        findings=routed["checks"],
-                    )
+                        await checks_client.add_annotations(
+                            repo_full_name=repo_full_name,
+                            check_run_id=check_run_id,
+                            findings=routed["checks"],
+                        )
 
                     logger.info(
                         f"Successfully posted GitHub Check with {len(routed['checks'])} annotations"
@@ -1826,12 +1825,12 @@ async def process_pr_review(
         # Update progress comment if possible
         if progress_comment_id:
             try:
-                github_client = GitHubAPIClient(installation_id)
-                await github_client.edit_comment(
-                    repo_full_name,
-                    progress_comment_id,
-                    "👋 This review was cancelled because a new commit was pushed. Baloo is starting a new review!",
-                )
+                async with GitHubAPIClient(installation_id) as _gc:
+                    await _gc.edit_comment(
+                        repo_full_name,
+                        progress_comment_id,
+                        "👋 This review was cancelled because a new commit was pushed. Baloo is starting a new review!",
+                    )
             except Exception:
                 pass
         raise  # Re-raise so asyncio knows it was cancelled
@@ -1854,16 +1853,21 @@ async def process_pr_review(
         # Try to update progress comment with error
         if progress_comment_id:
             try:
-                github_client = GitHubAPIClient(installation_id)
                 user_msg = f"🐻 Baloo encountered an error during review: {str(e)}"
-                await github_client.edit_comment(repo_full_name, progress_comment_id, user_msg)
+                async with GitHubAPIClient(installation_id) as _gc:
+                    await _gc.edit_comment(repo_full_name, progress_comment_id, user_msg)
             except Exception:
                 pass
     finally:
         # Stop the cross-replica cancellation monitor
         if cancel_monitor and not cancel_monitor.done():
             cancel_monitor.cancel()
-        # Clean up the task registry
+        # Clean up registry before any I/O so a failed aclose() can't block it
         key = (repo_full_name, pr_number)
         if active_reviews.get(key) == asyncio.current_task():
             del active_reviews[key]
+        if github_client is not None:
+            try:
+                await github_client.aclose()
+            except Exception:
+                logger.debug("Failed to close github_client", exc_info=True)

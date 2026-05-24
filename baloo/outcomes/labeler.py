@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import httpx
 from sqlalchemy import select
 
 from baloo.config.settings import get_settings
@@ -49,15 +48,12 @@ async def fetch_merge_signals(
         (diff_text, threads_list) where each thread is a dict with keys:
         path, line, is_resolved, comments: [{author, body, is_baloo}]
     """
-    client = GitHubAPIClient(installation_id)
-    headers = client._get_headers()
-
-    async with httpx.AsyncClient() as http:
+    async with GitHubAPIClient(installation_id) as client:
         # Fetch PR diff
         pr_url = f"{client.base_url}/repos/{repo_full_name}/pulls/{pr_number}"
-        diff_resp = await http.get(
+        diff_resp = await client._http.get(
             pr_url,
-            headers={**headers, "Accept": "application/vnd.github.v3.diff"},
+            headers={**client._get_headers(), "Accept": "application/vnd.github.v3.diff"},
         )
         if diff_resp.status_code == 406:
             logger.warning(
@@ -71,15 +67,14 @@ async def fetch_merge_signals(
             diff_text = diff_resp.text
 
         # Fetch review comments (paginated)
-        comments_url = f"{client.base_url}/repos/{repo_full_name}/pulls/{pr_number}/comments"
-        raw_comments = await client._fetch_paginated_json(http, comments_url, headers=headers)
+        raw_comments = await client.fetch_review_comments(repo_full_name, pr_number)
 
-    # Fetch resolved thread IDs via GraphQL
-    resolved_ids, _outdated_ids, _thread_node_ids = (
-        await client.fetch_resolved_thread_ids(  # node_ids not needed here
-            repo_full_name, pr_number
+        # Fetch resolved thread IDs via GraphQL
+        resolved_ids, _outdated_ids, _thread_node_ids = (
+            await client.fetch_resolved_thread_ids(  # node_ids not needed here
+                repo_full_name, pr_number
+            )
         )
-    )
 
     # Group comments into threads by in_reply_to_id
     # Root comments have in_reply_to_id == None

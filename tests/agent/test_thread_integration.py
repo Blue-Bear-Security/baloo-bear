@@ -14,6 +14,8 @@ from baloo.github.webhook_handler import _process_thread_reply
 async def test_process_thread_reply_concede_writes_signal():
     """Full flow: developer disagrees validly -> Baloo concedes -> feedback signal written."""
     mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
 
     # Mock fetch_review_comments: return a Baloo finding + developer reply
     mock_client.fetch_review_comments.return_value = [
@@ -118,6 +120,8 @@ async def test_process_thread_reply_concede_writes_signal():
 async def test_process_thread_reply_escalation_cap():
     """Thread with too many Baloo messages is skipped (escalation)."""
     mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
 
     # 3 Baloo messages already in thread (original + 2 replies)
     mock_client.fetch_review_comments.return_value = [
