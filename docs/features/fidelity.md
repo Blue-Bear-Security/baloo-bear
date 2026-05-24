@@ -56,6 +56,17 @@ Plan files are freeform markdown. Baloo works best when the plan lists concrete 
 - OAuth2 provider integration (separate ticket)
 ```
 
+## Workflow Integration
+
+Fidelity works best when your team commits to writing plan files before coding. A common pattern:
+
+1. Create a ticket in your issue tracker (e.g., `PROJ-123`)
+2. Write `docs/plans/PROJ-123.md` with the planned deliverables
+3. Open the PR from a branch that includes the ticket ID (e.g., `feat/PROJ-123/add-auth`)
+4. Baloo automatically finds the plan, scores the PR, and posts the report
+
+This closes the loop between what was planned and what was actually shipped.
+
 ## Impact on Approval
 
 Fidelity score affects the approval decision:
