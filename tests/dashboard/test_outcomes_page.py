@@ -27,7 +27,7 @@ def test_outcomes_page_renders():
     mock_data = {
         "total": 50,
         "outcomes": {"actioned": 20, "disputed": 5, "acknowledged": 10, "ignored": 15},
-        "hit_rate": 40.0,
+        "hit_rate": 60.0,
         "noise_rate": 40.0,
         "severity_data": {
             "HIGH": {"total": 20, "actioned": 15, "hit_rate": 75.0},
@@ -53,5 +53,5 @@ def test_outcomes_page_renders():
 
     assert response.status_code == 200
     assert "Outcomes" in response.text
-    assert "40.0" in response.text  # hit_rate
+    assert "60.0" in response.text  # hit_rate
     assert "Accuracy Over Time" in response.text
