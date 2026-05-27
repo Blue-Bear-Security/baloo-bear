@@ -484,10 +484,11 @@ class DashboardService:
             outcomes = {r[0]: r[1] for r in outcome_rows}
 
             actioned = outcomes.get("actioned", 0)
+            acknowledged = outcomes.get("acknowledged", 0)
             disputed = outcomes.get("disputed", 0)
             ignored = outcomes.get("ignored", 0)
 
-            hit_rate = round(actioned / total * 100, 1) if total else 0.0
+            hit_rate = round((actioned + acknowledged) / total * 100, 1) if total else 0.0
             noise_rate = round((disputed + ignored) / total * 100, 1) if total else 0.0
 
             # --- By severity ---
