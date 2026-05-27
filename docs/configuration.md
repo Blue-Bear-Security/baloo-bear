@@ -141,10 +141,10 @@ Each broker only sees its own installation's data in the database.
 Each broker exposes `GET /health`:
 
 ```json
-{ "status": "ok", "installation_id": "111" }
+{ "status": "ok" }
 ```
 
-`"*"` means the broker handles all installations. Use this endpoint for load balancer health probes.
+Use this endpoint for load balancer health probes.
 
 ### Webhook Security
 

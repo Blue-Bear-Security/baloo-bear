@@ -124,7 +124,7 @@ class TestValidateWebhookSecurity:
 
 
 class TestHealthEndpoint:
-    def test_health_returns_ok(self, monkeypatch):
+    def test_health_returns_ok(self):
         from fastapi.testclient import TestClient
 
         from baloo.github.webhook_handler import app
