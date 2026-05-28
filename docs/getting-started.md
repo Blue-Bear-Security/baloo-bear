@@ -144,7 +144,7 @@ curl http://localhost:8000/health
 Expected response:
 
 ```json
-{"status":"healthy"}
+{"status":"ok"}
 ```
 
 If you enabled the dashboard, verify both of these:
