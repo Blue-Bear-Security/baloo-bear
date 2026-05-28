@@ -866,6 +866,8 @@ class GitHubAPIClient:
             response = await self._http.get(
                 url, headers=headers, params={"per_page": 100, "page": page}
             )
+            if response.status_code == 404:
+                break
             response.raise_for_status()
             data = response.json()
             if not data:

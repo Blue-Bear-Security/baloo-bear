@@ -342,6 +342,23 @@ class TestFetchPaginatedJson:
         assert result == []
         mock_http.get.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_stops_on_404_mid_pagination(self):
+        # GitHub can return 404 for out-of-bounds pages (e.g. PR files endpoint)
+        page1 = [{"id": i} for i in range(100)]
+        page2 = [{"id": i} for i in range(100, 200)]
+        client, mock_http = _make_client()
+        mock_http.get.side_effect = [
+            _mock_response(page1),
+            _mock_response(page2),
+            _mock_response(status_code=404),
+        ]
+
+        result = await client._fetch_paginated_json("https://api.github.com/some/endpoint")
+
+        assert len(result) == 200
+        assert mock_http.get.call_count == 3
+
 
 class TestGetChangedScopeBetweenCommits:
     @pytest.mark.asyncio
