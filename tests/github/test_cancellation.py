@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from baloo.github.webhook_handler import active_reviews, app
+from baloo.github.webhook_handler import app
+from baloo.review.orchestrator import active_reviews
 
 
 def create_payload(repo_name: str, pr_number: int, head_sha: str):
