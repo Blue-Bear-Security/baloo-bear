@@ -185,6 +185,13 @@ class Settings(BaseSettings):
         description="Minimum fidelity score (0-100) required for auto-approval with clean review",
     )
 
+    # Linear Configuration
+    linear_api_key: str = Field(default="", description="Linear API key for ticket fallback")
+    linear_api_url: str = Field(
+        default="https://api.linear.app/graphql",
+        description="Linear GraphQL API endpoint",
+    )
+
     @property
     def github_private_key_bytes(self) -> bytes:
         """Get GitHub private key as bytes."""

@@ -68,6 +68,13 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `FIDELITY_APPROVAL_THRESHOLD` | `90` | Min fidelity score (0–100) for auto-approval boost |
 | `TICKET_ID_PREFIX` | `PROJ` | Ticket ID prefix for extraction (e.g., `PROJ` → `PROJ-123`) |
 
+## Linear Integration
+
+| Variable | Default | Description |
+|---|---|---|
+| `LINEAR_API_KEY` | `` | Linear API key. When set, Baloo fetches the linked ticket and uses it as context in reviews and fidelity analysis. |
+| `LINEAR_API_URL` | `https://api.linear.app/graphql` | Linear GraphQL endpoint (override for self-hosted Linear). |
+
 ## Database & Dashboard
 
 | Variable | Default | Description |

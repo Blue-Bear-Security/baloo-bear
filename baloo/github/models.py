@@ -136,6 +136,7 @@ class PRMetadata(BaseModel):
     head_sha: str
     files_changed: list[FileChange]
     repo_guidelines: str | None = None
+    ticket_scope: str | None = None
     commit_messages: list[str] = Field(default_factory=list)
 
 
@@ -211,6 +212,10 @@ class PRContext(BaseModel):
     @property
     def repo_guidelines(self) -> str | None:
         return self.metadata.repo_guidelines
+
+    @property
+    def ticket_scope(self) -> str | None:
+        return self.metadata.ticket_scope
 
     def get(self, key: str, default: Any = None) -> Any:
         """Backward compatibility for dict-like access."""

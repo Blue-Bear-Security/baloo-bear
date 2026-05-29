@@ -48,6 +48,8 @@ services:
       DASHBOARD_ENABLED: ${DASHBOARD_ENABLED:-true}
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME:-baloo}
       DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-baloo}
+      LINEAR_API_KEY: ${LINEAR_API_KEY:-}
+      LINEAR_API_URL: ${LINEAR_API_URL:-https://api.linear.app/graphql}
     ports:
       - "127.0.0.1:8000:8000"
 

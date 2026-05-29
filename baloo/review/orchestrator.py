@@ -22,6 +22,7 @@ from baloo.fidelity.fidelity_report import (
     STATIC_FIDELITY_SENTINELS,
     format_fidelity_report,
 )
+from baloo.fidelity.linear_fetcher import fetch_linear_issue_content
 from baloo.fidelity.models import FidelityResult
 from baloo.fidelity.plan_fetcher import fetch_plan_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
@@ -684,6 +685,7 @@ async def _run_fidelity_analysis(
     github_client: GitHubAPIClient,
     repo_full_name: str,
     pr_context,
+    linear_fallback: str | None = None,
 ) -> tuple[str, FidelityResult | None]:
     """
     Run fidelity analysis comparing PR changes to design plan.
@@ -692,6 +694,7 @@ async def _run_fidelity_analysis(
         github_client: GitHub API client
         repo_full_name: Repository full name (owner/repo)
         pr_context: PR context with branch, title, description, diff
+        linear_fallback: Linear issue content to use as plan when no plan file is found
 
     Returns:
         Tuple of (formatted fidelity report markdown, FidelityResult or None)
@@ -719,15 +722,19 @@ async def _run_fidelity_analysis(
         )
 
         if not plan_content:
-            logger.info(f"Fidelity: No plan file found for {ticket_id}")
-            return (
-                format_fidelity_report(
-                    no_plan=True,
-                    ticket_id=ticket_id,
-                    plan_path=plan_path,
-                ),
-                None,
-            )
+            if linear_fallback:
+                plan_content = linear_fallback
+                logger.info("Fidelity: Using Linear issue content as plan for %s", ticket_id)
+            else:
+                logger.info(f"Fidelity: No plan file found for {ticket_id}")
+                return (
+                    format_fidelity_report(
+                        no_plan=True,
+                        ticket_id=ticket_id,
+                        plan_path=plan_path,
+                    ),
+                    None,
+                )
 
         # Run fidelity analysis
         logger.info(f"Fidelity: Analyzing {ticket_id} against plan")
@@ -1041,6 +1048,26 @@ async def process_pr_review(
                     update={"feedback_signals": feedback_signals}
                 )
 
+            # Pre-fetch Linear ticket scope — used in agent prompt and as fidelity fallback
+            linear_ticket_content: str | None = None
+            if settings.linear_api_key:
+                _tid = extract_ticket_id(
+                    branch_name=pr_context.head_branch,
+                    pr_title=pr_context.title,
+                    pr_description=pr_context.description,
+                )
+                if _tid:
+                    linear_ticket_content = await fetch_linear_issue_content(_tid)
+                    if linear_ticket_content:
+                        logger.info("Fetched Linear ticket scope for %s", _tid)
+                        review_context = review_context.model_copy(
+                            update={
+                                "metadata": review_context.metadata.model_copy(
+                                    update={"ticket_scope": linear_ticket_content}
+                                )
+                            }
+                        )
+
             # Run fidelity analysis and main review concurrently
             from baloo.agent.client import BalooAgent
 
@@ -1048,7 +1075,12 @@ async def process_pr_review(
 
             if settings.fidelity_enabled:
                 (fidelity_report_text, fidelity_result), agent_result = await asyncio.gather(
-                    _run_fidelity_analysis(github_client, repo_full_name, pr_context),
+                    _run_fidelity_analysis(
+                        github_client,
+                        repo_full_name,
+                        pr_context,
+                        linear_fallback=linear_ticket_content,
+                    ),
                     agent.review_pr(review_context, review_id=db_review_id),
                 )
             else:
