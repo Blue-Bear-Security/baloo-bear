@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import ExitStack
 from datetime import datetime, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,9 +14,11 @@ from baloo.github.api_client import PostedReviewResult
 from baloo.github.models import (
     DiscussionComment,
     DiscussionThread,
+    FindingCategory,
     PRContext,
     ReviewComment,
     ReviewResult,
+    ReviewSeverity,
 )
 
 # ---------------------------------------------------------------------------
@@ -103,7 +106,7 @@ def _base_patches(gc, agent):
 async def _run_review(gc, agent, **kwargs):
     from baloo.review.orchestrator import process_pr_review
 
-    defaults = dict(
+    defaults: dict[str, Any] = dict(
         repo_full_name="org/repo",
         pr_number=1,
         installation_id=1,
@@ -374,7 +377,11 @@ class TestThreadDeduplication:
         gc = _make_github_client()
         gc.get_pr_context = AsyncMock(return_value=_make_pr_context(threads=[thread]))
         comment = ReviewComment(
-            path="file.py", line=10, body=body, severity="HIGH", category="Bugs"
+            path="file.py",
+            line=10,
+            body=body,
+            severity=ReviewSeverity.HIGH,
+            category=FindingCategory.BUGS,
         )
         # Agent says request_changes but the matching resolved thread causes the
         # finding to be dropped — so the orchestrator ends up approving.
@@ -398,7 +405,11 @@ class TestThreadDeduplication:
         gc = _make_github_client()
         gc.get_pr_context = AsyncMock(return_value=_make_pr_context(threads=[thread]))
         comment = ReviewComment(
-            path="file.py", line=10, body=body, severity="HIGH", category="Bugs"
+            path="file.py",
+            line=10,
+            body=body,
+            severity=ReviewSeverity.HIGH,
+            category=FindingCategory.BUGS,
         )
         agent = _make_agent(comments=[comment], approve=True, request_changes=False)
 
@@ -419,7 +430,11 @@ class TestThreadDeduplication:
         gc = _make_github_client()
         gc.get_pr_context = AsyncMock(return_value=_make_pr_context(threads=[thread]))
         comment = ReviewComment(
-            path="file.py", line=10, body=body, severity="HIGH", category="Bugs"
+            path="file.py",
+            line=10,
+            body=body,
+            severity=ReviewSeverity.HIGH,
+            category=FindingCategory.BUGS,
         )
         agent = _make_agent(comments=[comment], approve=True, request_changes=False)
 
@@ -638,8 +653,8 @@ class TestGitHubChecksApiPath:
             path="app.py",
             line=5,
             body="**[MEDIUM] Quality** - **minor issue**\n\nsuggestion",
-            severity="MEDIUM",
-            category="Quality",
+            severity=ReviewSeverity.MEDIUM,
+            category=FindingCategory.QUALITY,
         )
         agent = _make_agent(comments=[medium_comment], approve=True, request_changes=False)
 
@@ -679,8 +694,8 @@ class TestGitHubChecksApiPath:
             path="app.py",
             line=5,
             body="**[MEDIUM] Quality** - **minor issue**\n\nsuggestion",
-            severity="MEDIUM",
-            category="Quality",
+            severity=ReviewSeverity.MEDIUM,
+            category=FindingCategory.QUALITY,
         )
         agent = _make_agent(comments=[medium_comment], approve=True, request_changes=False)
 
