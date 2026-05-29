@@ -28,6 +28,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `LOG_LEVEL` | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR |
 | `MAX_CONCURRENT_REVIEWS` | `3` | Max PRs reviewed simultaneously |
 | `REVIEW_STALE_TIMEOUT_MINUTES` | `30` | Minutes after which an in-progress review is considered abandoned and can be superseded by a new one (used with `DATABASE_ENABLED=true`) |
+| `WEBHOOK_DELIVERY_DEDUPE_TTL_SECONDS` | `900` | Seconds to suppress duplicate GitHub webhook delivery IDs in this process |
 
 ## Agent
 

@@ -883,6 +883,7 @@ async def process_pr_review(
     notify_progress: bool = True,
     synchronize_base_sha: str | None = None,
     head_sha: str = "",
+    delivery_id: str | None = None,
 ) -> None:
     """
     Process a PR review in the background.
@@ -910,7 +911,8 @@ async def process_pr_review(
             active_count = max(0, sum(1 for t in active_reviews.values() if not t.done()) - 1)
             logger.info(
                 f"Starting review for {repo_full_name}#{pr_number} "
-                f"(trigger={trigger_reason}, {active_count} other review(s) active)"
+                f"(trigger={trigger_reason}, delivery={delivery_id or 'unknown'}, "
+                f"{active_count} other review(s) active)"
             )
 
             # Create in-progress review row in database

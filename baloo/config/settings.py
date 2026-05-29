@@ -49,6 +49,10 @@ class Settings(BaseSettings):
         default=30,
         description="Minutes after which an in-progress review is considered stale and can be superseded",
     )
+    webhook_delivery_dedupe_ttl_seconds: int = Field(
+        default=900,
+        description="Seconds to suppress duplicate GitHub webhook delivery IDs in this process",
+    )
 
     # Agent Configuration
     agent_provider: str = Field(
