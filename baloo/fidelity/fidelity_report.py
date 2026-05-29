@@ -1,5 +1,6 @@
 """Format fidelity analysis results as markdown report."""
 
+from baloo.config.settings import get_settings
 from baloo.fidelity.models import FidelityResult
 
 NO_TICKET_FIDELITY_SENTINEL = "<!-- baloo:no-ticket-fidelity-report -->"
@@ -144,6 +145,7 @@ def _get_severity_icon(severity: str) -> str:
 
 def _format_no_ticket() -> str:
     """Format report when no ticket ID is found."""
+    prefix = get_settings().ticket_id_prefix
     return f"""<details>
 <summary>\U0001f4cb Fidelity Report - \u23ed\ufe0f Skipped</summary>
 
@@ -152,8 +154,8 @@ def _format_no_ticket() -> str:
 **No ticket ID found in PR.**
 
 To enable fidelity analysis:
-- Use branch naming: `feat/PROJ-XXX/description` or `fix/PROJ-XXX-description`
-- Or include ticket in PR title: `[PROJ-XXX] Title` or `PROJ-XXX: Title`
+- Use branch naming: `feat/{prefix}-XXX/description` or `fix/{prefix}-XXX-description`
+- Or include ticket in PR title: `[{prefix}-XXX] Title` or `{prefix}-XXX: Title`
 
 </details>"""
 

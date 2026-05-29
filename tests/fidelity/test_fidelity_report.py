@@ -291,6 +291,20 @@ class TestFormatFidelityReportSuccess:
         assert "Critical Discrepancies" not in report
 
 
+def test_no_ticket_message_uses_configured_prefix(monkeypatch):
+    monkeypatch.setenv("TICKET_ID_PREFIX", "PER")
+    import importlib
+
+    import baloo.fidelity.fidelity_report as fr
+
+    importlib.reload(fr)
+    from baloo.fidelity.fidelity_report import _format_no_ticket
+
+    result = _format_no_ticket()
+    assert "PER-XXX" in result
+    assert "PROJ-XXX" not in result
+
+
 class TestFormatFidelityReportError:
     """Tests for format_fidelity_report with None result (error case)."""
 
