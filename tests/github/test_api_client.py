@@ -359,6 +359,15 @@ class TestFetchPaginatedJson:
         assert len(result) == 200
         assert mock_http.get.call_count == 3
 
+    @pytest.mark.asyncio
+    async def test_raises_on_404_first_page(self):
+        # A 404 on page 1 is a genuine error (bad URL, deleted PR) — must not swallow it
+        client, mock_http = _make_client()
+        mock_http.get.return_value = _mock_response(status_code=404)
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await client._fetch_paginated_json("https://api.github.com/some/endpoint")
+
 
 class TestGetChangedScopeBetweenCommits:
     @pytest.mark.asyncio
