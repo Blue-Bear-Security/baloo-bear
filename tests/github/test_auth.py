@@ -165,3 +165,156 @@ class TestVerifyRepoBelongsToInstallation:
         result = await verify_repo_belongs_to_installation(999, "org/repo")
 
         assert result is False
+
+
+class TestGenerateJwt:
+    def test_generate_jwt_returns_string(self, monkeypatch):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode()
+
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", pem)
+
+        import importlib
+
+        import baloo.github.auth as auth_module
+
+        importlib.reload(auth_module)
+
+        token = auth_module.generate_jwt()
+        assert isinstance(token, str)
+        assert len(token) > 0
+        assert token.count(".") == 2
+
+
+class TestVerifyWebhookSignatureMalformed:
+    def test_malformed_signature_no_equals_returns_false(
+        self, monkeypatch, payload, webhook_secret
+    ):
+        """Signature with no '=' raises ValueError in split — caught, returns False."""
+        monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", webhook_secret)
+        monkeypatch.setenv("WEBHOOK_PRE_VERIFIED", "false")
+
+        assert _verify(payload, "sha256noequalssign") is False
+
+
+class TestGetInstallationToken:
+    def test_cache_hit_returns_cached_token_without_http(self, monkeypatch):
+        """When a cached token with >5min remaining exists, no HTTP call is made."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode()
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", pem)
+
+        import importlib
+
+        import baloo.github.auth as auth_module
+
+        importlib.reload(auth_module)
+
+        auth = auth_module.GitHubAuth()
+        future_expiry = datetime.now(timezone.utc) + timedelta(hours=1)
+        auth._installation_tokens[42] = ("cached_token", future_expiry)
+
+        with patch("httpx.post") as mock_post:
+            token = auth.get_installation_token(42)
+
+        assert token == "cached_token"
+        mock_post.assert_not_called()
+
+    def test_cache_miss_fetches_new_token(self, monkeypatch):
+        """When no cached token exists, fetches from GitHub API and caches result."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import MagicMock, patch
+
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode()
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", pem)
+
+        import importlib
+
+        import baloo.github.auth as auth_module
+
+        importlib.reload(auth_module)
+
+        future_expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "token": "fresh_token",
+            "expires_at": future_expiry,
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        auth = auth_module.GitHubAuth()
+        with patch("httpx.post", return_value=mock_response) as mock_post:
+            token = auth.get_installation_token(99)
+
+        assert token == "fresh_token"
+        mock_post.assert_called_once()
+        assert 99 in auth._installation_tokens
+
+
+class TestVerifyRepoBelongsToInstallationReloaded:
+    @pytest.mark.asyncio
+    async def test_returns_false_on_404(self, monkeypatch):
+        """Returns False when the repo is not accessible (404) — uses reloaded module."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        ).decode()
+        monkeypatch.setenv("GITHUB_APP_ID", "12345")
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", pem)
+
+        import importlib
+
+        import baloo.github.auth as auth_module
+
+        importlib.reload(auth_module)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+
+        mock_async_client = AsyncMock()
+        mock_async_client.__aenter__ = AsyncMock(return_value=mock_async_client)
+        mock_async_client.__aexit__ = AsyncMock(return_value=False)
+        mock_async_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch.object(auth_module.GitHubAuth, "get_installation_token", return_value="tok"),
+            patch("httpx.AsyncClient", return_value=mock_async_client),
+        ):
+            result = await auth_module.verify_repo_belongs_to_installation(42, "org/private-repo")
+
+        assert result is False
