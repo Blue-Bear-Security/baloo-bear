@@ -88,6 +88,17 @@ class Settings(BaseSettings):
         description="Use GitHub Checks API for MEDIUM severity issues",
     )
 
+    # Branding Configuration
+    public_base_url: str = Field(
+        default="",
+        description="Public base URL for absolute links in GitHub comments",
+    )
+    brand_name: str = Field(default="Baloo", description="Display name in GitHub comments")
+    brand_icon_url: str = Field(
+        default="",
+        description="Absolute URL for the small icon shown at the start of GitHub comments",
+    )
+
     # Database Configuration
     database_url: str = Field(default="", description="PostgreSQL connection URL")
     database_enabled: bool = Field(
@@ -179,6 +190,19 @@ class Settings(BaseSettings):
     fidelity_approval_threshold: int = Field(
         default=90,
         description="Minimum fidelity score (0-100) required for auto-approval with clean review",
+    )
+    linear_api_key: str = Field(default="", description="Linear API key for ticket fallback")
+    linear_api_url: str = Field(
+        default="https://api.linear.app/graphql",
+        description="Linear GraphQL API endpoint",
+    )
+    repo_checkout_enabled: bool = Field(
+        default=True,
+        description="Checkout PR head into a temporary read-only worktree for agent tools",
+    )
+    repo_checkout_root: str = Field(
+        default="/tmp/baloo-repos",
+        description="Directory for temporary repository checkouts",
     )
 
     @property

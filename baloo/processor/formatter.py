@@ -38,7 +38,7 @@ class CommentFormatter:
         low = severity_counts["LOW"]
 
         summary_parts = []
-        summary_parts.append("## 🐻 Baloo Review Summary\n")
+        summary_parts.append("## Rocky Review Summary\n")
 
         if not comments:
             summary_parts.append("✅ **No issues found!** Code looks good.")

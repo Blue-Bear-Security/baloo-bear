@@ -66,6 +66,10 @@ if (
     _static_dir = Path(__file__).resolve().parent.parent / "dashboard" / "static"
     app.mount("/dashboard-static", StaticFiles(directory=str(_static_dir)), name="dashboard-static")
 
+_assets_dir = Path(__file__).resolve().parent.parent / "static"
+if _assets_dir.exists():
+    app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+
 
 @app.get("/")
 async def root() -> dict[str, str]:
@@ -150,6 +154,12 @@ async def handle_webhook(
     # Parse event type and payload
     event = request.headers.get("X-GitHub-Event")
     payload = await request.json()
+
+    # GitHub App-level lifecycle events do not carry a repository payload.
+    # They are useful delivery checks, but Baloo only acts on repository PR events.
+    if event in ("ping", "installation", "installation_repositories", "meta"):
+        logger.info("Ignoring GitHub App lifecycle event: %s", event)
+        return {"status": "ignored", "event": event or "", "reason": "app lifecycle event"}
 
     # Security validation: confirm installation identity and repo ownership
     _installation_id = payload.get("installation", {}).get("id")

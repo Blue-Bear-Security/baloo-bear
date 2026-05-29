@@ -24,6 +24,7 @@ from baloo.fidelity.fidelity_report import (
 )
 from baloo.fidelity.models import FidelityResult
 from baloo.fidelity.plan_fetcher import fetch_plan_content
+from baloo.fidelity.linear_fetcher import fetch_linear_issue_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
 from baloo.github.api_client import GitHubAPIClient, PostedReviewResult
 from baloo.github.models import (
@@ -42,6 +43,11 @@ from baloo.processor.severity_router import (
     ReviewSeverity,
     count_by_severity,
     route_findings,
+)
+from baloo.review.repo_context import (
+    cleanup_repository,
+    enrich_pr_context_with_repository_guidelines,
+    materialize_repository,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,6 +74,20 @@ thread_agent_semaphore = None
 # Registry of active review tasks to allow cancellation of redundant reviews
 # Map of (repo_full_name, pr_number) -> asyncio.Task
 active_reviews: dict[tuple[str, int], asyncio.Task] = {}
+
+
+def _brand_prefix() -> str:
+    """Return the Markdown prefix used at the start of GitHub comments."""
+    icon_url = settings.brand_icon_url
+    if not icon_url and settings.public_base_url:
+        icon_url = settings.public_base_url.rstrip("/") + "/assets/rocky.png"
+
+    if icon_url:
+        return (
+            f'<img src="{icon_url}" width="22" height="22" '
+            f'alt="{settings.brand_name}" align="absmiddle"> {settings.brand_name}'
+        )
+    return f"🐻 {settings.brand_name}"
 
 
 def get_review_semaphore() -> asyncio.Semaphore:
@@ -717,6 +737,10 @@ async def _run_fidelity_analysis(
             ticket_id,
             ref=pr_context.head_sha,
         )
+        if not plan_content:
+            plan_content = await fetch_linear_issue_content(ticket_id)
+            if plan_content:
+                logger.info("Fidelity: Using Linear issue content for %s", ticket_id)
 
         if not plan_content:
             logger.info(f"Fidelity: No plan file found for {ticket_id}")
@@ -904,6 +928,7 @@ async def process_pr_review(
     progress_comment_id: int | None = None
     cancel_monitor: asyncio.Task | None = None
     github_client: GitHubAPIClient | None = None
+    checkout_dir = None
 
     try:
         async with semaphore:
@@ -959,7 +984,7 @@ async def process_pr_review(
                 progress_comment_id = await github_client.post_comment(
                     repo_full_name,
                     pr_number,
-                    "🐻 Baloo is reviewing your code... This may take a moment.",
+                    f"{_brand_prefix()} is reviewing your code... This may take a moment.",
                 )
 
             # Fetch PR context
@@ -1039,10 +1064,21 @@ async def process_pr_review(
                     update={"feedback_signals": feedback_signals}
                 )
 
+            checkout_dir = materialize_repository(
+                repo_full_name,
+                pr_context.head_sha,
+                installation_id,
+            )
+            if checkout_dir is not None:
+                review_context = enrich_pr_context_with_repository_guidelines(
+                    review_context,
+                    checkout_dir,
+                )
+
             # Run fidelity analysis and main review concurrently
             from baloo.agent.client import BalooAgent
 
-            agent = BalooAgent()
+            agent = BalooAgent(cwd=str(checkout_dir) if checkout_dir else None)
 
             if settings.fidelity_enabled:
                 (fidelity_report_text, fidelity_result), agent_result = await asyncio.gather(
@@ -1382,7 +1418,7 @@ async def process_pr_review(
                     # Review posted findings - update with summary
                     counts = count_by_severity(decision_comments)
                     completion_msg = (
-                        f"🐻 Baloo review completed in {review_duration}s.\n\n"
+                        f"{_brand_prefix()} review completed in {review_duration}s.\n\n"
                         f"Found {len(decision_comments)} issue(s): "
                         f"{counts.get(ReviewSeverity.CRITICAL.value, 0)} critical, "
                         f"{counts.get(ReviewSeverity.HIGH.value, 0)} high, "
@@ -1395,16 +1431,16 @@ async def process_pr_review(
                         )
                 elif not request_changes and approve:
                     completion_msg = (
-                        f"✅ Baloo review completed in {review_duration}s. No issues found!"
+                        f"{_brand_prefix()} review completed in {review_duration}s. No issues found!"
                     )
                 elif awaiting_threads:
                     completion_msg = (
-                        f"🐻 Baloo review completed in {review_duration}s. "
+                        f"{_brand_prefix()} review completed in {review_duration}s. "
                         f"Still waiting on {awaiting_threads} existing thread(s)."
                     )
                 else:
                     completion_msg = (
-                        f"🐻 Baloo review completed in {review_duration}s. No new issues found."
+                        f"{_brand_prefix()} review completed in {review_duration}s. No new issues found."
                     )
 
                 try:
@@ -1547,7 +1583,7 @@ async def process_pr_review(
         # Try to update progress comment with error
         if progress_comment_id:
             try:
-                user_msg = f"🐻 Baloo encountered an error during review: {str(e)}"
+                user_msg = f"{_brand_prefix()} encountered an error during review: {str(e)}"
                 async with GitHubAPIClient(installation_id) as _gc:
                     await _gc.edit_comment(repo_full_name, progress_comment_id, user_msg)
             except Exception:
@@ -1565,3 +1601,4 @@ async def process_pr_review(
                 await github_client.aclose()
             except Exception:
                 logger.debug("Failed to close github_client", exc_info=True)
+        cleanup_repository(checkout_dir)

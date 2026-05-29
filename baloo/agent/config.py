@@ -15,9 +15,12 @@ MODEL_REGISTRY: dict[str, tuple[str, str, int]] = {
     "flash": ("google", "gemini-2.5-flash", 10),
     "haiku": ("anthropic", "claude-haiku-4-5-20251001", 10),
     # Standard tier — default code reviews
+    "standard": ("anthropic", "claude-sonnet-4-6", 20),
     "gemini-pro": ("google", "gemini-2.5-pro", 20),
     "sonnet": ("anthropic", "claude-sonnet-4-6", 20),
     # Premium tier — complex/security-sensitive reviews
+    "premium": ("google", "gemini-3.1-pro-preview", 30),
+    "gemini-3.1-pro": ("google", "gemini-3.1-pro-preview", 30),
     "opus": ("anthropic", "claude-opus-4-6", 30),
 }
 

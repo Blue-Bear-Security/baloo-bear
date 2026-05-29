@@ -19,9 +19,10 @@ logger = logging.getLogger(__name__)
 class BalooAgent(PIAgentBase):
     """Code review agent powered by PI."""
 
-    def __init__(self, model_override: str = None):
+    def __init__(self, model_override: str = None, cwd: str | None = None):
         """Initialize agent with options."""
         options = get_agent_options(model_override)
+        options.cwd = cwd
         super().__init__(options)
         logger.info(f"Initialized BalooAgent with {self.options.model}")
 
