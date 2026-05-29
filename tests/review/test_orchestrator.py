@@ -460,26 +460,11 @@ class TestDbUpdateOnSuccessfulReview:
         mock_complete = AsyncMock()
 
         with ExitStack() as stack:
-            stack.enter_context(patch("baloo.review.orchestrator.GitHubAPIClient", return_value=gc))
-            stack.enter_context(patch("baloo.agent.client.BalooAgent", return_value=agent))
-            stack.enter_context(patch("baloo.review.orchestrator.settings.fidelity_enabled", False))
-            stack.enter_context(
-                patch("baloo.review.orchestrator.settings.fp_verification_enabled", False)
-            )
-            stack.enter_context(
-                patch("baloo.config.settings.settings.fp_verification_enabled", False)
-            )
-            stack.enter_context(
-                patch("baloo.config.settings.settings.review_min_severity", "MEDIUM")
-            )
+            for p in _base_patches(gc, agent):
+                stack.enter_context(p)
+            # override: database_enabled must be True for DB tests
             stack.enter_context(patch("baloo.review.orchestrator.settings.database_enabled", True))
             stack.enter_context(patch("baloo.config.settings.settings.database_enabled", True))
-            stack.enter_context(
-                patch("baloo.review.orchestrator.settings.feedback_signals_enabled", False)
-            )
-            stack.enter_context(
-                patch("baloo.review.orchestrator.settings.review_use_checks_api", False)
-            )
             stack.enter_context(
                 patch(
                     "baloo.review.orchestrator.ReviewService.start_review",
@@ -574,11 +559,12 @@ class TestProcessPrReviewExceptionHandling:
                 )
             )
 
-            with pytest.raises((asyncio.CancelledError, Exception)):
+            with pytest.raises(asyncio.CancelledError):
                 await process_pr_review(
                     repo_full_name="org/repo",
                     pr_number=1,
                     installation_id=1,
+                    trigger_reason="pull_request:opened",
                     notify_progress=False,
                     head_sha="abc123",
                 )
@@ -629,6 +615,7 @@ class TestProcessPrReviewExceptionHandling:
                 repo_full_name="org/repo",
                 pr_number=1,
                 installation_id=1,
+                trigger_reason="pull_request:opened",
                 notify_progress=False,
                 head_sha="abc123",
             )
@@ -671,6 +658,7 @@ class TestGitHubChecksApiPath:
             stack.enter_context(
                 patch("baloo.review.orchestrator.settings.review_use_checks_api", True)
             )
+            # Local import in orchestrator — patch the source module, not orchestrator namespace
             stack.enter_context(
                 patch("baloo.github.checks_api.GitHubChecksClient", return_value=mock_checks_client)
             )
@@ -712,6 +700,7 @@ class TestGitHubChecksApiPath:
             stack.enter_context(
                 patch("baloo.review.orchestrator.settings.review_use_checks_api", True)
             )
+            # Local import in orchestrator — patch the source module, not orchestrator namespace
             stack.enter_context(
                 patch("baloo.github.checks_api.GitHubChecksClient", return_value=mock_checks_client)
             )
