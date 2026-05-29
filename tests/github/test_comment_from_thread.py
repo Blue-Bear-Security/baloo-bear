@@ -8,7 +8,7 @@ from baloo.github.models import (
     FindingCategory,
     ReviewSeverity,
 )
-from baloo.github.webhook_handler import _comment_from_thread
+from baloo.review.orchestrator import _comment_from_thread
 
 
 def _make_thread(body: str, path: str = "app.py", line: int = 42) -> DiscussionThread:

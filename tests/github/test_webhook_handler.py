@@ -24,7 +24,7 @@ from baloo.github.models import (
     ReviewComment,
     ReviewResult,
 )
-from baloo.github.webhook_handler import (
+from baloo.review.orchestrator import (
     _decide_synchronize_review_mode,
     _total_review_cost_usd,
     process_pr_review,
@@ -138,11 +138,11 @@ async def test_review_summary_uses_actionable_findings_after_resolved_thread_ski
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
-        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.review.orchestrator.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -220,11 +220,11 @@ async def test_progress_comment_reports_dropped_inline_findings_internally():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
-        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.review.orchestrator.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -314,15 +314,15 @@ async def test_synchronize_scoped_mode_posts_only_latest_push_related_findings()
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch(
-            "baloo.github.webhook_handler._decide_synchronize_review_mode",
+            "baloo.review.orchestrator._decide_synchronize_review_mode",
             AsyncMock(return_value=("scoped", "test")),
         ),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
-        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.review.orchestrator.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -404,15 +404,15 @@ async def test_synchronize_scoped_mode_passes_scoped_context_to_agent():
         )
     )
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch(
-            "baloo.github.webhook_handler._decide_synchronize_review_mode",
+            "baloo.review.orchestrator._decide_synchronize_review_mode",
             AsyncMock(return_value=("scoped", "test")),
         ),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
-        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.review.orchestrator.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -477,11 +477,11 @@ async def test_collapses_near_duplicate_findings_in_same_run():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
-        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.review.orchestrator.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -545,11 +545,11 @@ async def test_dedup_keeps_higher_severity_when_similar_findings_overlap():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", False),
         patch("baloo.config.settings.settings.fp_verification_enabled", False),
-        patch("baloo.github.webhook_handler.settings.fp_verification_enabled", False),
+        patch("baloo.review.orchestrator.settings.fp_verification_enabled", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
     ):
         await process_pr_review(
@@ -587,7 +587,7 @@ async def test_scope_decider_logs_unexpected_mode_and_defaults_full_pr(caplog):
     )
 
     with patch(
-        "baloo.github.webhook_handler.PIAgentBase.run_query",
+        "baloo.review.orchestrator.PIAgentBase.run_query",
         AsyncMock(return_value=({"mode": "scope"}, {})),
     ):
         caplog.set_level("WARNING")
@@ -650,13 +650,13 @@ async def test_does_not_repost_missing_plan_fidelity_report():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", True),
         patch("baloo.config.settings.settings.review_auto_approve", True),
-        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value="DEN-123"),
         patch(
-            "baloo.github.webhook_handler.fetch_plan_content",
+            "baloo.review.orchestrator.fetch_plan_content",
             AsyncMock(return_value=None),
         ),
     ):
@@ -720,11 +720,11 @@ async def test_does_not_repost_no_ticket_fidelity_report():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", True),
         patch("baloo.config.settings.settings.review_auto_approve", True),
-        patch("baloo.github.webhook_handler.extract_ticket_id", return_value=None),
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value=None),
     ):
         await process_pr_review(
             repo_full_name="test/repo",
@@ -786,17 +786,17 @@ async def test_does_not_repost_error_fidelity_report():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", True),
         patch("baloo.config.settings.settings.review_auto_approve", True),
-        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value="DEN-123"),
         patch(
-            "baloo.github.webhook_handler.fetch_plan_content",
+            "baloo.review.orchestrator.fetch_plan_content",
             AsyncMock(return_value="# Plan"),
         ),
         patch(
-            "baloo.github.webhook_handler.analyze_fidelity",
+            "baloo.review.orchestrator.analyze_fidelity",
             AsyncMock(return_value=None),
         ),
     ):
@@ -860,7 +860,7 @@ async def _process_review_with_existing_fidelity_comment(
     with ExitStack() as stack:
         stack.enter_context(
             patch(
-                "baloo.github.webhook_handler.GitHubAPIClient",
+                "baloo.review.orchestrator.GitHubAPIClient",
                 return_value=mock_github_client,
             )
         )
@@ -868,19 +868,19 @@ async def _process_review_with_existing_fidelity_comment(
         stack.enter_context(patch("baloo.config.settings.settings.fidelity_enabled", True))
         stack.enter_context(patch("baloo.config.settings.settings.review_auto_approve", True))
         stack.enter_context(
-            patch("baloo.github.webhook_handler.extract_ticket_id", return_value=ticket_id)
+            patch("baloo.review.orchestrator.extract_ticket_id", return_value=ticket_id)
         )
         if ticket_id:
             stack.enter_context(
                 patch(
-                    "baloo.github.webhook_handler.fetch_plan_content",
+                    "baloo.review.orchestrator.fetch_plan_content",
                     AsyncMock(return_value=plan_content),
                 )
             )
         if ticket_id and plan_content:
             stack.enter_context(
                 patch(
-                    "baloo.github.webhook_handler.analyze_fidelity",
+                    "baloo.review.orchestrator.analyze_fidelity",
                     AsyncMock(return_value=fidelity_result),
                 )
             )
@@ -993,7 +993,7 @@ async def test_updates_progress_comment_when_no_actionable_findings():
     mock_agent.review_pr = AsyncMock(return_value=mock_review_result)
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.review_auto_approve", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
@@ -1047,7 +1047,7 @@ async def test_posts_approval_when_auto_approve_enabled():
     mock_agent.review_pr = AsyncMock(return_value=mock_review_result)
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.review_auto_approve", True),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
@@ -1115,17 +1115,17 @@ async def test_approves_clean_review_with_high_fidelity_score():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.review_auto_approve", False),
         patch("baloo.config.settings.settings.fidelity_enabled", True),
         patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
         patch(
-            "baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)
+            "baloo.review.orchestrator.analyze_fidelity", AsyncMock(return_value=fidelity_result)
         ),
-        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value="DEN-123"),
         patch(
-            "baloo.github.webhook_handler.fetch_plan_content",
+            "baloo.review.orchestrator.fetch_plan_content",
             AsyncMock(return_value="# Plan content"),
         ),
     ):
@@ -1199,7 +1199,7 @@ async def test_approves_with_medium_issues_when_high_fidelity():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.review_auto_approve", False),
         patch("baloo.config.settings.settings.review_min_severity", "MEDIUM"),
@@ -1207,11 +1207,11 @@ async def test_approves_with_medium_issues_when_high_fidelity():
         patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
         patch("baloo.config.settings.settings.review_use_checks_api", False),
         patch(
-            "baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)
+            "baloo.review.orchestrator.analyze_fidelity", AsyncMock(return_value=fidelity_result)
         ),
-        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value="DEN-123"),
         patch(
-            "baloo.github.webhook_handler.fetch_plan_content",
+            "baloo.review.orchestrator.fetch_plan_content",
             AsyncMock(return_value="# Plan content"),
         ),
     ):
@@ -1278,17 +1278,17 @@ async def test_does_not_approve_with_low_fidelity_score():
     )
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.review_auto_approve", False),
         patch("baloo.config.settings.settings.fidelity_enabled", True),
         patch("baloo.config.settings.settings.fidelity_approval_threshold", 90),
         patch(
-            "baloo.github.webhook_handler.analyze_fidelity", AsyncMock(return_value=fidelity_result)
+            "baloo.review.orchestrator.analyze_fidelity", AsyncMock(return_value=fidelity_result)
         ),
-        patch("baloo.github.webhook_handler.extract_ticket_id", return_value="DEN-123"),
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value="DEN-123"),
         patch(
-            "baloo.github.webhook_handler.fetch_plan_content",
+            "baloo.review.orchestrator.fetch_plan_content",
             AsyncMock(return_value="# Plan content"),
         ),
     ):
@@ -1349,15 +1349,15 @@ async def test_fidelity_and_agent_review_run_concurrently_when_fidelity_enabled(
         return "", None
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_github_client),
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_github_client),
         patch("baloo.agent.client.BalooAgent", return_value=mock_agent),
         patch("baloo.config.settings.settings.fidelity_enabled", True),
         patch("baloo.config.settings.settings.review_auto_approve", False),
         patch(
-            "baloo.github.webhook_handler._run_fidelity_analysis",
+            "baloo.review.orchestrator._run_fidelity_analysis",
             side_effect=fake_run_fidelity_analysis,
         ),
-        patch("baloo.github.webhook_handler.asyncio.gather", wraps=asyncio.gather) as mock_gather,
+        patch("baloo.review.orchestrator.asyncio.gather", wraps=asyncio.gather) as mock_gather,
     ):
         await process_pr_review(
             repo_full_name="test/repo",

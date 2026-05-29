@@ -761,6 +761,111 @@ Serialized payload:
     # Session driver
     # -----------------------------------------------------------------
 
+    async def _dispatch_events(
+        self,
+        proc: asyncio.subprocess.Process,
+        result: PIRunResult,
+        review_logger: Any = None,
+    ) -> None:
+        """Consume the PI event stream, updating result in place until agent_end."""
+        last_assistant_text = ""
+        all_assistant_texts: list[str] = []
+        turn_count = 0
+        turn_tools: list[str] = []
+
+        while True:
+            event = await asyncio.wait_for(
+                self._read_event(proc.stdout),  # type: ignore[arg-type]
+                timeout=600,  # 10 min max per review
+            )
+            if event is None:
+                break
+
+            etype = event.get("type")
+
+            if etype == "turn_end":
+                turn_count += 1
+                logger.info(
+                    "%s: turn %d — tools used: [%s]",
+                    self.agent_name,
+                    turn_count,
+                    ", ".join(turn_tools) if turn_tools else "none",
+                )
+                if review_logger:
+                    await review_logger.turn_completed(
+                        turn_number=turn_count,
+                        tokens_in=result.input_tokens,
+                        tokens_out=result.output_tokens,
+                    )
+                turn_tools = []
+                if turn_count >= self.options.max_turns:
+                    logger.warning(
+                        "%s: max turns (%d) reached, aborting",
+                        self.agent_name,
+                        self.options.max_turns,
+                    )
+                    result.max_turns_reached = True
+                    assert proc.stdin is not None
+                    proc.stdin.write(self._make_command("abort").encode("utf-8"))
+                    await proc.stdin.drain()
+                    break
+
+            elif etype == "message_end":
+                msg = event.get("message", {})
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", [])
+                    text_parts = []
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif isinstance(block, str):
+                            text_parts.append(block)
+                    if text_parts:
+                        last_assistant_text = "\n".join(text_parts)
+                        all_assistant_texts.append(last_assistant_text)
+
+                    usage = msg.get("usage", {})
+                    message_model = msg.get("model", result.model)
+                    normalized_usage = normalize_usage(
+                        usage,
+                        provider=self.options.provider,
+                        model=message_model,
+                    )
+                    result.input_tokens += normalized_usage.input_tokens
+                    result.output_tokens += normalized_usage.output_tokens
+                    result.cache_read_tokens += normalized_usage.cache_read_tokens
+                    result.cache_write_tokens += normalized_usage.cache_write_tokens
+                    result.thinking_tokens += normalized_usage.thinking_tokens
+                    result.cost_usd += normalized_usage.cost_usd
+                    result.model = message_model
+
+                    stop_reason = msg.get("stopReason", "")
+                    if stop_reason == "error":
+                        result.is_error = True
+                        result.error_message = "Agent returned error stop reason"
+
+            elif etype == "tool_execution_start":
+                tool = event.get("toolName", "?")
+                tool_input = event.get("input", {}) if isinstance(event.get("input"), dict) else {}
+                tool_file = (
+                    tool_input.get("path") or tool_input.get("pattern") or tool_input.get("glob")
+                )
+                tool_label = f"{tool}:{tool_file}" if tool_file else tool
+                turn_tools.append(tool_label)
+                logger.debug("%s: tool call → %s", self.agent_name, tool_label)
+                if review_logger:
+                    await review_logger.tool_use(tool_name=tool, file_path=tool_input.get("path"))
+
+            elif etype == "agent_end":
+                break
+
+            elif etype == "message_update":
+                pass
+
+        result.assistant_text = last_assistant_text
+        result.all_assistant_texts = all_assistant_texts
+        result.num_turns = turn_count
+
     async def _drive_session(
         self,
         proc: asyncio.subprocess.Process,
@@ -793,7 +898,6 @@ Serialized payload:
                             f"PI command '{expected_command}' failed: {event.get('error', 'unknown')}"
                         )
                     return event
-                # Ignore other events while waiting for response
 
         # 1. Set thinking level
         await send(self._make_command("set_thinking_level", level=self.options.thinking_level))
@@ -804,108 +908,6 @@ Serialized payload:
         await wait_response("prompt")
 
         # 3. Stream events until agent_end
-        last_assistant_text = ""
-        all_assistant_texts: list[str] = []
-        turn_count = 0
-        turn_tools: list[str] = []  # tool calls accumulated within the current turn
-
-        while True:
-            event = await asyncio.wait_for(
-                self._read_event(proc.stdout),  # type: ignore[arg-type]
-                timeout=600,  # 10 min max per review
-            )
-            if event is None:
-                # Process closed
-                break
-
-            etype = event.get("type")
-
-            if etype == "turn_end":
-                turn_count += 1
-                logger.info(
-                    "%s: turn %d — tools used: [%s]",
-                    self.agent_name,
-                    turn_count,
-                    ", ".join(turn_tools) if turn_tools else "none",
-                )
-                if review_logger:
-                    await review_logger.turn_completed(
-                        turn_number=turn_count,
-                        tokens_in=result.input_tokens,
-                        tokens_out=result.output_tokens,
-                    )
-                turn_tools = []
-                # Enforce max turns
-                if turn_count >= self.options.max_turns:
-                    logger.warning(
-                        "%s: max turns (%d) reached, aborting",
-                        self.agent_name,
-                        self.options.max_turns,
-                    )
-                    result.max_turns_reached = True
-                    await send(self._make_command("abort"))
-                    # Don't wait for abort response, just collect agent_end
-                    break
-
-            elif etype == "message_end":
-                msg = event.get("message", {})
-                if msg.get("role") == "assistant":
-                    # Extract text content
-                    content = msg.get("content", [])
-                    text_parts = []
-                    for block in content:
-                        if isinstance(block, dict) and block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                        elif isinstance(block, str):
-                            text_parts.append(block)
-                    if text_parts:
-                        last_assistant_text = "\n".join(text_parts)
-                        all_assistant_texts.append(last_assistant_text)
-
-                    # Accumulate usage
-                    usage = msg.get("usage", {})
-                    message_model = msg.get("model", result.model)
-                    normalized_usage = normalize_usage(
-                        usage,
-                        provider=self.options.provider,
-                        model=message_model,
-                    )
-                    result.input_tokens += normalized_usage.input_tokens
-                    result.output_tokens += normalized_usage.output_tokens
-                    result.cache_read_tokens += normalized_usage.cache_read_tokens
-                    result.cache_write_tokens += normalized_usage.cache_write_tokens
-                    result.thinking_tokens += normalized_usage.thinking_tokens
-                    result.cost_usd += normalized_usage.cost_usd
-
-                    result.model = message_model
-
-                    # Check for errors
-                    stop_reason = msg.get("stopReason", "")
-                    if stop_reason == "error":
-                        result.is_error = True
-                        result.error_message = "Agent returned error stop reason"
-
-            elif etype == "tool_execution_start":
-                tool = event.get("toolName", "?")
-                tool_input = event.get("input", {}) if isinstance(event.get("input"), dict) else {}
-                tool_file = (
-                    tool_input.get("path") or tool_input.get("pattern") or tool_input.get("glob")
-                )
-                tool_label = f"{tool}:{tool_file}" if tool_file else tool
-                turn_tools.append(tool_label)
-                logger.debug("%s: tool call → %s", self.agent_name, tool_label)
-                if review_logger:
-                    await review_logger.tool_use(tool_name=tool, file_path=tool_input.get("path"))
-
-            elif etype == "agent_end":
-                break
-
-            elif etype == "message_update":
-                # Streaming delta — we could log progress but we just collect at message_end
-                pass
-
-        result.assistant_text = last_assistant_text
-        result.all_assistant_texts = all_assistant_texts
-        result.num_turns = turn_count
+        await self._dispatch_events(proc, result, review_logger)
 
         return result

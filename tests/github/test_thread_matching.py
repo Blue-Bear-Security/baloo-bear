@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from baloo.github.models import DiscussionComment, DiscussionThread, ReviewComment
-from baloo.github.webhook_handler import (
+from baloo.review.orchestrator import (
     _build_thread_lookup,
     _calculate_similarity,
     _extract_issue_signature,

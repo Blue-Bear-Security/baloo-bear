@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from baloo.github.webhook_handler import _process_thread_reply
+from baloo.review.orchestrator import _process_thread_reply
 
 
 @pytest.mark.asyncio
@@ -68,10 +68,10 @@ async def test_process_thread_reply_concede_writes_signal():
     }
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_client),
-        patch("baloo.github.webhook_handler.settings") as mock_settings,
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_client),
+        patch("baloo.review.orchestrator.settings") as mock_settings,
         patch(
-            "baloo.github.webhook_handler.get_thread_agent_semaphore",
+            "baloo.review.orchestrator.get_thread_agent_semaphore",
             return_value=asyncio.Semaphore(3),
         ),
         patch(
@@ -193,10 +193,10 @@ async def test_process_thread_reply_escalation_cap():
     ]
 
     with (
-        patch("baloo.github.webhook_handler.GitHubAPIClient", return_value=mock_client),
-        patch("baloo.github.webhook_handler.settings") as mock_settings,
+        patch("baloo.review.orchestrator.GitHubAPIClient", return_value=mock_client),
+        patch("baloo.review.orchestrator.settings") as mock_settings,
         patch(
-            "baloo.github.webhook_handler.get_thread_agent_semaphore",
+            "baloo.review.orchestrator.get_thread_agent_semaphore",
             return_value=asyncio.Semaphore(3),
         ),
     ):
