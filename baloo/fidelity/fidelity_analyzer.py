@@ -6,6 +6,7 @@ from baloo.agent.pi_runtime import PIAgentBase, PIAgentOptions
 from baloo.fidelity.models import (
     FidelityOutput,
     FidelityResult,
+    FidelitySpec,
 )
 from baloo.fidelity.prompts import FIDELITY_SYSTEM_PROMPT, build_fidelity_prompt
 
@@ -48,8 +49,11 @@ class FidelityAgent(PIAgentBase):
         logger.info(f"Starting fidelity analysis for {ticket_id}")
 
         try:
+            # Build spec with plan content (ticket layer not available at this stage)
+            spec = FidelitySpec(ticket=None, plan=plan_content)
+
             # Build prompt
-            prompt = build_fidelity_prompt(plan_content, pr_title, diff)
+            prompt = build_fidelity_prompt(spec, pr_title, diff)
 
             # Run agent using base class
             structured_data, metadata = await self.run_query(prompt)

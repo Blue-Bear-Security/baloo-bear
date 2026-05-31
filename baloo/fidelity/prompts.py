@@ -1,34 +1,42 @@
 """Prompts for fidelity analysis."""
 
-FIDELITY_SYSTEM_PROMPT = """You are a fidelity analyst comparing code changes against a design plan.
+from baloo.fidelity.models import FidelitySpec
 
-Your task is to evaluate how well a PR implementation aligns with the original plan document.
+FIDELITY_SYSTEM_PROMPT = """You are a fidelity analyst comparing code changes against a specification.
+
+The specification has two layers:
+- **Ticket** (What Was Requested): the original requirements and intent
+- **Plan** (Technical Design): the agreed implementation approach
+
+Your task is to evaluate how well the PR implementation aligns with the specification.
 
 ## Your Capabilities
 You have access to read, grep, find, and ls tools. Use them to:
 - Explore beyond the diff to verify requirements are fully implemented
 - Check if referenced files/functions exist and work correctly
-- Search for patterns mentioned in the plan
+- Search for patterns mentioned in the spec
 
 ## Analysis Process
-1. Read the plan carefully to understand requirements
+1. Read the specification carefully — note what each layer requires
 2. Analyze the diff to see what was implemented
 3. Use tools to verify implementation completeness
-4. Compare plan vs actual implementation
+4. Compare spec vs actual implementation
+5. When the plan contradicts the ticket, surface that as a finding
+6. When attributing a gap, note which layer (ticket or plan) establishes the requirement
 
 ## Output Format
 Your output will be structured JSON (enforced by output_format). Return an object with:
 - fidelity_score: 0-100
 - logic_summary: Two sentences explaining the business logic implemented
 - requirements: list of {description, status (fulfilled|partial|missing), evidence}
-- extras: list of strings (things implemented but not in plan)
+- extras: list of strings (things implemented but not in spec)
 - discrepancies: list of {description, severity (LOW|MEDIUM|HIGH)}
 
 ## Scoring Guidelines
 - 90-100%: Full alignment, all requirements met
 - 70-89%: Good alignment, minor gaps or extras
 - 50-69%: Partial alignment, some requirements missing
-- Below 50%: Significant deviation from plan
+- Below 50%: Significant deviation from spec
 
 ## Important Rules
 - Be objective and precise
@@ -39,25 +47,41 @@ Your output will be structured JSON (enforced by output_format). Return an objec
 """
 
 
-def build_fidelity_prompt(plan_content: str, pr_title: str, diff: str) -> str:
+def _build_spec_section(spec: FidelitySpec) -> str:
+    """Format the specification block showing ticket and plan layers."""
+    ticket_text = spec.ticket if spec.ticket else "No ticket content available."
+    plan_text = (
+        spec.plan if spec.plan else "No plan document found. Assess against the ticket alone."
+    )
+
+    return f"""## Specification
+
+### What Was Requested (Ticket)
+
+{ticket_text}
+
+### Technical Design (Plan)
+
+{plan_text}"""
+
+
+def build_fidelity_prompt(spec: FidelitySpec, pr_title: str, diff: str) -> str:
     """
     Build the user prompt for fidelity analysis.
 
     Args:
-        plan_content: The design plan file content
+        spec: FidelitySpec with ticket and plan layers
         pr_title: PR title for context
         diff: The PR diff
 
     Returns:
         Formatted prompt string
     """
-    return f"""Analyze the fidelity of this PR against the design plan.
+    spec_section = _build_spec_section(spec)
 
-## Design Plan
+    return f"""Analyze the fidelity of this PR against the specification.
 
-```markdown
-{plan_content}
-```
+{spec_section}
 
 ## Pull Request
 
@@ -71,17 +95,8 @@ def build_fidelity_prompt(plan_content: str, pr_title: str, diff: str) -> str:
 
 ## Your Task
 
-1. Read the plan requirements carefully
+1. Read the specification requirements carefully — both ticket intent and plan design
 2. Analyze the diff to understand what was implemented
-3. Use read/grep/find tools to verify implementation details if needed
-4. Compare plan vs implementation
-
-Output your analysis as JSON with:
-- fidelity_score (0-100)
-- logic_summary (2 sentences on business logic)
-- requirements (list with status: fulfilled/partial/missing)
-- extras (things done beyond the plan)
-- discrepancies (differences with severity)
-
-You MUST return ONLY valid JSON matching the schema above. No markdown fences, no commentary — just the raw JSON object.
+3. Use tools to verify implementation completeness beyond the diff
+4. Score alignment and identify gaps, noting which spec layer each requirement comes from
 """
