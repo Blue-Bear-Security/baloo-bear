@@ -721,7 +721,10 @@ async def _run_fidelity_analysis(
             ref=pr_context.head_sha,
         )
 
-        if not plan_content:
+        if plan_content and linear_fallback:
+            plan_content = f"{plan_content}\n\n---\n\n## Linear Ticket\n\n{linear_fallback}"
+            logger.info("Fidelity: Supplementing plan with Linear ticket content for %s", ticket_id)
+        elif not plan_content:
             if linear_fallback:
                 plan_content = linear_fallback
                 logger.info("Fidelity: Using Linear issue content as plan for %s", ticket_id)
@@ -1057,7 +1060,8 @@ async def process_pr_review(
                     pr_description=pr_context.description,
                 )
                 if _tid:
-                    linear_ticket_content = await fetch_linear_issue_content(_tid)
+                    _linear_result = await fetch_linear_issue_content(_tid)
+                    linear_ticket_content = _linear_result.content
                     if linear_ticket_content:
                         logger.info("Fetched Linear ticket scope for %s", _tid)
                         review_context = review_context.model_copy(
