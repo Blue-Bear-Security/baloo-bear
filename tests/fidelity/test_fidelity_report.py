@@ -324,3 +324,17 @@ class TestFormatFidelityReportError:
         report = format_fidelity_report(result=None, ticket_id="DEN-123")
 
         assert "<!-- baloo:error-fidelity-report -->" in report
+
+
+def test_insufficient_detail_report_contains_sentinel():
+    from baloo.fidelity.fidelity_report import (
+        INSUFFICIENT_DETAIL_FIDELITY_SENTINEL,
+        STATIC_FIDELITY_SENTINELS,
+        format_fidelity_report,
+    )
+
+    report = format_fidelity_report(insufficient_detail=True, ticket_id="PER-42")
+    assert INSUFFICIENT_DETAIL_FIDELITY_SENTINEL in report
+    assert INSUFFICIENT_DETAIL_FIDELITY_SENTINEL in STATIC_FIDELITY_SENTINELS
+    assert "insufficient detail" in report.lower()
+    assert "PER-42" in report
