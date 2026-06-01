@@ -22,8 +22,8 @@ from baloo.fidelity.fidelity_report import (
     STATIC_FIDELITY_SENTINELS,
     format_fidelity_report,
 )
-from baloo.fidelity.linear_fetcher import fetch_linear_issue_content
-from baloo.fidelity.models import FidelityResult
+from baloo.fidelity.linear_fetcher import LinearFetchResult, fetch_linear_issue_content
+from baloo.fidelity.models import FidelityResult, FidelitySpec
 from baloo.fidelity.plan_fetcher import fetch_plan_content
 from baloo.fidelity.ticket_extractor import extract_ticket_id
 from baloo.github.api_client import GitHubAPIClient, PostedReviewResult
@@ -685,23 +685,21 @@ async def _run_fidelity_analysis(
     github_client: GitHubAPIClient,
     repo_full_name: str,
     pr_context,
-    linear_fallback: str | None = None,
+    linear_result: LinearFetchResult | None = None,
 ) -> tuple[str, FidelityResult | None]:
     """
-    Run fidelity analysis comparing PR changes to design plan.
+    Run fidelity analysis comparing PR changes to ticket + plan specification.
 
     Args:
         github_client: GitHub API client
         repo_full_name: Repository full name (owner/repo)
         pr_context: PR context with branch, title, description, diff
-        linear_fallback: Linear issue content to use as plan when no plan file is found
+        linear_result: LinearFetchResult from a prior fetch_linear_issue_content call
 
     Returns:
         Tuple of (formatted fidelity report markdown, FidelityResult or None)
     """
-
     try:
-        # Extract ticket ID from PR metadata
         ticket_id = extract_ticket_id(
             branch_name=pr_context.head_branch,
             pr_title=pr_context.title,
@@ -712,7 +710,6 @@ async def _run_fidelity_analysis(
             logger.info("Fidelity: No ticket ID found in PR metadata")
             return format_fidelity_report(no_ticket=True), None
 
-        # Fetch plan file from the PR branch (plan is part of the PR)
         plan_path = settings.fidelity_plan_path_pattern.format(ticket_id=ticket_id)
         plan_content = await fetch_plan_content(
             github_client,
@@ -721,28 +718,35 @@ async def _run_fidelity_analysis(
             ref=pr_context.head_sha,
         )
 
-        if plan_content and linear_fallback:
-            plan_content = f"{plan_content}\n\n---\n\n## Linear Ticket\n\n{linear_fallback}"
-            logger.info("Fidelity: Supplementing plan with Linear ticket content for %s", ticket_id)
-        elif not plan_content:
-            if linear_fallback:
-                plan_content = linear_fallback
-                logger.info("Fidelity: Using Linear issue content as plan for %s", ticket_id)
-            else:
-                logger.info(f"Fidelity: No plan file found for {ticket_id}")
-                return (
-                    format_fidelity_report(
-                        no_plan=True,
-                        ticket_id=ticket_id,
-                        plan_path=plan_path,
-                    ),
-                    None,
-                )
+        # Build the two-layer spec
+        ticket_content = (
+            linear_result.content
+            if linear_result and linear_result.skipped_reason is None
+            else None
+        )
+        spec = FidelitySpec(ticket=ticket_content, plan=plan_content)
 
-        # Run fidelity analysis
-        logger.info(f"Fidelity: Analyzing {ticket_id} against plan")
+        if not spec.has_content:
+            if linear_result and linear_result.skipped_reason == "insufficient_detail":
+                logger.info(
+                    "Fidelity: Skipping — ticket found but insufficient detail for %s", ticket_id
+                )
+                return format_fidelity_report(insufficient_detail=True, ticket_id=ticket_id), None
+
+            logger.info("Fidelity: No plan file found for %s", ticket_id)
+            return (
+                format_fidelity_report(no_plan=True, ticket_id=ticket_id, plan_path=plan_path),
+                None,
+            )
+
+        logger.info(
+            "Fidelity: Analyzing %s (ticket=%s, plan=%s)",
+            ticket_id,
+            "yes" if spec.ticket else "no",
+            "yes" if spec.plan else "no",
+        )
         result = await analyze_fidelity(
-            plan_content=plan_content,
+            spec=spec,
             pr_title=pr_context.title,
             diff=pr_context.diff,
             ticket_id=ticket_id,
@@ -752,7 +756,7 @@ async def _run_fidelity_analysis(
 
     except Exception as e:
         logger.error(f"Fidelity analysis error: {e}", exc_info=True)
-        return "", None  # Don't fail the review, just skip fidelity
+        return "", None
 
 
 async def _process_thread_reply(
@@ -1051,8 +1055,8 @@ async def process_pr_review(
                     update={"feedback_signals": feedback_signals}
                 )
 
-            # Pre-fetch Linear ticket scope — used in agent prompt and as fidelity fallback
-            linear_ticket_content: str | None = None
+            # Pre-fetch Linear ticket scope — used in agent prompt and passed to fidelity
+            linear_fetch_result: LinearFetchResult | None = None
             if settings.linear_api_key:
                 _tid = extract_ticket_id(
                     branch_name=pr_context.head_branch,
@@ -1060,14 +1064,13 @@ async def process_pr_review(
                     pr_description=pr_context.description,
                 )
                 if _tid:
-                    _linear_result = await fetch_linear_issue_content(_tid)
-                    linear_ticket_content = _linear_result.content
-                    if linear_ticket_content:
+                    linear_fetch_result = await fetch_linear_issue_content(_tid)
+                    if linear_fetch_result.content:
                         logger.info("Fetched Linear ticket scope for %s", _tid)
                         review_context = review_context.model_copy(
                             update={
                                 "metadata": review_context.metadata.model_copy(
-                                    update={"ticket_scope": linear_ticket_content}
+                                    update={"ticket_scope": linear_fetch_result.content}
                                 )
                             }
                         )
@@ -1083,7 +1086,7 @@ async def process_pr_review(
                         github_client,
                         repo_full_name,
                         pr_context,
-                        linear_fallback=linear_ticket_content,
+                        linear_result=linear_fetch_result,
                     ),
                     agent.review_pr(review_context, review_id=db_review_id),
                 )

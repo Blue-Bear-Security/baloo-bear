@@ -132,10 +132,11 @@ async def test_returns_none_when_issue_not_found():
 
 
 @pytest.mark.asyncio
-async def test_linear_content_used_as_fidelity_fallback_when_no_plan_file():
-    """_run_fidelity_analysis uses linear_fallback when no plan file is found."""
+async def test_fidelity_uses_linear_ticket_as_spec_when_no_plan_file():
+    """_run_fidelity_analysis builds a FidelitySpec with ticket-only when plan is absent."""
     from unittest.mock import AsyncMock, MagicMock
 
+    from baloo.fidelity.linear_fetcher import LinearFetchResult
     from baloo.github.models import FileChange, PRContext, PRDiscussionContext, PRMetadata
     from baloo.review.orchestrator import _run_fidelity_analysis
 
@@ -151,11 +152,7 @@ async def test_linear_content_used_as_fidelity_fallback_when_no_plan_file():
             head_sha="abc",
             files_changed=[
                 FileChange(
-                    filename="auth.py",
-                    status="modified",
-                    additions=1,
-                    deletions=0,
-                    changes=1,
+                    filename="auth.py", status="modified", additions=1, deletions=0, changes=1
                 )
             ],
         ),
@@ -164,38 +161,47 @@ async def test_linear_content_used_as_fidelity_fallback_when_no_plan_file():
     )
 
     mock_client = MagicMock()
-    linear_content = "# Linear Issue PER-42\n\n## Description\n\nAdd login flow."
+    linear_result = LinearFetchResult(
+        content="# Linear Issue PER-42\n\n## Description\n\nAdd login flow.",
+        skipped_reason=None,
+    )
+
+    captured_spec = {}
+
+    async def capture_analyze(spec, **kwargs):
+        captured_spec["spec"] = spec
+        return MagicMock(
+            fidelity_score=85,
+            ticket_id="PER-42",
+            logic_summary="Matches",
+            requirements=[],
+            extras=[],
+            discrepancies=[],
+            metadata={},
+        )
 
     with (
         patch("baloo.review.orchestrator.extract_ticket_id", return_value="PER-42"),
         patch("baloo.review.orchestrator.fetch_plan_content", new=AsyncMock(return_value=None)),
         patch(
-            "baloo.review.orchestrator.analyze_fidelity",
-            new=AsyncMock(
-                return_value=MagicMock(
-                    fidelity_score=85,
-                    ticket_id="PER-42",
-                    logic_summary="Matches plan",
-                    requirements=[],
-                    extras=[],
-                    discrepancies=[],
-                    metadata={},
-                )
-            ),
+            "baloo.review.orchestrator.analyze_fidelity", new=AsyncMock(side_effect=capture_analyze)
         ),
     ):
         report, result = await _run_fidelity_analysis(
-            mock_client, "org/repo", pr_context, linear_fallback=linear_content
+            mock_client, "org/repo", pr_context, linear_result=linear_result
         )
 
     assert result is not None
+    assert captured_spec["spec"].ticket == linear_result.content
+    assert captured_spec["spec"].plan is None
 
 
 @pytest.mark.asyncio
-async def test_linear_content_supplements_existing_plan_file():
-    """When both a plan file and Linear content exist, both are combined."""
+async def test_fidelity_uses_both_ticket_and_plan_as_spec():
+    """_run_fidelity_analysis builds FidelitySpec with both layers when both are present."""
     from unittest.mock import AsyncMock, MagicMock
 
+    from baloo.fidelity.linear_fetcher import LinearFetchResult
     from baloo.github.models import FileChange, PRContext, PRDiscussionContext, PRMetadata
     from baloo.review.orchestrator import _run_fidelity_analysis
 
@@ -211,11 +217,7 @@ async def test_linear_content_supplements_existing_plan_file():
             head_sha="abc",
             files_changed=[
                 FileChange(
-                    filename="auth.py",
-                    status="modified",
-                    additions=1,
-                    deletions=0,
-                    changes=1,
+                    filename="auth.py", status="modified", additions=1, deletions=0, changes=1
                 )
             ],
         ),
@@ -224,13 +226,16 @@ async def test_linear_content_supplements_existing_plan_file():
     )
 
     mock_client = MagicMock()
-    plan_file_content = "# Plan\n\nDetailed design doc."
-    linear_content = "# Linear Issue PER-42\n\n## Description\n\nAdd login flow."
+    linear_result = LinearFetchResult(
+        content="# Linear Issue PER-42\n\n## Description\n\nAdd login flow.",
+        skipped_reason=None,
+    )
+    plan_file = "# Plan\n\nDetailed design doc."
 
-    captured = {}
+    captured_spec = {}
 
-    async def capture_analyze_fidelity(plan_content, **kwargs):
-        captured["plan_content"] = plan_content
+    async def capture_analyze(spec, **kwargs):
+        captured_spec["spec"] = spec
         return MagicMock(
             fidelity_score=90,
             ticket_id="PER-42",
@@ -244,21 +249,62 @@ async def test_linear_content_supplements_existing_plan_file():
     with (
         patch("baloo.review.orchestrator.extract_ticket_id", return_value="PER-42"),
         patch(
-            "baloo.review.orchestrator.fetch_plan_content",
-            new=AsyncMock(return_value=plan_file_content),
+            "baloo.review.orchestrator.fetch_plan_content", new=AsyncMock(return_value=plan_file)
         ),
         patch(
-            "baloo.review.orchestrator.analyze_fidelity",
-            new=AsyncMock(side_effect=capture_analyze_fidelity),
+            "baloo.review.orchestrator.analyze_fidelity", new=AsyncMock(side_effect=capture_analyze)
         ),
     ):
         report, result = await _run_fidelity_analysis(
-            mock_client, "org/repo", pr_context, linear_fallback=linear_content
+            mock_client, "org/repo", pr_context, linear_result=linear_result
         )
 
     assert result is not None
-    assert "Detailed design doc" in captured["plan_content"]
-    assert "Add login flow" in captured["plan_content"]
+    assert captured_spec["spec"].ticket == linear_result.content
+    assert captured_spec["spec"].plan == plan_file
+
+
+@pytest.mark.asyncio
+async def test_fidelity_emits_insufficient_detail_skip_when_ticket_thin_and_no_plan():
+    """Insufficient-detail ticket with no plan file emits the right skip report."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from baloo.fidelity.fidelity_report import INSUFFICIENT_DETAIL_FIDELITY_SENTINEL
+    from baloo.fidelity.linear_fetcher import LinearFetchResult
+    from baloo.github.models import FileChange, PRContext, PRDiscussionContext, PRMetadata
+    from baloo.review.orchestrator import _run_fidelity_analysis
+
+    pr_context = PRContext(
+        metadata=PRMetadata(
+            repo_full_name="org/repo",
+            pr_number=1,
+            title="PER-1 fix bug",
+            description="",
+            author="dev",
+            base_branch="main",
+            head_branch="fix/PER-1-bug",
+            head_sha="abc",
+            files_changed=[
+                FileChange(filename="a.py", status="modified", additions=1, deletions=0, changes=1)
+            ],
+        ),
+        discussion=PRDiscussionContext(),
+        diff="diff",
+    )
+
+    mock_client = MagicMock()
+    linear_result = LinearFetchResult(content=None, skipped_reason="insufficient_detail")
+
+    with (
+        patch("baloo.review.orchestrator.extract_ticket_id", return_value="PER-1"),
+        patch("baloo.review.orchestrator.fetch_plan_content", new=AsyncMock(return_value=None)),
+    ):
+        report, result = await _run_fidelity_analysis(
+            mock_client, "org/repo", pr_context, linear_result=linear_result
+        )
+
+    assert result is None
+    assert INSUFFICIENT_DETAIL_FIDELITY_SENTINEL in report
 
 
 class TestLinearFetchResult:
