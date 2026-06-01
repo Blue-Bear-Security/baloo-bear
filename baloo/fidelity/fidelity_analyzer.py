@@ -14,10 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class FidelityAgent(PIAgentBase):
-    """Agent for fidelity analysis comparing PR changes to design plan."""
+    """Agent for fidelity analysis comparing PR changes to design spec."""
 
     def __init__(self):
-        """Initialize fidelity agent with Sonnet options."""
         options = PIAgentOptions(
             model="claude-sonnet-4-6",
             provider="anthropic",
@@ -29,16 +28,16 @@ class FidelityAgent(PIAgentBase):
 
     async def analyze(
         self,
-        plan_content: str,
+        spec: FidelitySpec,
         pr_title: str,
         diff: str,
         ticket_id: str,
     ) -> FidelityResult | None:
         """
-        Run fidelity analysis comparing PR changes to design plan.
+        Run fidelity analysis comparing PR changes to design spec.
 
         Args:
-            plan_content: The design plan file content
+            spec: FidelitySpec with ticket and plan layers
             pr_title: PR title for context
             diff: The PR diff
             ticket_id: Ticket ID (e.g., PROJ-123)
@@ -49,16 +48,8 @@ class FidelityAgent(PIAgentBase):
         logger.info(f"Starting fidelity analysis for {ticket_id}")
 
         try:
-            # Build spec with plan content (ticket layer not available at this stage)
-            spec = FidelitySpec(ticket=None, plan=plan_content)
-
-            # Build prompt
             prompt = build_fidelity_prompt(spec, pr_title, diff)
-
-            # Run agent using base class
             structured_data, metadata = await self.run_query(prompt)
-
-            # Parse structured output
             result = self._parse_structured_fidelity(structured_data, ticket_id)
 
             if result:
@@ -79,14 +70,12 @@ class FidelityAgent(PIAgentBase):
     def _parse_structured_fidelity(
         self, data: dict | None, ticket_id: str
     ) -> FidelityResult | None:
-        """Validate structured output and convert to FidelityResult."""
         if data is None:
             logger.warning("No structured output received from fidelity agent")
             return None
 
         try:
             output = FidelityOutput.model_validate(data)
-
             return FidelityResult(
                 ticket_id=ticket_id,
                 fidelity_score=output.fidelity_score,
@@ -101,11 +90,11 @@ class FidelityAgent(PIAgentBase):
 
 
 async def analyze_fidelity(
-    plan_content: str,
+    spec: FidelitySpec,
     pr_title: str,
     diff: str,
     ticket_id: str,
 ) -> FidelityResult | None:
-    """Legacy wrapper for FidelityAgent (maintains compatibility)."""
+    """Run fidelity analysis via FidelityAgent."""
     agent = FidelityAgent()
-    return await agent.analyze(plan_content, pr_title, diff, ticket_id)
+    return await agent.analyze(spec, pr_title, diff, ticket_id)

@@ -11,6 +11,7 @@ class TestFidelityAgentAnalyze:
     @pytest.mark.asyncio
     async def test_successful_analysis_returns_result(self):
         from baloo.fidelity.fidelity_analyzer import FidelityAgent
+        from baloo.fidelity.models import FidelitySpec
 
         structured_data = {
             "fidelity_score": 85,
@@ -22,11 +23,12 @@ class TestFidelityAgentAnalyze:
         mock_metadata = {"cost_usd": 0.01, "input_tokens": 100, "output_tokens": 50}
 
         agent = FidelityAgent()
+        spec = FidelitySpec(ticket=None, plan="# Plan\n- Do X")
         with patch.object(
             agent, "run_query", new=AsyncMock(return_value=(structured_data, mock_metadata))
         ):
             result = await agent.analyze(
-                plan_content="# Plan\n- Do X",
+                spec=spec,
                 pr_title="Implement feature X",
                 diff="+ added code",
                 ticket_id="PROJ-123",
@@ -40,13 +42,15 @@ class TestFidelityAgentAnalyze:
     @pytest.mark.asyncio
     async def test_run_query_exception_returns_none(self):
         from baloo.fidelity.fidelity_analyzer import FidelityAgent
+        from baloo.fidelity.models import FidelitySpec
 
         agent = FidelityAgent()
+        spec = FidelitySpec(ticket=None, plan="# Plan")
         with patch.object(
             agent, "run_query", new=AsyncMock(side_effect=RuntimeError("agent crashed"))
         ):
             result = await agent.analyze(
-                plan_content="# Plan",
+                spec=spec,
                 pr_title="Test PR",
                 diff="+ code",
                 ticket_id="PROJ-456",
@@ -92,6 +96,7 @@ class TestAnalyzeFidelityWrapper:
     @pytest.mark.asyncio
     async def test_wrapper_delegates_to_agent(self):
         from baloo.fidelity.fidelity_analyzer import analyze_fidelity
+        from baloo.fidelity.models import FidelitySpec
 
         structured_data = {
             "fidelity_score": 75,
@@ -101,12 +106,13 @@ class TestAnalyzeFidelityWrapper:
             "discrepancies": [],
         }
 
+        spec = FidelitySpec(ticket=None, plan="# Plan")
         with patch(
             "baloo.fidelity.fidelity_analyzer.FidelityAgent.run_query",
             new=AsyncMock(return_value=(structured_data, {})),
         ):
             result = await analyze_fidelity(
-                plan_content="# Plan",
+                spec=spec,
                 pr_title="Test",
                 diff="+ code",
                 ticket_id="PROJ-789",
