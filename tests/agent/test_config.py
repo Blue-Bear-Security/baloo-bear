@@ -100,3 +100,29 @@ def test_ast_tools_settings_defaults():
 
     s = Settings()
     assert s.ast_tools_enabled is True
+
+
+def test_standard_alias_resolves_to_sonnet():
+    from baloo.agent.config import get_agent_options
+
+    opts = get_agent_options("standard")
+    assert opts.model == "claude-sonnet-4-6"
+    assert opts.provider == "anthropic"
+    assert opts.max_turns == 20
+
+
+def test_premium_alias_resolves_to_gemini_3_1():
+    from baloo.agent.config import get_agent_options
+
+    opts = get_agent_options("premium")
+    assert opts.model == "gemini-3.1-pro-preview"
+    assert opts.provider == "google"
+    assert opts.max_turns == 30
+
+
+def test_gemini_3_1_pro_alias_resolves_same_as_premium():
+    from baloo.agent.config import get_agent_options
+
+    opts = get_agent_options("gemini-3.1-pro")
+    assert opts.model == "gemini-3.1-pro-preview"
+    assert opts.provider == "google"

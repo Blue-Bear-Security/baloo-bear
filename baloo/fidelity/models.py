@@ -1,5 +1,7 @@
 """Pydantic models for fidelity report data."""
 
+from dataclasses import dataclass
+
 from pydantic import BaseModel, Field
 
 
@@ -51,3 +53,13 @@ class FidelityResult(BaseModel):
         default_factory=list, description="Critical differences from the plan"
     )
     metadata: dict = Field(default_factory=dict, description="Metadata like cost, tokens")
+
+
+@dataclass
+class FidelitySpec:
+    ticket: str | None = None
+    plan: str | None = None
+
+    @property
+    def has_content(self) -> bool:
+        return bool((self.ticket or "").strip() or (self.plan or "").strip())

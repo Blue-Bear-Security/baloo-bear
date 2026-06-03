@@ -462,6 +462,18 @@ def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
     feedback_signals = _ctx_get(pr_context, "feedback_signals", [])
     feedback_signals_text = _feedback_signals_section(feedback_signals)
 
+    # Build ticket scope section from pre-fetched Linear/plan content
+    ticket_scope = _ctx_get(pr_context, "ticket_scope")
+    if ticket_scope:
+        ticket_scope_section = (
+            f"## Ticket Scope\n\n"
+            f"The following is the ticket/issue that this PR is implementing:\n\n"
+            f"```\n{ticket_scope}\n```\n\n"
+            f"Use this to assess whether the implementation matches the intended scope."
+        )
+    else:
+        ticket_scope_section = ""
+
     # Use simplified prompt for simple PRs (configs, deps, docs)
     if _is_simple_pr(pr_context):
         return _build_simple_pr_review_prompt(pr_context, files_list, feedback_signals_text)
@@ -476,6 +488,8 @@ def build_pr_review_prompt(pr_context: PRContext | dict[str, Any]) -> str:
 
 **Description**:
 {_ctx_get(pr_context, "description", "No description provided.")}
+
+{ticket_scope_section}
 
 {_discussion_section(pr_context)}
 {feedback_signals_text}
@@ -563,3 +577,7 @@ Before emitting your final JSON, review your analysis:
 - If you found issues of different severities, make sure ALL of them are included, not just the top few.
 - Report everything in this single pass.
 """
+
+
+# Alias so callers can import either name
+build_review_prompt = build_pr_review_prompt

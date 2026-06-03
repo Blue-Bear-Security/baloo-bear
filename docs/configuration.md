@@ -28,6 +28,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `LOG_LEVEL` | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR |
 | `MAX_CONCURRENT_REVIEWS` | `3` | Max PRs reviewed simultaneously |
 | `REVIEW_STALE_TIMEOUT_MINUTES` | `30` | Minutes after which an in-progress review is considered abandoned and can be superseded by a new one (used with `DATABASE_ENABLED=true`) |
+| `WEBHOOK_DELIVERY_DEDUPE_TTL_SECONDS` | `900` | Seconds to suppress duplicate GitHub webhook delivery IDs in this process |
 
 ## Agent
 
@@ -66,6 +67,13 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `FIDELITY_PLAN_PATH_PATTERN` | `docs/plans/{ticket_id}.md` | Path pattern with `{ticket_id}` placeholder |
 | `FIDELITY_APPROVAL_THRESHOLD` | `90` | Min fidelity score (0–100) for auto-approval boost |
 | `TICKET_ID_PREFIX` | `PROJ` | Ticket ID prefix for extraction (e.g., `PROJ` → `PROJ-123`) |
+
+## Linear Integration
+
+| Variable | Default | Description |
+|---|---|---|
+| `LINEAR_API_KEY` | `` | Linear API key. When set, Baloo fetches the linked ticket and uses it as context in reviews and fidelity analysis. |
+| `LINEAR_API_URL` | `https://api.linear.app/graphql` | Linear GraphQL endpoint (override for self-hosted Linear). |
 
 ## Database & Dashboard
 

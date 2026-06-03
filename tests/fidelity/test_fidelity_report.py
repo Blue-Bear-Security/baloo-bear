@@ -291,6 +291,20 @@ class TestFormatFidelityReportSuccess:
         assert "Critical Discrepancies" not in report
 
 
+def test_no_ticket_message_uses_configured_prefix(monkeypatch):
+    monkeypatch.setenv("TICKET_ID_PREFIX", "PER")
+    import importlib
+
+    import baloo.fidelity.fidelity_report as fr
+
+    importlib.reload(fr)
+    from baloo.fidelity.fidelity_report import _format_no_ticket
+
+    result = _format_no_ticket()
+    assert "PER-XXX" in result
+    assert "PROJ-XXX" not in result
+
+
 class TestFormatFidelityReportError:
     """Tests for format_fidelity_report with None result (error case)."""
 
@@ -310,3 +324,17 @@ class TestFormatFidelityReportError:
         report = format_fidelity_report(result=None, ticket_id="DEN-123")
 
         assert "<!-- baloo:error-fidelity-report -->" in report
+
+
+def test_insufficient_detail_report_contains_sentinel():
+    from baloo.fidelity.fidelity_report import (
+        INSUFFICIENT_DETAIL_FIDELITY_SENTINEL,
+        STATIC_FIDELITY_SENTINELS,
+        format_fidelity_report,
+    )
+
+    report = format_fidelity_report(insufficient_detail=True, ticket_id="PER-42")
+    assert INSUFFICIENT_DETAIL_FIDELITY_SENTINEL in report
+    assert INSUFFICIENT_DETAIL_FIDELITY_SENTINEL in STATIC_FIDELITY_SENTINELS
+    assert "insufficient detail" in report.lower()
+    assert "PER-42" in report
