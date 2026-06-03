@@ -71,10 +71,13 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_ENABLED` | `true` | Enable PostgreSQL persistence |
+| `DATABASE_ENABLED` | `false` | Enable PostgreSQL persistence |
 | `DATABASE_URL` | — | PostgreSQL connection URL. Auto-set in docker-compose |
+| `POSTGRES_USER` | `baloo` | Local Docker Compose PostgreSQL user |
+| `POSTGRES_PASSWORD` | — | Local Docker Compose PostgreSQL password. Set explicitly before running Compose |
+| `POSTGRES_DB` | `baloo` | Local Docker Compose PostgreSQL database name |
 | `INSTALLATION_ID` | — | GitHub installation ID for this broker. If set, broker only processes webhooks for this installation and scopes all DB queries to this tenant. Unset = serve all installations |
-| `DASHBOARD_ENABLED` | `true` | Enable review history dashboard |
+| `DASHBOARD_ENABLED` | `false` | Enable review history dashboard |
 | `DASHBOARD_USERNAME` | — | Dashboard basic auth username |
 | `DASHBOARD_PASSWORD` | — | Dashboard basic auth password |
 | `LOG_RETENTION_DAYS` | `30` | Days to retain execution logs (0 to disable cleanup) |

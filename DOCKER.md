@@ -33,6 +33,7 @@ The default compose file starts:
 - `postgres` as an internal Docker service named `db`
 
 Database-backed features are disabled by default. Enable them in `.env` if you want persistence or the dashboard.
+Set `POSTGRES_PASSWORD` in `.env` before running Compose. The example value is for local development only.
 
 The default stack does not publish PostgreSQL to the host. Baloo connects to it internally at `db:5432`, which avoids conflicts with an existing local PostgreSQL instance. If you need host access for debugging, add a temporary port mapping in your local compose override.
 

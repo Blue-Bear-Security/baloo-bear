@@ -1,9 +1,9 @@
-<p align="center">
-  <strong>AI-powered code reviews for every pull request</strong>
-</p>
+# Baloo: self-hosted AI code review for GitHub pull requests
 
 <p align="center">
   <a href="https://github.com/Blue-Bear-Security/baloo-bear/actions/workflows/ci.yml"><img src="https://github.com/Blue-Bear-Security/baloo-bear/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Blue-Bear-Security/baloo-bear/actions/workflows/codeql-python.yml"><img src="https://github.com/Blue-Bear-Security/baloo-bear/actions/workflows/codeql-python.yml/badge.svg" alt="CodeQL Python"></a>
+  <a href="https://api.scorecard.dev/projects/github.com/Blue-Bear-Security/baloo-bear"><img src="https://api.scorecard.dev/projects/github.com/Blue-Bear-Security/baloo-bear/badge" alt="OpenSSF Scorecard"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
   <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
@@ -11,7 +11,11 @@
 
 ---
 
-Baloo is a **GitHub App** that automatically reviews pull requests using LLMs. It installs on your repos, reads every PR diff, and posts actionable review comments — catching bugs, security issues, and guideline violations before humans look at the code.
+Baloo is an open source **GitHub App for AI pull request review**. It installs on your repositories, reads PR diffs and relevant project context, and posts actionable review comments that catch bugs, security issues, missing error handling, and repository guideline violations before humans review the code.
+
+Baloo is built for teams that want a **self-hosted AI code review agent** instead of a hosted SaaS reviewer. You run the service, control the GitHub App installation scope, and provide your own model API keys for Claude or Gemini.
+
+Website: [BlueBear Security](https://www.bluebear.io)
 
 ## Why Baloo?
 
@@ -20,6 +24,15 @@ Baloo is a **GitHub App** that automatically reviews pull requests using LLMs. I
 - **Posts like a teammate** — inline comments on specific lines, severity labels, approval/request-changes decisions
 - **Runs on every push** — new commits get reviewed automatically, with discussion thread tracking across iterations
 - **Self-hosted & private** — your code never leaves your infrastructure; bring your own API keys
+
+## Use Cases
+
+- **AI code review for GitHub pull requests** — review opened, reopened, synchronized, and ready-for-review PRs
+- **Security review assistance** — flag injection risks, unsafe auth patterns, secret handling mistakes, and missing validation
+- **Repository guideline enforcement** — apply project-specific rules from `AGENTS.md` and `CONTRIBUTING.md`
+- **Dependency update review** — use Dependabot-aware prompts for dependency PRs
+- **Plan fidelity checks** — compare an implementation against plan documents before approval
+- **Local review before opening a PR** — run the same review pipeline against a local git diff
 
 ## What It Looks Like
 
@@ -53,6 +66,15 @@ Inline comments appear on the exact lines:
 | **Dashboard** | Optional PostgreSQL-backed review history UI with cost tracking |
 | **Dependabot-aware** | Specialized review logic for dependency update PRs |
 | **Local dry-run** | Run [`scripts/local_review.py`](scripts/local_review.py) against a local git diff — no GitHub webhook or posted comments |
+
+## Baloo Compared
+
+| Need | Baloo's fit |
+|---|---|
+| Hosted AI reviewer alternative | Self-host Baloo as your own GitHub App and choose the model credentials |
+| Static analysis complement | Baloo reviews intent, behavior, edge cases, and repo-specific conventions that linters may not express |
+| GitHub Copilot review complement | Baloo runs automatically as an app on every PR update and can route findings to reviews or Checks |
+| Security review workflow | Baloo combines LLM review with severity routing, false-positive verification, and GitHub-native comments |
 
 ## Quick Start
 
@@ -137,7 +159,7 @@ All settings are environment variables. Key ones:
 | `AGENT_FALLBACK_MODEL` | `google/gemini-2.5-flash` | Fallback on primary failure |
 | `REVIEW_AUTO_APPROVE` | `true` | Auto-approve PRs with no blocking findings |
 | `REVIEW_MIN_SEVERITY` | `MEDIUM` | Minimum severity to post |
-| `FP_VERIFICATION_ENABLED` | `false` | Enable LLM false-positive verification |
+| `FP_VERIFICATION_ENABLED` | `true` | Enable LLM false-positive verification |
 | `DATABASE_ENABLED` | `false` | Enable PostgreSQL review history |
 | `DASHBOARD_ENABLED` | `false` | Enable review dashboard UI |
 | `FIDELITY_ENABLED` | `true` | Compare PRs against plan docs |
@@ -184,6 +206,28 @@ uv run python scripts/local_review.py --git-workdir /path/to/other-repo --base o
 ```
 
 See [docs/development.md](docs/development.md) for the full contributor guide.
+
+## FAQ
+
+### Is Baloo self-hosted?
+
+Yes. Baloo runs as your own service and GitHub App. You control deployment, repository installation scope, database persistence, and model credentials.
+
+### Does Baloo send code to a hosted Baloo service?
+
+No. Baloo does not require a Baloo-hosted backend. The running service reads repository content through your GitHub App installation and sends review context to the LLM provider you configure.
+
+### Which models does Baloo support?
+
+Baloo supports Claude models through Anthropic and Gemini models through Google, including fallback model configuration. See [docs/features/models.md](docs/features/models.md).
+
+### Is Baloo a replacement for CodeQL, Semgrep, Ruff, or other static analysis tools?
+
+No. Baloo is a review agent that complements static analysis. Keep deterministic scanners for known patterns and use Baloo for reasoning-heavy findings, project conventions, and PR-level review context.
+
+### Can I try Baloo without posting comments to GitHub?
+
+Yes. Use [`scripts/local_review.py`](scripts/local_review.py) to run a dry review against a local git diff.
 
 ## Support
 
