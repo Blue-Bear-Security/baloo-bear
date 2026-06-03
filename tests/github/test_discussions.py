@@ -246,3 +246,151 @@ def test_build_general_discussion_includes_reviews():
     assert len(comments) == 2
     assert comments[0].author == "maintainer"  # Newer timestamp first
     assert comments[1].body.startswith("[Approved Review]")
+
+
+class TestParseTimestampEdgeCases:
+    def test_none_returns_current_utc(self):
+        from baloo.github.discussions import parse_timestamp
+
+        result = parse_timestamp(None)
+        assert result.tzinfo is not None
+
+    def test_invalid_string_returns_current_utc(self):
+        from baloo.github.discussions import parse_timestamp
+
+        result = parse_timestamp("not-a-date")
+        assert result.tzinfo is not None
+
+
+class TestIsBalooActorBotSuffix:
+    def test_bot_suffix_with_baloo_in_body_returns_true(self):
+        from baloo.github.discussions import is_baloo_actor
+
+        result = is_baloo_actor("some-app[bot]", "Review by baloo code reviewer")
+        assert result is True
+
+    def test_bot_suffix_without_baloo_in_body_returns_false(self):
+        from baloo.github.discussions import is_baloo_actor
+
+        result = is_baloo_actor("some-app[bot]", "Unrelated comment")
+        assert result is False
+
+
+class TestDetermineResolutionStateEdgeCases:
+    def _make_comment(self, body: str, is_baloo: bool = False):
+        from datetime import datetime, timezone
+
+        from baloo.github.models import DiscussionComment
+
+        now = datetime.now(timezone.utc)
+        return DiscussionComment(
+            id=1,
+            author="baloo[bot]" if is_baloo else "dev",
+            body=body,
+            created_at=now,
+            updated_at=now,
+            source="review_comment",
+            is_baloo=is_baloo,
+        )
+
+    def test_non_baloo_thread_with_resolution_keyword_returns_true(self):
+        from baloo.github.discussions import determine_resolution_state
+
+        comments = [self._make_comment("looks good, fixed")]
+        result = determine_resolution_state(
+            is_baloo_thread=False,
+            awaiting_response=False,
+            comments=comments,
+        )
+        assert result is True
+
+    def test_non_baloo_thread_without_resolution_keyword_returns_false(self):
+        from baloo.github.discussions import determine_resolution_state
+
+        comments = [self._make_comment("I'll look into it")]
+        result = determine_resolution_state(
+            is_baloo_thread=False,
+            awaiting_response=False,
+            comments=comments,
+        )
+        assert result is False
+
+    def test_developer_replied_no_resolution_keyword_returns_false(self):
+        from baloo.github.discussions import determine_resolution_state
+
+        comments = [
+            self._make_comment("**[HIGH] Bugs** - issue", is_baloo=True),
+            self._make_comment("I disagree with this finding"),
+        ]
+        result = determine_resolution_state(
+            is_baloo_thread=True,
+            awaiting_response=False,
+            comments=comments,
+        )
+        assert result is False
+
+    def test_baloo_thread_awaiting_no_dev_reply_returns_false(self):
+        from baloo.github.discussions import determine_resolution_state
+
+        # Baloo thread, still awaiting response, only baloo comment
+        comments = [self._make_comment("Please fix this issue.", is_baloo=True)]
+        result = determine_resolution_state(
+            is_baloo_thread=True,
+            awaiting_response=True,
+            comments=comments,
+        )
+        assert result is False
+
+
+class TestBuildGeneralDiscussionEmptyBody:
+    def test_review_with_empty_body_is_skipped(self):
+        from baloo.github.discussions import build_general_discussion
+
+        reviews = [
+            {
+                "id": 1,
+                "body": "   ",
+                "state": "COMMENTED",
+                "submitted_at": None,
+                "user": {"login": "dev"},
+            }
+        ]
+        result = build_general_discussion([], reviews)
+        assert result == []
+
+
+class TestBuildDiscussionDigestNoThreads:
+    def test_no_threads_shows_placeholder(self):
+        from baloo.github.discussions import build_discussion_digest
+
+        digest, awaiting = build_discussion_digest([], [])
+        assert "No inline review threads yet" in digest
+        assert awaiting == 0
+
+
+class TestSummarizeBody:
+    def test_long_body_is_truncated_with_ellipsis(self):
+        from baloo.github.discussions import _summarize_body
+
+        long_text = "x" * 200
+        result = _summarize_body(long_text)
+        assert result.endswith("...")
+        assert len(result) == 140
+
+    def test_short_body_returned_as_is(self):
+        from baloo.github.discussions import _summarize_body
+
+        short = "short text"
+        assert _summarize_body(short) == short
+
+
+class TestHasResolutionKeyword:
+    def test_none_body_returns_false(self):
+        from baloo.github.discussions import _has_resolution_keyword
+
+        assert _has_resolution_keyword(None) is False
+
+    def test_empty_body_returns_false(self):
+        from baloo.github.discussions import _has_resolution_keyword
+
+        assert _has_resolution_keyword("") is False
