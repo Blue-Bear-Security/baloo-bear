@@ -24,8 +24,8 @@ class LinearFetchResult:
 
 
 _ISSUE_QUERY = """
-query IssueById($id: String!) {
-  issue(id: $id) {
+query IssueByIdentifier($identifier: String!) {
+  issueByIdentifier(identifier: $identifier) {
     identifier
     title
     description
@@ -49,12 +49,14 @@ async def fetch_linear_issue_content(ticket_id: str) -> LinearFetchResult:
     if not settings.linear_api_key:
         return LinearFetchResult(content=None, skipped_reason=None)
 
-    body = json.dumps({"query": _ISSUE_QUERY, "variables": {"id": ticket_id}}).encode("utf-8")
+    body = json.dumps({"query": _ISSUE_QUERY, "variables": {"identifier": ticket_id}}).encode(
+        "utf-8"
+    )
     req = request.Request(
         settings.linear_api_url,
         data=body,
         headers={
-            "Authorization": settings.linear_api_key,
+            "Authorization": f"Bearer {settings.linear_api_key}",
             "Content-Type": "application/json",
         },
         method="POST",
@@ -70,7 +72,7 @@ async def fetch_linear_issue_content(ticket_id: str) -> LinearFetchResult:
         logger.warning("Linear returned errors for %s: %s", ticket_id, payload["errors"])
         return LinearFetchResult(content=None, skipped_reason="not_found")
 
-    issue = (payload.get("data") or {}).get("issue")
+    issue = (payload.get("data") or {}).get("issueByIdentifier")
     if not issue:
         logger.info("No Linear issue found for %s", ticket_id)
         return LinearFetchResult(content=None, skipped_reason="not_found")

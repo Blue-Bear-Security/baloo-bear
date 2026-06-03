@@ -23,7 +23,7 @@ class _MockResponse:
         return json.dumps(
             {
                 "data": {
-                    "issue": {
+                    "issueByIdentifier": {
                         "identifier": "PER-603",
                         "title": "Add endpoint boundary recording",
                         "description": (
@@ -118,7 +118,7 @@ async def test_returns_none_when_issue_not_found():
             return False
 
         def read(self):
-            return json.dumps({"data": {"issue": None}}).encode()
+            return json.dumps({"data": {"issueByIdentifier": None}}).encode()
 
     with (
         patch("baloo.fidelity.linear_fetcher.settings") as mock_settings,
@@ -406,7 +406,7 @@ async def test_fetch_returns_insufficient_detail_for_stub_ticket():
             return json.dumps(
                 {
                     "data": {
-                        "issue": {
+                        "issueByIdentifier": {
                             "identifier": "PER-1",
                             "title": "fix bug",
                             "description": "",

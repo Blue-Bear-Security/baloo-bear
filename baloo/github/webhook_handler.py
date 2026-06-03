@@ -168,16 +168,16 @@ async def handle_webhook(
     event = request.headers.get("X-GitHub-Event")
     delivery_id = request.headers.get("X-GitHub-Delivery")
 
+    # Lifecycle events have no repository payload — return early before dedup and security validation
+    if event in ("ping", "installation", "installation_repositories", "meta"):
+        logger.info("Ignoring GitHub App lifecycle event: %s", event)
+        return {"status": "ignored", "event": event or "", "reason": "app lifecycle event"}
+
     if _mark_delivery_seen(delivery_id, settings.webhook_delivery_dedupe_ttl_seconds):
         logger.info("Ignoring duplicate webhook delivery %s", delivery_id)
         return {"status": "skipped", "reason": "duplicate delivery"}
 
     payload = await request.json()
-
-    # Lifecycle events have no repository payload — return early before security validation
-    if event in ("ping", "installation", "installation_repositories", "meta"):
-        logger.info("Ignoring GitHub App lifecycle event: %s", event)
-        return {"status": "ignored", "event": event or "", "reason": "app lifecycle event"}
 
     # Security validation: confirm installation identity and repo ownership
     _installation_id = payload.get("installation", {}).get("id")

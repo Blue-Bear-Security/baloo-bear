@@ -26,3 +26,8 @@ def test_fidelity_spec_has_no_content_when_both_none():
 def test_fidelity_spec_has_no_content_when_both_empty_string():
     spec = FidelitySpec(ticket="", plan="")
     assert spec.has_content is False
+
+
+def test_fidelity_spec_has_no_content_when_whitespace_only():
+    spec = FidelitySpec(ticket="   ", plan="\n\t")
+    assert spec.has_content is False

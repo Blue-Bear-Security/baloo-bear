@@ -62,4 +62,4 @@ class FidelitySpec:
 
     @property
     def has_content(self) -> bool:
-        return bool(self.ticket or self.plan)
+        return bool((self.ticket or "").strip() or (self.plan or "").strip())
