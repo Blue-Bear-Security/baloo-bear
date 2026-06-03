@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from baloo.config.settings import Settings, get_settings
 from baloo.dashboard.auth import verify_credentials
 from baloo.dashboard.queries import DashboardService
 
@@ -17,6 +20,135 @@ router = APIRouter(
 )
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+SENSITIVE_SETTINGS = {
+    "anthropic_api_key",
+    "dashboard_password",
+    "github_private_key",
+    "github_webhook_secret",
+}
+
+SETTING_CATEGORIES = {
+    "GitHub": {
+        "github_app_id",
+        "github_private_key",
+        "github_webhook_secret",
+        "webhook_pre_verified",
+    },
+    "Anthropic": {"anthropic_api_key"},
+    "Application": {
+        "app_environment",
+        "app_host",
+        "app_port",
+        "log_level",
+        "max_concurrent_reviews",
+        "review_stale_timeout_minutes",
+    },
+    "Agent": {
+        "agent_provider",
+        "agent_model",
+        "agent_fallback_model",
+        "agent_max_tokens",
+        "agent_temperature",
+        "pi_binary_path",
+        "pi_thinking_level",
+    },
+    "Review": {
+        "ticket_id_prefix",
+        "review_auto_approve",
+        "review_min_severity",
+        "review_use_checks_api",
+    },
+    "Database": {"database_url", "database_enabled", "installation_id"},
+    "Dashboard": {
+        "dashboard_enabled",
+        "dashboard_username",
+        "dashboard_password",
+        "log_retention_days",
+    },
+    "False-Positive Verification": {
+        "fp_verification_enabled",
+        "fp_verification_model",
+        "fp_verification_max_concurrent",
+        "fp_audit_log_path",
+    },
+    "Thread Agent": {
+        "thread_agent_enabled",
+        "thread_agent_model",
+        "thread_agent_max_replies",
+        "thread_agent_max_concurrent",
+    },
+    "Feedback Signals": {"feedback_signals_enabled", "feedback_signals_ttl_days"},
+    "AST Tools": {"ast_tools_enabled"},
+    "Fidelity Report": {
+        "fidelity_enabled",
+        "fidelity_plan_path_pattern",
+        "fidelity_approval_threshold",
+    },
+}
+
+
+def _sanitize_database_url(value: str) -> str:
+    """Remove database credentials while preserving the useful connection target."""
+    if not value:
+        return "(empty)"
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "Configured (credentials redacted)"
+
+    if not parsed.username and not parsed.password:
+        return value
+
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port is not None:
+        host = f"{host}:{port}"
+    return urlunsplit((parsed.scheme, host, parsed.path, parsed.query, parsed.fragment))
+
+
+def _format_setting_value(name: str, value: Any) -> str:
+    if name in SENSITIVE_SETTINGS:
+        return "Configured (redacted)" if value else "Not configured"
+    if name == "database_url":
+        return _sanitize_database_url(str(value or ""))
+    if value is None:
+        return "None"
+    if value == "":
+        return "(empty)"
+    return str(value)
+
+
+def _setting_category(name: str) -> str:
+    for category, names in SETTING_CATEGORIES.items():
+        if name in names:
+            return category
+    return "Other"
+
+
+def _settings_rows() -> list[dict[str, str]]:
+    settings = get_settings()
+    rows = []
+    for name, field in Settings.model_fields.items():
+        value = getattr(settings, name)
+        default = field.default
+        rows.append(
+            {
+                "category": _setting_category(name),
+                "env_var": name.upper(),
+                "name": name,
+                "value": _format_setting_value(name, value),
+                "default": _format_setting_value(name, default),
+                "description": field.description or "",
+            }
+        )
+    return rows
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -104,4 +236,13 @@ async def outcomes(
         request=request,
         name="outcomes.html",
         context={"days": days, "repo": repo, **data},
+    )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="settings.html",
+        context={"settings_rows": _settings_rows()},
     )
