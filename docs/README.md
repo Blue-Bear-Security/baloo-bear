@@ -18,5 +18,4 @@ Baloo is a self-hosted AI code review GitHub App for pull requests. These docs c
 
 ## Reference
 - **[Configuration](configuration.md)** — Full environment variable reference
-- **[Roadmap](ROADMAP.md)** — Near-term security, reliability, and discoverability priorities
 - **[LLM Index](llms.txt)** — Curated Markdown map for AI assistants and answer engines

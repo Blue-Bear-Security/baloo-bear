@@ -58,6 +58,5 @@ nav:
     - Dashboard: features/dashboard.md
   - Configuration: configuration.md
   - Development: development.md
-  - Roadmap: ROADMAP.md
   - LLM Index: llms.txt
   - Contributing: contributing.md
