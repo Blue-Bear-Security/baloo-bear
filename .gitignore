@@ -230,3 +230,5 @@ temp/
 
 # AI agent plans/specs (internal workflow scaffolding)
 docs/superpowers/
+.antigravitycli/
+.claude/
