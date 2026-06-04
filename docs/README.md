@@ -1,4 +1,6 @@
-# Documentation
+# Baloo Documentation
+
+Baloo is a self-hosted AI code review GitHub App for pull requests. These docs cover installation, model configuration, review behavior, security posture, and operator workflows.
 
 ## Getting Started
 - **[Getting Started](getting-started.md)** — Set up Baloo end-to-end with Docker, ngrok, and a GitHub App
@@ -16,3 +18,4 @@
 
 ## Reference
 - **[Configuration](configuration.md)** — Full environment variable reference
+- **[LLM Index](llms.txt)** — Curated Markdown map for AI assistants and answer engines

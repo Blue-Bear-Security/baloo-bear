@@ -1,8 +1,10 @@
 site_name: Baloo
-site_description: AI-powered code review agent for GitHub pull requests
+site_description: Self-hosted AI code review GitHub App for pull request security, guidelines, and implementation feedback
 site_url: https://blue-bear-security.github.io/baloo-bear
 repo_url: https://github.com/Blue-Bear-Security/baloo-bear
 repo_name: Blue-Bear-Security/baloo-bear
+exclude_docs: |
+  README.md
 
 theme:
   name: material
@@ -56,5 +58,5 @@ nav:
     - Dashboard: features/dashboard.md
   - Configuration: configuration.md
   - Development: development.md
-  - Roadmap: ROADMAP.md
+  - LLM Index: llms.txt
   - Contributing: contributing.md

@@ -114,12 +114,14 @@ DATABASE_ENABLED=true
 DASHBOARD_ENABLED=true
 DASHBOARD_USERNAME=baloo
 DASHBOARD_PASSWORD=choose-a-password
+POSTGRES_PASSWORD=choose-a-database-password
 ```
 
 Notes:
 
 - the default compose stack mounts `.secrets/` into the container, so `GITHUB_PRIVATE_KEY=.secrets/<file>.pem` works both locally and in Docker
 - you do not need to set `DATABASE_URL` when using the default compose stack, because `docker-compose.yml` already injects the local PostgreSQL connection string
+- `POSTGRES_PASSWORD` must be set in `.env`; do not use the example value outside local development
 - the default compose stack does not publish PostgreSQL to your host, so it should not conflict with a local Postgres instance
 - if you keep multiple env files, you can run compose with `BALOO_ENV_FILE=<your-file> docker compose up --build` instead of copying over `.env`
 
