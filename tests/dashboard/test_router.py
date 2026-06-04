@@ -62,7 +62,8 @@ def test_dashboard_settings_renders_sanitized_values(monkeypatch) -> None:
 
     monkeypatch.setenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://dbuser:dbpass@db.example.com:5432/baloo",
+        "postgresql+asyncpg://dbuser:dbpass@db.example.com:5432/baloo"
+        "?sslmode=require&password=query-secret&sslpassword=ssl-secret",
     )
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-secret")
     monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "webhook-secret")
@@ -79,10 +80,16 @@ def test_dashboard_settings_renders_sanitized_values(monkeypatch) -> None:
     assert "APP_ENVIRONMENT" in response.text
     assert "production" in response.text
     assert "DATABASE_URL" in response.text
-    assert "postgresql+asyncpg://db.example.com:5432/baloo" in response.text
+    assert (
+        "postgresql+asyncpg://db.example.com:5432/baloo"
+        "?sslmode=require&amp;password=%5BREDACTED%5D&amp;sslpassword=%5BREDACTED%5D"
+        in response.text
+    )
     assert "Configured (redacted)" in response.text
     assert "dbuser" not in response.text
     assert "dbpass" not in response.text
+    assert "query-secret" not in response.text
+    assert "ssl-secret" not in response.text
     assert "sk-ant-test-secret" not in response.text
     assert "webhook-secret" not in response.text
     assert "dashboard-secret" not in response.text

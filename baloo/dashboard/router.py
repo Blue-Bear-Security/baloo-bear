@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse
@@ -26,6 +26,21 @@ SENSITIVE_SETTINGS = {
     "dashboard_password",
     "github_private_key",
     "github_webhook_secret",
+}
+
+SENSITIVE_DATABASE_QUERY_KEYS = {
+    "api_key",
+    "apikey",
+    "auth_source",
+    "authsource",
+    "client_secret",
+    "pass",
+    "password",
+    "pwd",
+    "secret",
+    "ssl_password",
+    "sslpassword",
+    "token",
 }
 
 SETTING_CATEGORIES = {
@@ -88,6 +103,18 @@ SETTING_CATEGORIES = {
 }
 
 
+def _sanitize_database_query(query: str) -> str:
+    if not query:
+        return ""
+
+    params = parse_qsl(query, keep_blank_values=True)
+    sanitized = [
+        (key, "[REDACTED]" if key.lower() in SENSITIVE_DATABASE_QUERY_KEYS else value)
+        for key, value in params
+    ]
+    return urlencode(sanitized, doseq=True)
+
+
 def _sanitize_database_url(value: str) -> str:
     """Remove database credentials while preserving the useful connection target."""
     if not value:
@@ -98,8 +125,12 @@ def _sanitize_database_url(value: str) -> str:
     except ValueError:
         return "Configured (credentials redacted)"
 
+    query = _sanitize_database_query(parsed.query)
+
     if not parsed.username and not parsed.password:
-        return value
+        if query == parsed.query:
+            return value
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
 
     host = parsed.hostname or ""
     if ":" in host and not host.startswith("["):
@@ -110,7 +141,7 @@ def _sanitize_database_url(value: str) -> str:
         port = None
     if port is not None:
         host = f"{host}:{port}"
-    return urlunsplit((parsed.scheme, host, parsed.path, parsed.query, parsed.fragment))
+    return urlunsplit((parsed.scheme, host, parsed.path, query, parsed.fragment))
 
 
 def _format_setting_value(name: str, value: Any) -> str:
