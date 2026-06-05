@@ -12,12 +12,14 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-and-publish:
     name: Build and Publish Docker Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code

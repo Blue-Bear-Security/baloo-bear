@@ -15,8 +15,8 @@ Do not report security vulnerabilities in public GitHub issues or discussions.
 
 Instead:
 
-1. Use GitHub private vulnerability reporting for this repository if it is enabled.
-2. If private vulnerability reporting is not enabled, contact the maintainers through the repository owner or organization on GitHub and request a private reporting channel.
+1. Use GitHub [private vulnerability reporting](https://github.com/Blue-Bear-Security/baloo-bear/security/advisories/new) for this repository.
+2. Or email the maintainers at **security@bluebear.io** and request a private reporting channel.
 
 Please include:
 
