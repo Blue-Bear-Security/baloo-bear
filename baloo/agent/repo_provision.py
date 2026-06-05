@@ -21,6 +21,7 @@ unavailable ``Checkout``); provisioning never blocks a review.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 from dataclasses import dataclass
@@ -94,3 +95,96 @@ def worktree_dir(
     short = head_sha[:12]
     name = f"{_slug(repo_full_name)}-{unique_id}-{short}"
     return Path(root) / str(installation_id) / "worktrees" / name
+
+
+# --- Git command builders + auth --------------------------------------------
+def auth_header(token: str) -> str:
+    """Build the ``AUTHORIZATION: basic ...`` header value for a GitHub token.
+
+    Passed to git via ``-c http.extraHeader=<this>`` so the credential is never
+    written to the stored remote URL (which git would persist in .git/config).
+    """
+    raw = f"x-access-token:{token}".encode()
+    return "AUTHORIZATION: basic " + base64.b64encode(raw).decode()
+
+
+def _auth_args(token: str | None) -> list[str]:
+    if not token:
+        return []
+    return ["-c", f"http.extraHeader={auth_header(token)}"]
+
+
+def build_clone_cmd(token: str | None, remote_url: str, dest: str | os.PathLike) -> list[str]:
+    return [
+        "git",
+        *_auth_args(token),
+        "clone",
+        "--filter=blob:none",
+        "--bare",
+        remote_url,
+        str(dest),
+    ]
+
+
+def build_fetch_cmd(
+    token: str | None, cache_dir_path: str | os.PathLike, head_sha: str
+) -> list[str]:
+    return [
+        "git",
+        *_auth_args(token),
+        "-C",
+        str(cache_dir_path),
+        "fetch",
+        "--filter=blob:none",
+        "origin",
+        head_sha,
+    ]
+
+
+def build_worktree_add_cmd(
+    cache_dir_path: str | os.PathLike, wt_dir: str | os.PathLike, head_sha: str
+) -> list[str]:
+    return [
+        "git",
+        "-C",
+        str(cache_dir_path),
+        "worktree",
+        "add",
+        "--detach",
+        str(wt_dir),
+        head_sha,
+    ]
+
+
+def build_worktree_remove_cmd(
+    cache_dir_path: str | os.PathLike, wt_dir: str | os.PathLike
+) -> list[str]:
+    return [
+        "git",
+        "-C",
+        str(cache_dir_path),
+        "worktree",
+        "remove",
+        "--force",
+        str(wt_dir),
+    ]
+
+
+def build_worktree_prune_cmd(cache_dir_path: str | os.PathLike) -> list[str]:
+    return ["git", "-C", str(cache_dir_path), "worktree", "prune"]
+
+
+async def _run_git(cmd: list[str], timeout: float = 300.0) -> tuple[int, str]:
+    """Run a git command; return (returncode, combined-output-text)."""
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        raise
+    return proc.returncode or 0, out.decode(errors="replace")
