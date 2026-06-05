@@ -72,14 +72,18 @@ class ReviewLogger:
             },
         )
 
-    async def tool_use(self, tool_name: str, file_path: str | None = None) -> None:
+    async def tool_use(
+        self, tool_name: str, file_path: str | None = None, success: bool | None = None
+    ) -> None:
         msg = f"Tool call: {tool_name}"
         if file_path:
             msg += f" ({file_path})"
+        if success is False:
+            msg += " — failed"
         await self._log(
             "tool_use",
             msg,
-            metadata={"tool_name": tool_name, "file_path": file_path},
+            metadata={"tool_name": tool_name, "file_path": file_path, "success": success},
         )
 
     async def json_parse_failed(self, raw_text: str, char_count: int) -> None:

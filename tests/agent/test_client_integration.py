@@ -171,6 +171,20 @@ class TestBalooAgentErrorHandling:
         assert result.metadata["error_category"] == "max_turns_reached"
 
     @pytest.mark.asyncio
+    async def test_review_pr_forwards_injected_logger(self, sample_pr_context):
+        """An explicitly supplied review_logger is threaded into the agent run.
+
+        Enables dry-run/observability tooling to capture tool outcomes without a DB.
+        """
+        sentinel = object()
+        fake_run = AsyncMock(return_value=(None, {"num_turns": 0}))
+        with patch.object(BalooAgent, "_run_with_fallback", new=fake_run):
+            agent = BalooAgent()
+            await agent.review_pr(sample_pr_context, review_logger=sentinel)
+
+        assert fake_run.await_args.kwargs["review_logger"] is sentinel
+
+    @pytest.mark.asyncio
     async def test_review_pr_handles_error_stop_reason(self, sample_pr_context):
         """Test handling of error stop reason from PI."""
         events = _make_pi_events(None, is_error=True)

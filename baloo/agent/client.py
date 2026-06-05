@@ -26,7 +26,11 @@ class BalooAgent(PIAgentBase):
         logger.info(f"Initialized BalooAgent with {self.options.model}")
 
     async def review_pr(
-        self, pr_context: PRContext, model_override: str = None, review_id: int | None = None
+        self,
+        pr_context: PRContext,
+        model_override: str = None,
+        review_id: int | None = None,
+        review_logger: Any = None,
     ) -> ReviewResult:
         """
         Perform a full code review for a pull request.
@@ -34,6 +38,10 @@ class BalooAgent(PIAgentBase):
         Args:
             pr_context: Context about the PR including diff and metadata
             model_override: Optional model to use for this review
+            review_id: Persist execution logs against this review (DB must be enabled)
+            review_logger: Explicit execution logger to use instead of building one
+                from the DB. Useful for dry-run/observability tooling that needs to
+                capture tool outcomes without a database.
 
         Returns:
             ReviewResult containing summary, comments, and decision
@@ -45,15 +53,14 @@ class BalooAgent(PIAgentBase):
             f"Starting review for {pr_context.repo_full_name}#{pr_context.pr_number} using {self.options.model}"
         )
 
-        review_logger = None
         logger_session = None
 
         try:
             # Build review prompt
             review_query = build_pr_review_prompt(pr_context)
 
-            # Create execution logger if database is enabled
-            if review_id:
+            # Create execution logger if database is enabled (skipped when one is injected)
+            if review_logger is None and review_id:
                 from baloo.agent.logger import ReviewLogger
                 from baloo.config.settings import get_settings
                 from baloo.db.engine import get_session_factory

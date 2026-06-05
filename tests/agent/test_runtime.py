@@ -668,3 +668,112 @@ class TestPIAgentBaseRunQuery:
             assert metadata["output_tokens"] == 125  # 50 + 75
             assert abs(metadata["cost_usd"] - 0.013) < 0.001
             assert metadata["num_turns"] == 2
+
+    @pytest.mark.asyncio
+    async def test_tool_execution_end_records_success_and_failure(self):
+        """Tool calls are logged with their outcome (isError) and target from `args`."""
+
+        class SpyLogger:
+            def __init__(self):
+                self.calls = []
+
+            async def tool_use(self, tool_name, file_path=None, success=None):
+                self.calls.append((tool_name, file_path, success))
+
+            def __getattr__(self, _name):
+                async def _noop(*args, **kwargs):
+                    return None
+
+                return _noop
+
+        events = [
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
+            json.dumps({"type": "turn_start"}).encode() + b"\n",
+            # A successful read
+            json.dumps(
+                {
+                    "type": "tool_execution_start",
+                    "toolCallId": "c1",
+                    "toolName": "read",
+                    "args": {"path": "src/foo.py"},
+                }
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "tool_execution_end",
+                    "toolCallId": "c1",
+                    "toolName": "read",
+                    "isError": False,
+                }
+            ).encode()
+            + b"\n",
+            # A failed read (file not on disk — the cwd bug)
+            json.dumps(
+                {
+                    "type": "tool_execution_start",
+                    "toolCallId": "c2",
+                    "toolName": "read",
+                    "args": {"path": "src/missing.py"},
+                }
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "tool_execution_end",
+                    "toolCallId": "c2",
+                    "toolName": "read",
+                    "isError": True,
+                }
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": '{"findings": [], "summary": {}}'}],
+                        "model": "test",
+                        "usage": {"input": 10, "output": 5, "cost": {"total": 0.0}},
+                        "stopReason": "stop",
+                    },
+                }
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "turn_end"}).encode() + b"\n",
+            json.dumps({"type": "agent_end"}).encode() + b"\n",
+        ]
+
+        agent = PIAgentBase(PIAgentOptions())
+        spy = SpyLogger()
+
+        with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.returncode = None
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            await agent.run_query("Review", review_logger=spy)
+
+        assert ("read", "src/foo.py", True) in spy.calls
+        assert ("read", "src/missing.py", False) in spy.calls

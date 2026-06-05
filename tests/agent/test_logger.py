@@ -71,6 +71,34 @@ class TestReviewLoggerEvents:
         assert meta["duration"] == 12.3
 
     @pytest.mark.asyncio
+    async def test_tool_use_records_success(self):
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+
+        logger = ReviewLogger(review_id=42, session=mock_session)
+        await logger.tool_use(tool_name="read", file_path="src/foo.py", success=True)
+
+        log_row = mock_session.add.call_args[0][0]
+        assert log_row.event_type == "tool_use"
+        meta = json.loads(log_row.metadata_json)
+        assert meta["tool_name"] == "read"
+        assert meta["file_path"] == "src/foo.py"
+        assert meta["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_tool_use_records_failure_in_message_and_metadata(self):
+        mock_session = AsyncMock()
+        mock_session.add = MagicMock()
+
+        logger = ReviewLogger(review_id=42, session=mock_session)
+        await logger.tool_use(tool_name="read", file_path="src/missing.py", success=False)
+
+        log_row = mock_session.add.call_args[0][0]
+        meta = json.loads(log_row.metadata_json)
+        assert meta["success"] is False
+        assert "failed" in log_row.message.lower()
+
+    @pytest.mark.asyncio
     async def test_log_exception_is_swallowed(self):
         """Logger errors must not crash the review."""
         mock_session = AsyncMock()
