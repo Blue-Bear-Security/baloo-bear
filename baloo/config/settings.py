@@ -167,6 +167,21 @@ class Settings(BaseSettings):
         description="Enable AST analysis tools (outline, grep, symbols) for the review agent",
     )
 
+    # Repo Provisioning Configuration
+    repo_cache_enabled: bool = Field(
+        default=False,
+        description="Check out the PR repo so the agent's file tools read real code "
+        "(off = current diff-only behavior)",
+    )
+    repo_cache_root: str = Field(
+        default="/tmp/baloo-repo-cache",
+        description="Ephemeral root dir for cached bare clones and per-review worktrees",
+    )
+    repo_cache_max_disk_gb: int = Field(
+        default=10,
+        description="Total cache disk cap (GB); least-recently-used caches are evicted over this",
+    )
+
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(
         default=True,

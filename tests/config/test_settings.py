@@ -1,0 +1,20 @@
+"""Tests for repo-provisioning settings."""
+
+from baloo.config.settings import Settings
+
+
+def test_repo_cache_enabled_defaults_to_false():
+    assert Settings().repo_cache_enabled is False
+
+
+def test_repo_cache_root_default():
+    assert Settings().repo_cache_root == "/tmp/baloo-repo-cache"
+
+
+def test_repo_cache_max_disk_gb_default():
+    assert Settings().repo_cache_max_disk_gb == 10
+
+
+def test_repo_cache_enabled_reads_env(monkeypatch):
+    monkeypatch.setenv("REPO_CACHE_ENABLED", "true")
+    assert Settings().repo_cache_enabled is True
