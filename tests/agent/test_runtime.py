@@ -75,6 +75,7 @@ class TestPIAgentOptions:
         assert opts.thinking_level == "medium"
         assert opts.max_turns == 20
         assert opts.cwd is None
+        assert opts.name is None
 
     def test_custom_values(self):
         opts = PIAgentOptions(
@@ -87,6 +88,14 @@ class TestPIAgentOptions:
         assert opts.model == "claude-opus-4-6"
         assert opts.max_turns == 30
         assert opts.cwd == "/tmp/repo"
+
+    def test_agent_name_defaults_to_class_name(self):
+        agent = PIAgentBase(PIAgentOptions())
+        assert agent.agent_name == "PIAgentBase"
+
+    def test_agent_name_prefers_options_name(self):
+        agent = PIAgentBase(PIAgentOptions(name="SyncScopeDecider"))
+        assert agent.agent_name == "SyncScopeDecider"
 
 
 class TestPIAgentBase:
@@ -450,6 +459,86 @@ class TestPIAgentBaseRunQuery:
             write_calls = proc.stdin.write.call_args_list
             abort_sent = any(b'"abort"' in call[0][0] for call in write_calls)
             assert abort_sent
+
+    async def _run_single_turn(self, *, with_text: bool):
+        """Drive a max_turns=1 agent, optionally producing assistant text."""
+        agent = PIAgentBase(PIAgentOptions(max_turns=1, name="SyncScopeDecider"))
+
+        message_content = [{"type": "text", "text": '{"mode": "scoped"}'}] if with_text else []
+        events = [
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
+            json.dumps({"type": "turn_start"}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": message_content,
+                        "model": "test",
+                        "usage": {"input": 10, "output": 5, "cost": {"total": 0.001}},
+                    },
+                }
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "turn_end"}).encode() + b"\n",
+            json.dumps({"type": "agent_end"}).encode() + b"\n",
+        ]
+
+        with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.returncode = None
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            await agent.run_query("Decide scope")
+
+    @pytest.mark.asyncio
+    async def test_max_turns_with_response_logs_info_not_warning(self, caplog):
+        """A single-turn decider that answered should not warn — reaching the
+        cap is its expected, successful exit."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="baloo.agent.pi_runtime"):
+            await self._run_single_turn(with_text=True)
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not any("max turns" in r.getMessage() for r in warnings)
+        assert any(
+            "reached turn cap" in r.getMessage() and "SyncScopeDecider" in r.getMessage()
+            for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_max_turns_without_response_warns(self, caplog):
+        """Hitting the cap with no output is a genuine problem — warn."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="baloo.agent.pi_runtime"):
+            await self._run_single_turn(with_text=False)
+
+        assert any(
+            r.levelno >= logging.WARNING and "max turns" in r.getMessage() for r in caplog.records
+        )
 
     @pytest.mark.asyncio
     async def test_json_retry_on_invalid_response(self):

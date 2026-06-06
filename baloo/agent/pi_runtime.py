@@ -41,6 +41,10 @@ class PIAgentOptions:
     # Useful for single-turn JSON-in/JSON-out tasks where all context
     # is already embedded in the prompt.
     no_tools: bool = False
+    # Human-readable label for logs. Distinguishes the several agents that
+    # instantiate PIAgentBase directly (scope decider, thread agent, ...) —
+    # without it they all log under the generic class name "PIAgentBase".
+    name: str | None = None
 
 
 @dataclass
@@ -374,7 +378,9 @@ class PIAgentBase:
 
     def __init__(self, options: PIAgentOptions):
         self.options = options
-        self.agent_name = self.__class__.__name__
+        # Prefer an explicit label so directly-instantiated agents are
+        # distinguishable in logs; fall back to the subclass name.
+        self.agent_name = options.name or self.__class__.__name__
 
     # -----------------------------------------------------------------
     # Low-level RPC helpers
@@ -856,12 +862,22 @@ Serialized payload:
                     )
                 turn_tools = []
                 if turn_count >= self.options.max_turns:
-                    logger.warning(
-                        "%s: max turns (%d) reached, aborting",
-                        self.agent_name,
-                        self.options.max_turns,
-                    )
                     result.max_turns_reached = True
+                    if last_assistant_text:
+                        # The model produced a final response before exhausting
+                        # its budget — expected for single-turn deciders, and a
+                        # clean (if capped) finish for longer agents. Not an error.
+                        logger.info(
+                            "%s: reached turn cap (%d) with a response — finalizing",
+                            self.agent_name,
+                            self.options.max_turns,
+                        )
+                    else:
+                        logger.warning(
+                            "%s: max turns (%d) reached with no response, aborting",
+                            self.agent_name,
+                            self.options.max_turns,
+                        )
                     assert proc.stdin is not None
                     proc.stdin.write(self._make_command("abort").encode("utf-8"))
                     await proc.stdin.drain()
