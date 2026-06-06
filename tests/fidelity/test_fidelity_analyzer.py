@@ -149,3 +149,18 @@ async def test_analyze_forwards_review_logger_to_run_query():
             review_logger=sentinel,
         )
     assert fake_run.await_args.kwargs["review_logger"] is sentinel
+
+
+@pytest.mark.asyncio
+async def test_analyze_resets_cwd_when_repo_path_none_on_reused_instance():
+    # Setting cwd unconditionally means a reused instance never keeps a stale
+    # worktree path from an earlier call (repo_path=None => diff-only).
+    from baloo.fidelity.fidelity_analyzer import FidelityAgent
+
+    agent = FidelityAgent()
+    fake_run = AsyncMock(return_value=(None, {"num_turns": 0}))
+    with patch.object(FidelityAgent, "run_query", new=fake_run):
+        await agent.analyze("p", "t", "d", "PROJ-1", repo_path="/work/tree")
+        assert agent.options.cwd == "/work/tree"
+        await agent.analyze("p", "t", "d", "PROJ-1", repo_path=None)
+    assert agent.options.cwd is None

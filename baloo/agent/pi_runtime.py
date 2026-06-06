@@ -454,20 +454,35 @@ class PIAgentBase:
 
         cmd.extend(["--system-prompt", self.options.system_prompt])
 
-        sandbox_mode = getattr(s, "repo_sandbox_mode", "off")
-        if sandbox_mode != "off" and self.options.cwd:
+        mode, active = self._sandbox_decision()
+        if active:
             from baloo.agent import sandbox
 
-            if sandbox.sandbox_available(sandbox_mode):
-                cmd = sandbox.build_sandbox_prefix(sandbox_mode, self.options.cwd) + cmd
-            else:
-                logger.warning(
-                    "%s: sandbox mode %r requested but binary unavailable; "
-                    "running WITHOUT filesystem isolation",
-                    self.agent_name,
-                    sandbox_mode,
-                )
+            cmd = sandbox.build_sandbox_prefix(mode, self.options.cwd) + cmd
+        elif mode != "off" and self.options.cwd:
+            logger.warning(
+                "%s: sandbox mode %r requested but unavailable; "
+                "running WITHOUT filesystem isolation",
+                self.agent_name,
+                mode,
+            )
         return cmd
+
+    def _sandbox_decision(self) -> tuple[str, bool]:
+        """Return (mode, active) — the single source of truth for sandboxing.
+
+        ``active`` is True only when a non-off mode is configured, a worktree
+        ``cwd`` is set, and the sandbox is functionally available. Both the bwrap
+        argv prefix (``_build_pi_command``) and the env scrub (``run_query``) key
+        off this one decision so they can never diverge — a mismatch would either
+        expose secrets (prefix without scrub) or break tools (scrub without prefix).
+        """
+        mode = getattr(get_settings(), "repo_sandbox_mode", "off")
+        if mode == "off" or not self.options.cwd:
+            return mode, False
+        from baloo.agent import sandbox
+
+        return mode, sandbox.sandbox_available(mode)
 
     # -----------------------------------------------------------------
     # Main query interface
@@ -498,14 +513,14 @@ class PIAgentBase:
         # allowlist so a prompt-injected agent (which keeps network access for
         # the model API) cannot read baloo's secrets from /proc/self/environ and
         # exfiltrate them. env=None preserves today's inherit-everything behavior
-        # on the unsandboxed/dev path. Must match _build_pi_command's condition.
+        # on the unsandboxed/dev path. Gated on the same _sandbox_decision() as
+        # the bwrap prefix so the two always engage together.
         proc_env = None
-        sandbox_mode = getattr(get_settings(), "repo_sandbox_mode", "off")
-        if sandbox_mode != "off" and cwd:
+        _, sandbox_active = self._sandbox_decision()
+        if sandbox_active:
             from baloo.agent import sandbox
 
-            if sandbox.sandbox_available(sandbox_mode):
-                proc_env = sandbox.build_subprocess_env(dict(os.environ))
+            proc_env = sandbox.build_subprocess_env(dict(os.environ))
 
         logger.info(
             "%s: spawning PI process (model=%s, thinking=%s)",

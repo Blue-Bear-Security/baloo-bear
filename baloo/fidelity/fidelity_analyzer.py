@@ -52,8 +52,10 @@ class FidelityAgent(PIAgentBase):
         logger.info(f"Starting fidelity analysis for {ticket_id}")
 
         try:
-            if repo_path:
-                self.options.cwd = repo_path
+            # Point the agent's file tools at the provisioned worktree. Set
+            # unconditionally (None = diff-only) so a reused instance can never
+            # retain a stale cwd from an earlier call.
+            self.options.cwd = repo_path
 
             # Build prompt
             prompt = build_fidelity_prompt(plan_content, pr_title, diff)

@@ -207,30 +207,39 @@ def _dir_size(path: Path) -> int:
     return total
 
 
-async def _evict_if_over_cap(root: str | os.PathLike, max_bytes: int) -> None:
-    """While total cache disk exceeds ``max_bytes``, remove LRU caches.
+def _evict_over_cap_sync(root: str | os.PathLike, max_bytes: int) -> None:
+    """Synchronous LRU eviction body (heavy filesystem I/O).
 
     Never removes a cache with a live worktree (its normalized path is in
-    ``_active``). Runs under the global evict lock so it cannot race a
-    concurrent provision creating/removing a worktree.
+    ``_active``). Run off the event loop via ``_evict_if_over_cap``.
     """
     root = Path(root)
-    async with _evict_lock:
-        if not root.exists():
-            return
-        caches = [p for p in root.glob("*/*.git") if p.is_dir()]
-        total = sum(_dir_size(c) for c in caches)
+    if not root.exists():
+        return
+    caches = [p for p in root.glob("*/*.git") if p.is_dir()]
+    total = sum(_dir_size(c) for c in caches)
+    if total <= max_bytes:
+        return
+    for cache in sorted(caches, key=lambda c: c.stat().st_mtime):
+        if _active.get(_norm(cache), 0) > 0:
+            continue
+        size = _dir_size(cache)
+        shutil.rmtree(cache, ignore_errors=True)
+        total -= size
+        logger.info("Evicted repo cache %s (~%d bytes)", cache, size)
         if total <= max_bytes:
-            return
-        for cache in sorted(caches, key=lambda c: c.stat().st_mtime):
-            if _active.get(_norm(cache), 0) > 0:
-                continue
-            size = _dir_size(cache)
-            shutil.rmtree(cache, ignore_errors=True)
-            total -= size
-            logger.info("Evicted repo cache %s (~%d bytes)", cache, size)
-            if total <= max_bytes:
-                break
+            break
+
+
+async def _evict_if_over_cap(root: str | os.PathLike, max_bytes: int) -> None:
+    """Evict LRU caches over ``max_bytes``, holding the global evict lock.
+
+    The recursive scan + rmtree can take seconds on a multi-GB cache, so it runs
+    in a worker thread to avoid stalling the event loop (and concurrent reviews).
+    The lock still serializes eviction against concurrent provisions.
+    """
+    async with _evict_lock:
+        await asyncio.to_thread(_evict_over_cap_sync, root, max_bytes)
 
 
 # --- GitHub seams (monkeypatched in tests to use a local file:// remote) -----
@@ -239,11 +248,24 @@ def _remote_url(repo_full_name: str) -> str:
     return f"https://github.com/{repo_full_name}"
 
 
-def _get_token(installation_id: int | str) -> str:
-    """Mint a fresh installation token for this provision (never persisted)."""
-    from baloo.github.auth import GitHubAuth
+_auth_singleton = None
 
-    return GitHubAuth().get_installation_token(int(installation_id))
+
+def _get_token(installation_id: int | str) -> str:
+    """Return an installation token (never persisted to disk).
+
+    Synchronous (``httpx.post`` under the hood); callers run it via
+    ``asyncio.to_thread`` so the blocking HTTP round-trip does not stall the event
+    loop. A module-level ``GitHubAuth`` preserves its expiry-aware token cache
+    across reviews, so back-to-back reviews of the same installation reuse the
+    token instead of re-minting one each time.
+    """
+    global _auth_singleton
+    if _auth_singleton is None:
+        from baloo.github.auth import GitHubAuth
+
+        _auth_singleton = GitHubAuth()
+    return _auth_singleton.get_installation_token(int(installation_id))
 
 
 # --- Public entry point ------------------------------------------------------
@@ -277,7 +299,7 @@ async def provision_repo(
 
     # --- Provisioning (may raise; no yield here) ---
     try:
-        token = _get_token(installation_id)
+        token = await asyncio.to_thread(_get_token, installation_id)
         remote = _remote_url(repo_full_name)
         cdir.parent.mkdir(parents=True, exist_ok=True)
         wt.parent.mkdir(parents=True, exist_ok=True)
