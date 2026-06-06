@@ -24,14 +24,50 @@ from pathlib import Path
 _bwrap_works: bool | None = None  # cached runtime-probe result
 
 
+# The probe must exercise the SAME privileged operations the real prefix does —
+# notably `--proc` + `--unshare-pid` (mounting a fresh /proc in a new PID/user
+# namespace). A weaker probe like `bwrap --ro-bind / / -- true` passes on hardened
+# platforms (default Docker seccomp, some k8s/AppArmor/gVisor) where the real
+# command then dies with "Can't mount proc ... Operation not permitted" — a
+# false positive that would crash every review instead of degrading. `/lib`
+# (+`/lib64`) must be bound so the probe binary's dynamic loader is present;
+# without it exec fails with a misleading "No such file or directory".
+_PROBE_CMD = [
+    "bwrap",
+    "--ro-bind",
+    "/usr",
+    "/usr",
+    "--ro-bind",
+    "/bin",
+    "/bin",
+    "--ro-bind",
+    "/lib",
+    "/lib",
+    "--ro-bind-try",
+    "/lib64",
+    "/lib64",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
+    "--tmpfs",
+    "/tmp",
+    "--unshare-pid",
+    "--die-with-parent",
+    "--",
+    "true",
+]
+
+
 def sandbox_available(mode: str) -> bool:
     """Return True if the sandbox for `mode` is present AND actually runnable.
 
-    `which bwrap` is not enough: bubblewrap needs unprivileged user namespaces,
-    which hardened platforms (some k8s/seccomp/AppArmor/gVisor setups) block. If
-    we only checked for the binary, every review would crash at the bwrap layer
-    on such platforms with no fallback. So we probe once (cached) by actually
-    running a trivial bwrap invocation.
+    `which bwrap` is not enough: bubblewrap needs unprivileged user namespaces
+    (and the ability to mount a fresh /proc), which hardened platforms (some
+    k8s/seccomp/AppArmor/gVisor setups, default Docker) block. If we only checked
+    for the binary, every review would crash at the bwrap layer on such platforms
+    with no fallback. So we probe once (cached) by actually running a bwrap
+    invocation that mirrors the real prefix's privileged operations.
     """
     global _bwrap_works
     if mode != "bwrap":
@@ -40,11 +76,7 @@ def sandbox_available(mode: str) -> bool:
         return False
     if _bwrap_works is None:
         try:
-            proc = subprocess.run(
-                ["bwrap", "--ro-bind", "/", "/", "--", "true"],
-                capture_output=True,
-                timeout=5,
-            )
+            proc = subprocess.run(_PROBE_CMD, capture_output=True, timeout=5)
             _bwrap_works = proc.returncode == 0
         except Exception:
             _bwrap_works = False

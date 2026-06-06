@@ -29,6 +29,17 @@ def test_bwrap_prefix_shares_network(tmp_path):
     assert "--unshare-net" not in prefix
 
 
+def test_probe_cmd_mirrors_real_prefix_privileged_ops():
+    # A weak probe (e.g. `bwrap --ro-bind / / -- true`) passes on hardened
+    # platforms where the real prefix's `--proc`/`--unshare-pid` then fail —
+    # a false positive that crashes reviews instead of degrading. Lock the
+    # probe to the operations that actually fail.
+    assert "--proc" in sandbox._PROBE_CMD
+    assert "--unshare-pid" in sandbox._PROBE_CMD
+    # dynamic loader must be available or exec fails misleadingly
+    assert "/lib" in sandbox._PROBE_CMD
+
+
 def test_sandbox_available_off_is_false():
     assert sandbox.sandbox_available("off") is False
 
