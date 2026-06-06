@@ -149,10 +149,20 @@ def build_fetch_cmd(
 
 
 def build_worktree_add_cmd(
-    cache_dir_path: str | os.PathLike, wt_dir: str | os.PathLike, head_sha: str
+    token: str | None,
+    cache_dir_path: str | os.PathLike,
+    wt_dir: str | os.PathLike,
+    head_sha: str,
 ) -> list[str]:
+    # The bare cache is blobless (clone + fetch use --filter=blob:none), so
+    # checking out the worktree triggers a lazy promisor fetch of the missing
+    # file blobs from origin. Inject the auth header (never the URL) so that
+    # fetch authenticates; without it git prompts for a username and aborts
+    # with "could not read Username for 'https://github.com'". The -c override
+    # propagates to the internal fetch via GIT_CONFIG_PARAMETERS.
     return [
         "git",
+        *_auth_args(token),
         "-C",
         str(cache_dir_path),
         "worktree",
@@ -320,7 +330,7 @@ async def provision_repo(
                 raise RuntimeError(f"fetch failed (rc={rc}): {out[-500:]}")
             # Clear stale worktree admin metadata left by crashed reviews.
             await _run_git(build_worktree_prune_cmd(cdir))
-            rc, out = await _run_git(build_worktree_add_cmd(cdir, wt, head_sha))
+            rc, out = await _run_git(build_worktree_add_cmd(token, cdir, wt, head_sha))
             if rc != 0:
                 raise RuntimeError(f"worktree add failed (rc={rc}): {out[-500:]}")
             _active[ckey] = _active.get(ckey, 0) + 1

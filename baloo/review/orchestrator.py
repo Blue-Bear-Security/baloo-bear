@@ -292,6 +292,7 @@ async def _decide_synchronize_review_mode(
     options.max_turns = 1
     options.no_tools = True
     options.thinking_level = "minimal"
+    options.name = "SyncScopeDecider"
     decider = PIAgentBase(options)
 
     changed_files_list = "\n".join(
@@ -1088,6 +1089,25 @@ async def process_pr_review(
                 repo_path = checkout.path if checkout.available else None
                 if repo_path:
                     agent.options.cwd = repo_path
+                    logger.info(
+                        "Agent file tools using provisioned worktree for %s#%s: %s",
+                        repo_full_name,
+                        pr_number,
+                        repo_path,
+                    )
+                else:
+                    # No checkout: the PI subprocess inherits baloo's own cwd
+                    # (/app in the container), so every PR-file read/grep/find
+                    # fails and the review is effectively diff-only. Surface why
+                    # — the master switch being off is otherwise totally silent.
+                    logger.warning(
+                        "No PR checkout for %s#%s (repo_cache_enabled=%s) — agent "
+                        "file tools will run against baloo's own cwd, not the PR; "
+                        "reviewing diff-only",
+                        repo_full_name,
+                        pr_number,
+                        settings.repo_cache_enabled,
+                    )
 
                 if settings.fidelity_enabled:
                     (

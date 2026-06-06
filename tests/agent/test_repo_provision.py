@@ -69,9 +69,11 @@ def test_fetch_cmd_targets_cache_and_sha():
 
 
 def test_worktree_add_cmd_is_detached_at_sha():
-    cmd = rp.build_worktree_add_cmd("/cache/x.git", "/cache/wt", "deadbeef")
+    cmd = rp.build_worktree_add_cmd("TOK123", "/cache/x.git", "/cache/wt", "deadbeef")
     assert cmd == [
         "git",
+        "-c",
+        f"http.extraHeader={rp.auth_header('TOK123')}",
         "-C",
         "/cache/x.git",
         "worktree",
@@ -80,6 +82,21 @@ def test_worktree_add_cmd_is_detached_at_sha():
         "/cache/wt",
         "deadbeef",
     ]
+
+
+def test_worktree_add_cmd_injects_token_for_lazy_blob_fetch():
+    # The bare repo is blobless; `worktree add` checks out the head SHA, which
+    # triggers a lazy promisor fetch of the missing file blobs. That fetch must
+    # carry the auth header or it fails with "could not read Username".
+    cmd = rp.build_worktree_add_cmd("TOK123", "/cache/x.git", "/cache/wt", "deadbeef")
+    assert "TOK123@" not in " ".join(cmd)
+    assert any(a.startswith("http.extraHeader=AUTHORIZATION: basic ") for a in cmd)
+
+
+def test_worktree_add_cmd_omits_auth_when_token_empty():
+    cmd = rp.build_worktree_add_cmd("", "/cache/x.git", "/cache/wt", "deadbeef")
+    assert "-c" not in cmd
+    assert not any("http.extraHeader" in a for a in cmd)
 
 
 def test_worktree_remove_and_prune_cmds():

@@ -117,6 +117,7 @@ class ThreadAgent:
         options.system_prompt = THREAD_AGENT_SYSTEM_PROMPT
         options.no_tools = True
         options.max_turns = 2
+        options.name = "ThreadAgent"
 
         agent = PIAgentBase(options)
         return await agent.run_query(prompt)

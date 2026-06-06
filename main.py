@@ -1,53 +1,17 @@
 """Main entry point for Baloo application."""
 
 import logging
-import time
 
 import uvicorn
 
 from baloo.config.settings import settings
 from baloo.github.webhook_handler import app
+from baloo.logging_config import UVICORN_LOG_CONFIG, configure_logging
 from baloo.version import BUILD_DATE, COMMIT_SHA, VERSION, get_version_info
 
-# Logging format shared by the app and uvicorn
-LOG_FORMAT = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
-LOG_DATEFMT = "%Y-%m-%d %H:%M:%S UTC"
-
-# Configure root logger (covers all non-uvicorn loggers)
-logging.basicConfig(level=settings.log_level, format=LOG_FORMAT, datefmt=LOG_DATEFMT)
-logging.Formatter.converter = time.gmtime
-
-# Uvicorn log config — override its default formatters so every line
-# gets a timestamp, matching the rest of the application output.
-UVICORN_LOG_CONFIG: dict = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "default": {"format": LOG_FORMAT, "datefmt": LOG_DATEFMT},
-        "access": {"format": LOG_FORMAT, "datefmt": LOG_DATEFMT},
-    },
-    "handlers": {
-        "default": {
-            "formatter": "default",
-            "class": "logging.StreamHandler",
-            "stream": "ext://sys.stderr",
-        },
-        "access": {
-            "formatter": "access",
-            "class": "logging.StreamHandler",
-            "stream": "ext://sys.stdout",
-        },
-    },
-    "loggers": {
-        "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-        "uvicorn.error": {"level": "INFO"},
-        "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
-    },
-}
-
-# Suppress verbose logs from third-party libraries
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# Configure root logger (covers all non-uvicorn loggers). Re-applied after DB
+# migrations run — see baloo.logging_config for why.
+configure_logging(settings.log_level)
 
 logger = logging.getLogger(__name__)
 

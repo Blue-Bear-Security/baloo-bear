@@ -100,6 +100,12 @@ SETTING_CATEGORIES = {
         "fidelity_plan_path_pattern",
         "fidelity_approval_threshold",
     },
+    "Repo Provisioning": {
+        "repo_cache_enabled",
+        "repo_cache_root",
+        "repo_cache_max_disk_gb",
+        "repo_sandbox_mode",
+    },
 }
 
 
