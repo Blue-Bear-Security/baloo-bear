@@ -1,6 +1,6 @@
 # Multi-stage build for Baloo Code Review Agent
 # Pin to specific version for security patching - update periodically
-FROM python:3.11.11-slim-bookworm as base
+FROM python:3.14.5-slim-bookworm as base
 
 # Build arguments for version tracking
 ARG BALOO_VERSION=dev
