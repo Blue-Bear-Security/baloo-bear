@@ -24,8 +24,14 @@ import asyncio
 import base64
 import logging
 import os
+import shutil
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+from baloo.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -188,3 +194,134 @@ async def _run_git(cmd: list[str], timeout: float = 300.0) -> tuple[int, str]:
         await proc.wait()
         raise
     return proc.returncode or 0, out.decode(errors="replace")
+
+
+# --- LRU eviction ------------------------------------------------------------
+def _dir_size(path: Path) -> int:
+    total = 0
+    for p in path.rglob("*"):
+        try:
+            total += p.stat(follow_symlinks=False).st_size
+        except OSError:
+            pass
+    return total
+
+
+async def _evict_if_over_cap(root: str | os.PathLike, max_bytes: int) -> None:
+    """While total cache disk exceeds ``max_bytes``, remove LRU caches.
+
+    Never removes a cache with a live worktree (its normalized path is in
+    ``_active``). Runs under the global evict lock so it cannot race a
+    concurrent provision creating/removing a worktree.
+    """
+    root = Path(root)
+    async with _evict_lock:
+        if not root.exists():
+            return
+        caches = [p for p in root.glob("*/*.git") if p.is_dir()]
+        total = sum(_dir_size(c) for c in caches)
+        if total <= max_bytes:
+            return
+        for cache in sorted(caches, key=lambda c: c.stat().st_mtime):
+            if _active.get(_norm(cache), 0) > 0:
+                continue
+            size = _dir_size(cache)
+            shutil.rmtree(cache, ignore_errors=True)
+            total -= size
+            logger.info("Evicted repo cache %s (~%d bytes)", cache, size)
+            if total <= max_bytes:
+                break
+
+
+# --- GitHub seams (monkeypatched in tests to use a local file:// remote) -----
+def _remote_url(repo_full_name: str) -> str:
+    """Clean remote URL (no credential). Token is injected via header per call."""
+    return f"https://github.com/{repo_full_name}"
+
+
+def _get_token(installation_id: int | str) -> str:
+    """Mint a fresh installation token for this provision (never persisted)."""
+    from baloo.github.auth import GitHubAuth
+
+    return GitHubAuth().get_installation_token(int(installation_id))
+
+
+# --- Public entry point ------------------------------------------------------
+@asynccontextmanager
+async def provision_repo(
+    installation_id: int | str,
+    repo_full_name: str,
+    head_sha: str,
+    review_id: int | None = None,
+) -> AsyncIterator[Checkout]:
+    """Yield a ``Checkout`` for ``repo_full_name`` at ``head_sha``.
+
+    On success, ``Checkout.path`` is a per-review detached worktree; on the
+    master switch being off, a missing head SHA, or ANY failure, yields an
+    unavailable Checkout so the caller falls back to diff-only.
+    """
+    s = get_settings()
+    if not s.repo_cache_enabled or not head_sha:
+        yield Checkout(path=None, available=False)
+        return
+
+    root = s.repo_cache_root
+    cdir = cache_dir(root, installation_id, repo_full_name)
+    ckey = _norm(cdir)
+    max_bytes = int(s.repo_cache_max_disk_gb) * 1024**3
+    unique = str(review_id) if review_id is not None else uuid.uuid4().hex[:8]
+    wt = worktree_dir(root, installation_id, repo_full_name, unique, head_sha)
+
+    checkout = Checkout(path=None, available=False)
+    wt_created = False
+
+    # --- Provisioning (may raise; no yield here) ---
+    try:
+        token = _get_token(installation_id)
+        remote = _remote_url(repo_full_name)
+        cdir.parent.mkdir(parents=True, exist_ok=True)
+        wt.parent.mkdir(parents=True, exist_ok=True)
+
+        await _evict_if_over_cap(root, max_bytes)
+
+        async with _get_lock(ckey):
+            if not (cdir / "HEAD").exists():
+                rc, out = await _run_git(build_clone_cmd(token, remote, cdir))
+                if rc != 0:
+                    raise RuntimeError(f"clone failed (rc={rc}): {out[-500:]}")
+            rc, out = await _run_git(build_fetch_cmd(token, cdir, head_sha))
+            if rc != 0:
+                raise RuntimeError(f"fetch failed (rc={rc}): {out[-500:]}")
+            # Clear stale worktree admin metadata left by crashed reviews.
+            await _run_git(build_worktree_prune_cmd(cdir))
+            rc, out = await _run_git(build_worktree_add_cmd(cdir, wt, head_sha))
+            if rc != 0:
+                raise RuntimeError(f"worktree add failed (rc={rc}): {out[-500:]}")
+            _active[ckey] = _active.get(ckey, 0) + 1
+            wt_created = True
+
+        os.utime(cdir, None)  # touch last_used for LRU
+        await _evict_if_over_cap(root, max_bytes)
+        checkout = Checkout(path=str(wt), available=True)
+    except Exception as exc:  # noqa: BLE001 — any failure => diff-only
+        logger.warning(
+            "provision_repo failed for %s@%s: %s — falling back to diff-only",
+            repo_full_name,
+            head_sha[:12],
+            exc,
+        )
+        checkout = Checkout(path=None, available=False)
+
+    # --- Single yield + guaranteed cleanup ---
+    try:
+        yield checkout
+    finally:
+        if wt_created:
+            async with _get_lock(ckey):
+                try:
+                    await _run_git(build_worktree_remove_cmd(cdir, wt))
+                    await _run_git(build_worktree_prune_cmd(cdir))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("worktree cleanup failed for %s: %s", wt, exc)
+                finally:
+                    _active[ckey] = max(0, _active.get(ckey, 1) - 1)
