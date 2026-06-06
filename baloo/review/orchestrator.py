@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from baloo.agent.config import get_agent_options
 from baloo.agent.pi_runtime import PIAgentBase
+from baloo.agent.repo_provision import provision_repo
 from baloo.config.settings import settings
 from baloo.db.service import DuplicateReviewError, ReviewCompleteDTO, ReviewService
 from baloo.db.tenant import apply_tenant_filter
@@ -684,6 +685,7 @@ async def _run_fidelity_analysis(
     github_client: GitHubAPIClient,
     repo_full_name: str,
     pr_context,
+    repo_path: str | None = None,
 ) -> tuple[str, FidelityResult | None]:
     """
     Run fidelity analysis comparing PR changes to design plan.
@@ -736,6 +738,7 @@ async def _run_fidelity_analysis(
             pr_title=pr_context.title,
             diff=pr_context.diff,
             ticket_id=ticket_id,
+            repo_path=repo_path,
         )
 
         return format_fidelity_report(result=result, ticket_id=ticket_id), result
@@ -1044,14 +1047,29 @@ async def process_pr_review(
 
             agent = BalooAgent()
 
-            if settings.fidelity_enabled:
-                (fidelity_report_text, fidelity_result), agent_result = await asyncio.gather(
-                    _run_fidelity_analysis(github_client, repo_full_name, pr_context),
-                    agent.review_pr(review_context, review_id=db_review_id),
-                )
-            else:
-                fidelity_report_text, fidelity_result = "", None
-                agent_result = await agent.review_pr(review_context, review_id=db_review_id)
+            async with provision_repo(
+                installation_id,
+                repo_full_name,
+                pr_context.head_sha,
+                review_id=db_review_id,
+            ) as checkout:
+                repo_path = checkout.path if checkout.available else None
+                if repo_path:
+                    agent.options.cwd = repo_path
+
+                if settings.fidelity_enabled:
+                    (
+                        (fidelity_report_text, fidelity_result),
+                        agent_result,
+                    ) = await asyncio.gather(
+                        _run_fidelity_analysis(
+                            github_client, repo_full_name, pr_context, repo_path=repo_path
+                        ),
+                        agent.review_pr(review_context, review_id=db_review_id),
+                    )
+                else:
+                    fidelity_report_text, fidelity_result = "", None
+                    agent_result = await agent.review_pr(review_context, review_id=db_review_id)
             agent_metadata = agent_result.metadata
             review_result = agent_result
 

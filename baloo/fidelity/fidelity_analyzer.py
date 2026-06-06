@@ -32,6 +32,7 @@ class FidelityAgent(PIAgentBase):
         pr_title: str,
         diff: str,
         ticket_id: str,
+        repo_path: str | None = None,
     ) -> FidelityResult | None:
         """
         Run fidelity analysis comparing PR changes to design plan.
@@ -41,6 +42,8 @@ class FidelityAgent(PIAgentBase):
             pr_title: PR title for context
             diff: The PR diff
             ticket_id: Ticket ID (e.g., PROJ-123)
+            repo_path: Provisioned worktree path; when set, the agent's file
+                tools read the real PR code from here instead of baloo's own fs.
 
         Returns:
             FidelityResult with analysis, or None if analysis fails
@@ -48,6 +51,9 @@ class FidelityAgent(PIAgentBase):
         logger.info(f"Starting fidelity analysis for {ticket_id}")
 
         try:
+            if repo_path:
+                self.options.cwd = repo_path
+
             # Build prompt
             prompt = build_fidelity_prompt(plan_content, pr_title, diff)
 
@@ -101,7 +107,8 @@ async def analyze_fidelity(
     pr_title: str,
     diff: str,
     ticket_id: str,
+    repo_path: str | None = None,
 ) -> FidelityResult | None:
     """Legacy wrapper for FidelityAgent (maintains compatibility)."""
     agent = FidelityAgent()
-    return await agent.analyze(plan_content, pr_title, diff, ticket_id)
+    return await agent.analyze(plan_content, pr_title, diff, ticket_id, repo_path=repo_path)

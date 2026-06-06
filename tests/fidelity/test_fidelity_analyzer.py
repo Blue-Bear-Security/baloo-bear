@@ -114,3 +114,20 @@ class TestAnalyzeFidelityWrapper:
 
         assert result is not None
         assert result.ticket_id == "PROJ-789"
+
+
+@pytest.mark.asyncio
+async def test_analyze_sets_cwd_from_repo_path():
+    from baloo.fidelity.fidelity_analyzer import FidelityAgent
+
+    agent = FidelityAgent()
+    fake_run = AsyncMock(return_value=(None, {"num_turns": 0}))
+    with patch.object(FidelityAgent, "run_query", new=fake_run):
+        await agent.analyze(
+            plan_content="plan",
+            pr_title="t",
+            diff="d",
+            ticket_id="PROJ-1",
+            repo_path="/work/tree",
+        )
+    assert agent.options.cwd == "/work/tree"
