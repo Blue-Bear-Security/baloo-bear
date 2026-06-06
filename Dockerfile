@@ -1,6 +1,6 @@
 # Multi-stage build for Baloo Code Review Agent
 # Pin to specific version for security patching - update periodically
-FROM python:3.11.11-slim-bookworm@sha256:081075da77b2b55c23c088251026fb69a7b2bf92471e491ff5fd75c192fd38e5 as base
+FROM python:3.14.5-slim-bookworm@sha256:a9bee15510a364124aa24692899d269835683b883de42f7ebec8c293cf679ccb as base
 
 # Build arguments for version tracking
 ARG BALOO_VERSION=dev
@@ -16,6 +16,7 @@ ENV BALOO_BUILD_DATE=${BALOO_BUILD_DATE}
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    bubblewrap \
     && apt-get upgrade -y openssl libssl3 \
     && rm -rf /var/lib/apt/lists/*
 

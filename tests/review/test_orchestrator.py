@@ -714,3 +714,50 @@ class TestGitHubChecksApiPath:
 
         # Fallback: posted as issue comment
         gc.post_comment.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# Repo provisioning wiring
+# ---------------------------------------------------------------------------
+
+
+class TestRepoProvisioningWiring:
+    """process_pr_review points the agent's cwd at the provisioned worktree."""
+
+    async def test_agent_cwd_set_to_worktree_when_available(self):
+        from contextlib import asynccontextmanager
+
+        gc = _make_github_client()
+        agent = _make_agent()
+        agent.options = MagicMock()
+        agent.options.cwd = None
+
+        @asynccontextmanager
+        async def fake_provision(installation_id, repo_full_name, head_sha, review_id=None):
+            from baloo.agent.repo_provision import Checkout
+
+            yield Checkout(path="/work/tree", available=True)
+
+        with patch("baloo.review.orchestrator.provision_repo", fake_provision):
+            await _run_review(gc, agent)
+
+        assert agent.options.cwd == "/work/tree"
+
+    async def test_agent_cwd_unset_when_unavailable(self):
+        from contextlib import asynccontextmanager
+
+        gc = _make_github_client()
+        agent = _make_agent()
+        agent.options = MagicMock()
+        agent.options.cwd = None
+
+        @asynccontextmanager
+        async def fake_provision(installation_id, repo_full_name, head_sha, review_id=None):
+            from baloo.agent.repo_provision import Checkout
+
+            yield Checkout(path=None, available=False)
+
+        with patch("baloo.review.orchestrator.provision_repo", fake_provision):
+            await _run_review(gc, agent)
+
+        assert agent.options.cwd is None

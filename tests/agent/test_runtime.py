@@ -75,6 +75,7 @@ class TestPIAgentOptions:
         assert opts.thinking_level == "medium"
         assert opts.max_turns == 20
         assert opts.cwd is None
+        assert opts.name is None
 
     def test_custom_values(self):
         opts = PIAgentOptions(
@@ -87,6 +88,14 @@ class TestPIAgentOptions:
         assert opts.model == "claude-opus-4-6"
         assert opts.max_turns == 30
         assert opts.cwd == "/tmp/repo"
+
+    def test_agent_name_defaults_to_class_name(self):
+        agent = PIAgentBase(PIAgentOptions())
+        assert agent.agent_name == "PIAgentBase"
+
+    def test_agent_name_prefers_options_name(self):
+        agent = PIAgentBase(PIAgentOptions(name="SyncScopeDecider"))
+        assert agent.agent_name == "SyncScopeDecider"
 
 
 class TestPIAgentBase:
@@ -451,6 +460,86 @@ class TestPIAgentBaseRunQuery:
             abort_sent = any(b'"abort"' in call[0][0] for call in write_calls)
             assert abort_sent
 
+    async def _run_single_turn(self, *, with_text: bool):
+        """Drive a max_turns=1 agent, optionally producing assistant text."""
+        agent = PIAgentBase(PIAgentOptions(max_turns=1, name="SyncScopeDecider"))
+
+        message_content = [{"type": "text", "text": '{"mode": "scoped"}'}] if with_text else []
+        events = [
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
+            json.dumps({"type": "turn_start"}).encode() + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": message_content,
+                        "model": "test",
+                        "usage": {"input": 10, "output": 5, "cost": {"total": 0.001}},
+                    },
+                }
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "turn_end"}).encode() + b"\n",
+            json.dumps({"type": "agent_end"}).encode() + b"\n",
+        ]
+
+        with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.returncode = None
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            await agent.run_query("Decide scope")
+
+    @pytest.mark.asyncio
+    async def test_max_turns_with_response_logs_info_not_warning(self, caplog):
+        """A single-turn decider that answered should not warn — reaching the
+        cap is its expected, successful exit."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="baloo.agent.pi_runtime"):
+            await self._run_single_turn(with_text=True)
+
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not any("max turns" in r.getMessage() for r in warnings)
+        assert any(
+            "reached turn cap" in r.getMessage() and "SyncScopeDecider" in r.getMessage()
+            for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_max_turns_without_response_warns(self, caplog):
+        """Hitting the cap with no output is a genuine problem — warn."""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="baloo.agent.pi_runtime"):
+            await self._run_single_turn(with_text=False)
+
+        assert any(
+            r.levelno >= logging.WARNING and "max turns" in r.getMessage() for r in caplog.records
+        )
+
     @pytest.mark.asyncio
     async def test_json_retry_on_invalid_response(self):
         """Test that invalid JSON triggers a retry that succeeds."""
@@ -668,3 +757,225 @@ class TestPIAgentBaseRunQuery:
             assert metadata["output_tokens"] == 125  # 50 + 75
             assert abs(metadata["cost_usd"] - 0.013) < 0.001
             assert metadata["num_turns"] == 2
+
+    @pytest.mark.asyncio
+    async def test_tool_execution_end_records_success_and_failure(self):
+        """Tool calls are logged with their outcome (isError) and target from `args`."""
+
+        class SpyLogger:
+            def __init__(self):
+                self.calls = []
+
+            async def tool_use(self, tool_name, file_path=None, success=None):
+                self.calls.append((tool_name, file_path, success))
+
+            def __getattr__(self, _name):
+                async def _noop(*args, **kwargs):
+                    return None
+
+                return _noop
+
+        events = [
+            json.dumps(
+                {"type": "response", "command": "set_thinking_level", "success": True}
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "response", "command": "prompt", "success": True}).encode() + b"\n",
+            json.dumps({"type": "turn_start"}).encode() + b"\n",
+            # A successful read
+            json.dumps(
+                {
+                    "type": "tool_execution_start",
+                    "toolCallId": "c1",
+                    "toolName": "read",
+                    "args": {"path": "src/foo.py"},
+                }
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "tool_execution_end",
+                    "toolCallId": "c1",
+                    "toolName": "read",
+                    "isError": False,
+                }
+            ).encode()
+            + b"\n",
+            # A failed read (file not on disk — the cwd bug)
+            json.dumps(
+                {
+                    "type": "tool_execution_start",
+                    "toolCallId": "c2",
+                    "toolName": "read",
+                    "args": {"path": "src/missing.py"},
+                }
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "tool_execution_end",
+                    "toolCallId": "c2",
+                    "toolName": "read",
+                    "isError": True,
+                }
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "message_end",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": '{"findings": [], "summary": {}}'}],
+                        "model": "test",
+                        "usage": {"input": 10, "output": 5, "cost": {"total": 0.0}},
+                        "stopReason": "stop",
+                    },
+                }
+            ).encode()
+            + b"\n",
+            json.dumps({"type": "turn_end"}).encode() + b"\n",
+            json.dumps({"type": "agent_end"}).encode() + b"\n",
+        ]
+
+        agent = PIAgentBase(PIAgentOptions())
+        spy = SpyLogger()
+
+        with patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec:
+            proc = AsyncMock()
+            proc.returncode = None
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            await agent.run_query("Review", review_logger=spy)
+
+        assert ("read", "src/foo.py", True) in spy.calls
+        assert ("read", "src/missing.py", False) in spy.calls
+
+
+class TestSandboxWiring:
+    """_build_pi_command wraps the command with bwrap when configured."""
+
+    def _settings(self, **overrides):
+        from types import SimpleNamespace
+
+        base = dict(
+            pi_binary_path="pi",
+            ast_tools_enabled=False,
+            repo_sandbox_mode="off",
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_no_sandbox_when_mode_off(self):
+        agent = PIAgentBase(PIAgentOptions(cwd="/work/tree"))
+        with patch("baloo.agent.pi_runtime.get_settings", return_value=self._settings()):
+            cmd = agent._build_pi_command()
+        assert cmd[0] == "pi"
+
+    def test_sandbox_prefix_when_bwrap_available(self):
+        agent = PIAgentBase(PIAgentOptions(cwd="/work/tree"))
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=True),
+        ):
+            cmd = agent._build_pi_command()
+        assert cmd[0] == "bwrap"
+        assert "--" in cmd
+        assert cmd[cmd.index("--") + 1] == "pi"
+
+    def test_degrades_with_warning_when_binary_missing(self, caplog):
+        agent = PIAgentBase(PIAgentOptions(cwd="/work/tree"))
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=False),
+        ):
+            with caplog.at_level("WARNING"):
+                cmd = agent._build_pi_command()
+        assert cmd[0] == "pi"
+        assert any("sandbox" in r.message.lower() for r in caplog.records)
+
+    def test_no_sandbox_when_cwd_unset(self):
+        agent = PIAgentBase(PIAgentOptions(cwd=None))
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=True),
+        ):
+            cmd = agent._build_pi_command()
+        assert cmd[0] == "pi"
+
+    @pytest.mark.asyncio
+    async def test_spawn_uses_scrubbed_env_when_sandboxed(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", "SECRET")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-keep")
+
+        agent = PIAgentBase(PIAgentOptions(model="claude-sonnet-4-6", cwd="/work/tree"))
+
+        events = [
+            json.dumps({"type": "agent_end"}).encode("utf-8") + b"\n",
+        ]
+
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=True),
+            patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec,
+        ):
+            proc = AsyncMock()
+            proc.returncode = 0
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            # env is computed and passed at spawn time, before the session is
+            # driven; a truncated mock stream may raise afterwards — irrelevant here.
+            try:
+                await agent.run_query("review")
+            except Exception:
+                pass
+
+        env = mock_exec.call_args.kwargs["env"]
+        assert env is not None
+        assert "GITHUB_PRIVATE_KEY" not in env
+        assert env["ANTHROPIC_API_KEY"] == "sk-keep"

@@ -93,3 +93,25 @@ def test_dashboard_settings_renders_sanitized_values(monkeypatch) -> None:
     assert "sk-ant-test-secret" not in response.text
     assert "webhook-secret" not in response.text
     assert "dashboard-secret" not in response.text
+
+
+def test_every_setting_is_categorized() -> None:
+    """No setting should fall into the catch-all 'Other' bucket — each new
+    field must be assigned a category so it surfaces under a real heading."""
+    from baloo.dashboard.router import _settings_rows
+
+    uncategorized = sorted(r["name"] for r in _settings_rows() if r["category"] == "Other")
+    assert uncategorized == [], f"settings missing a category: {uncategorized}"
+
+
+def test_repo_provisioning_settings_are_grouped() -> None:
+    from baloo.dashboard.router import _settings_rows
+
+    by_name = {r["name"]: r["category"] for r in _settings_rows()}
+    for name in (
+        "repo_cache_enabled",
+        "repo_cache_root",
+        "repo_cache_max_disk_gb",
+        "repo_sandbox_mode",
+    ):
+        assert by_name[name] == "Repo Provisioning"

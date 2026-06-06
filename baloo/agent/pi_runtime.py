@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -40,6 +41,10 @@ class PIAgentOptions:
     # Useful for single-turn JSON-in/JSON-out tasks where all context
     # is already embedded in the prompt.
     no_tools: bool = False
+    # Human-readable label for logs. Distinguishes the several agents that
+    # instantiate PIAgentBase directly (scope decider, thread agent, ...) —
+    # without it they all log under the generic class name "PIAgentBase".
+    name: str | None = None
 
 
 @dataclass
@@ -373,7 +378,9 @@ class PIAgentBase:
 
     def __init__(self, options: PIAgentOptions):
         self.options = options
-        self.agent_name = self.__class__.__name__
+        # Prefer an explicit label so directly-instantiated agents are
+        # distinguishable in logs; fall back to the subclass name.
+        self.agent_name = options.name or self.__class__.__name__
 
     # -----------------------------------------------------------------
     # Low-level RPC helpers
@@ -422,8 +429,13 @@ class PIAgentBase:
             "max_turns_reached": result.max_turns_reached,
         }
 
-    def _build_pi_command(self) -> list[str]:
-        """Build the PI CLI command list."""
+    def _build_pi_command(self, sandbox_decision: tuple[str, bool] | None = None) -> list[str]:
+        """Build the PI CLI command list.
+
+        ``sandbox_decision`` lets ``run_query`` compute the (mode, active) tuple
+        once and reuse it for both the bwrap prefix here and the env scrub there,
+        avoiding a redundant settings/availability lookup per review.
+        """
         s = get_settings()
         pi_binary = s.pi_binary_path or "pi"
 
@@ -452,7 +464,38 @@ class PIAgentBase:
                 cmd.extend(["--extension", str(ext_path)])
 
         cmd.extend(["--system-prompt", self.options.system_prompt])
+
+        mode, active = (
+            sandbox_decision if sandbox_decision is not None else self._sandbox_decision()
+        )
+        if active:
+            from baloo.agent import sandbox
+
+            cmd = sandbox.build_sandbox_prefix(mode, self.options.cwd) + cmd
+        elif mode != "off" and self.options.cwd:
+            logger.warning(
+                "%s: sandbox mode %r requested but unavailable; "
+                "running WITHOUT filesystem isolation",
+                self.agent_name,
+                mode,
+            )
         return cmd
+
+    def _sandbox_decision(self) -> tuple[str, bool]:
+        """Return (mode, active) — the single source of truth for sandboxing.
+
+        ``active`` is True only when a non-off mode is configured, a worktree
+        ``cwd`` is set, and the sandbox is functionally available. Both the bwrap
+        argv prefix (``_build_pi_command``) and the env scrub (``run_query``) key
+        off this one decision so they can never diverge — a mismatch would either
+        expose secrets (prefix without scrub) or break tools (scrub without prefix).
+        """
+        mode = getattr(get_settings(), "repo_sandbox_mode", "off")
+        if mode == "off" or not self.options.cwd:
+            return mode, False
+        from baloo.agent import sandbox
+
+        return mode, sandbox.sandbox_available(mode)
 
     # -----------------------------------------------------------------
     # Main query interface
@@ -476,8 +519,24 @@ class PIAgentBase:
             model=self.options.model, thinking_level=self.options.thinking_level
         )
 
-        cmd = self._build_pi_command()
+        # Compute the sandbox decision once and reuse it for both the bwrap argv
+        # prefix and the env scrub, so they always engage together and we don't
+        # repeat the settings/availability lookup.
+        sandbox_decision = self._sandbox_decision()
+        cmd = self._build_pi_command(sandbox_decision)
         cwd = self.options.cwd or None
+
+        # When the sandbox engages, also scrub the subprocess environment to an
+        # allowlist so a prompt-injected agent (which keeps network access for
+        # the model API) cannot read baloo's secrets from /proc/self/environ and
+        # exfiltrate them. env=None preserves today's inherit-everything behavior
+        # on the unsandboxed/dev path.
+        proc_env = None
+        _, sandbox_active = sandbox_decision
+        if sandbox_active:
+            from baloo.agent import sandbox
+
+            proc_env = sandbox.build_subprocess_env(dict(os.environ))
 
         logger.info(
             "%s: spawning PI process (model=%s, thinking=%s)",
@@ -493,6 +552,7 @@ class PIAgentBase:
             stderr=asyncio.subprocess.PIPE,
             limit=10 * 1024 * 1024,  # 10 MB line buffer for large JSON-RPC responses
             cwd=cwd,
+            env=proc_env,  # None = inherit (unsandboxed/dev); scrubbed when sandboxed
         )
 
         try:
@@ -772,6 +832,9 @@ Serialized payload:
         all_assistant_texts: list[str] = []
         turn_count = 0
         turn_tools: list[str] = []
+        # toolCallId -> (tool_name, target) captured at tool_execution_start so we
+        # can attribute the outcome reported at tool_execution_end.
+        pending_tools: dict[str, tuple[str, str | None]] = {}
 
         while True:
             event = await asyncio.wait_for(
@@ -799,12 +862,22 @@ Serialized payload:
                     )
                 turn_tools = []
                 if turn_count >= self.options.max_turns:
-                    logger.warning(
-                        "%s: max turns (%d) reached, aborting",
-                        self.agent_name,
-                        self.options.max_turns,
-                    )
                     result.max_turns_reached = True
+                    if last_assistant_text:
+                        # The model produced a final response before exhausting
+                        # its budget — expected for single-turn deciders, and a
+                        # clean (if capped) finish for longer agents. Not an error.
+                        logger.info(
+                            "%s: reached turn cap (%d) with a response — finalizing",
+                            self.agent_name,
+                            self.options.max_turns,
+                        )
+                    else:
+                        logger.warning(
+                            "%s: max turns (%d) reached with no response, aborting",
+                            self.agent_name,
+                            self.options.max_turns,
+                        )
                     assert proc.stdin is not None
                     proc.stdin.write(self._make_command("abort").encode("utf-8"))
                     await proc.stdin.drain()
@@ -846,15 +919,33 @@ Serialized payload:
 
             elif etype == "tool_execution_start":
                 tool = event.get("toolName", "?")
-                tool_input = event.get("input", {}) if isinstance(event.get("input"), dict) else {}
+                # PI emits tool input under `args`; older builds used `input`.
+                raw_args = event.get("args") or event.get("input") or {}
+                tool_args = raw_args if isinstance(raw_args, dict) else {}
                 tool_file = (
-                    tool_input.get("path") or tool_input.get("pattern") or tool_input.get("glob")
+                    tool_args.get("path") or tool_args.get("pattern") or tool_args.get("glob")
                 )
                 tool_label = f"{tool}:{tool_file}" if tool_file else tool
                 turn_tools.append(tool_label)
                 logger.debug("%s: tool call → %s", self.agent_name, tool_label)
+                call_id = event.get("toolCallId")
+                if call_id is not None:
+                    pending_tools[call_id] = (tool, tool_file)
+
+            elif etype == "tool_execution_end":
+                call_id = event.get("toolCallId")
+                tool, tool_file = pending_tools.pop(call_id, (event.get("toolName", "?"), None))
+                is_error = bool(event.get("isError"))
+                logger.debug(
+                    "%s: tool result → %s (%s)",
+                    self.agent_name,
+                    tool,
+                    "error" if is_error else "ok",
+                )
                 if review_logger:
-                    await review_logger.tool_use(tool_name=tool, file_path=tool_input.get("path"))
+                    await review_logger.tool_use(
+                        tool_name=tool, file_path=tool_file, success=not is_error
+                    )
 
             elif etype == "agent_end":
                 break

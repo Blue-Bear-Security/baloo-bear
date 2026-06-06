@@ -111,6 +111,13 @@ def _run_alembic_migrations(database_url: str) -> bool:
             # Advisory lock released automatically when connection closes
     finally:
         sync_engine.dispose()
+        # Alembic's env.py ran fileConfig(alembic.ini), which clobbered the
+        # root logger's handler/format and raised its level to WARN (silently
+        # dropping every baloo.* INFO line). Restore the app's logging config.
+        from baloo.config.settings import get_settings
+        from baloo.logging_config import configure_logging
+
+        configure_logging(get_settings().log_level)
 
     return True
 
