@@ -16,6 +16,7 @@ ENV BALOO_BUILD_DATE=${BALOO_BUILD_DATE}
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    bubblewrap \
     && apt-get upgrade -y openssl libssl3 \
     && rm -rf /var/lib/apt/lists/*
 

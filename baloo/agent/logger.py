@@ -20,11 +20,16 @@ class ReviewLogger:
     """
 
     def __init__(
-        self, review_id: int | None, session: Any = None, installation_id: str | None = None
+        self,
+        review_id: int | None,
+        session: Any = None,
+        installation_id: str | None = None,
+        agent_label: str = "review",
     ):
         self._review_id = review_id
         self._session = session
         self._installation_id = installation_id
+        self._agent_label = agent_label
 
     @property
     def active(self) -> bool:
@@ -39,6 +44,8 @@ class ReviewLogger:
     ) -> None:
         if not self.active:
             return
+        if metadata is not None:
+            metadata = {**metadata, "agent": self._agent_label}
         try:
             row = ReviewLog(
                 review_id=self._review_id,
@@ -72,14 +79,18 @@ class ReviewLogger:
             },
         )
 
-    async def tool_use(self, tool_name: str, file_path: str | None = None) -> None:
+    async def tool_use(
+        self, tool_name: str, file_path: str | None = None, success: bool | None = None
+    ) -> None:
         msg = f"Tool call: {tool_name}"
         if file_path:
             msg += f" ({file_path})"
+        if success is False:
+            msg += " — failed"
         await self._log(
             "tool_use",
             msg,
-            metadata={"tool_name": tool_name, "file_path": file_path},
+            metadata={"tool_name": tool_name, "file_path": file_path, "success": success},
         )
 
     async def json_parse_failed(self, raw_text: str, char_count: int) -> None:

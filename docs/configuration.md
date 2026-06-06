@@ -104,6 +104,15 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 |---|---|---|
 | `AST_TOOLS_ENABLED` | `true` | Enable AST analysis tools (outline, grep, symbols) for the review agent |
 
+## Repo Provisioning
+
+| Variable | Default | Description |
+|---|---|---|
+| `REPO_CACHE_ENABLED` | `false` | Check out the PR repo at its head SHA so the agent's file tools read real code. Off = diff-only review (current behavior). |
+| `REPO_CACHE_ROOT` | `/tmp/baloo-repo-cache` | Ephemeral root for cached bare clones + per-review worktrees (lost on redeploy). |
+| `REPO_CACHE_MAX_DISK_GB` | `10` | Total cache disk cap (GB). Least-recently-used caches are evicted above this. |
+| `REPO_SANDBOX_MODE` | `off` | Filesystem sandbox for the agent subprocess (`bwrap` binds only the review worktree read-only; `off` disables). |
+
 ## Multi-Broker Deployment
 
 Baloo supports running multiple broker instances against a shared database for high availability and horizontal scale.
