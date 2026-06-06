@@ -777,3 +777,116 @@ class TestPIAgentBaseRunQuery:
 
         assert ("read", "src/foo.py", True) in spy.calls
         assert ("read", "src/missing.py", False) in spy.calls
+
+
+class TestSandboxWiring:
+    """_build_pi_command wraps the command with bwrap when configured."""
+
+    def _settings(self, **overrides):
+        from types import SimpleNamespace
+
+        base = dict(
+            pi_binary_path="pi",
+            ast_tools_enabled=False,
+            repo_sandbox_mode="off",
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_no_sandbox_when_mode_off(self):
+        agent = PIAgentBase(PIAgentOptions(cwd="/work/tree"))
+        with patch("baloo.agent.pi_runtime.get_settings", return_value=self._settings()):
+            cmd = agent._build_pi_command()
+        assert cmd[0] == "pi"
+
+    def test_sandbox_prefix_when_bwrap_available(self):
+        agent = PIAgentBase(PIAgentOptions(cwd="/work/tree"))
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=True),
+        ):
+            cmd = agent._build_pi_command()
+        assert cmd[0] == "bwrap"
+        assert "--" in cmd
+        assert cmd[cmd.index("--") + 1] == "pi"
+
+    def test_degrades_with_warning_when_binary_missing(self, caplog):
+        agent = PIAgentBase(PIAgentOptions(cwd="/work/tree"))
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=False),
+        ):
+            with caplog.at_level("WARNING"):
+                cmd = agent._build_pi_command()
+        assert cmd[0] == "pi"
+        assert any("sandbox" in r.message.lower() for r in caplog.records)
+
+    def test_no_sandbox_when_cwd_unset(self):
+        agent = PIAgentBase(PIAgentOptions(cwd=None))
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=True),
+        ):
+            cmd = agent._build_pi_command()
+        assert cmd[0] == "pi"
+
+    @pytest.mark.asyncio
+    async def test_spawn_uses_scrubbed_env_when_sandboxed(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_PRIVATE_KEY", "SECRET")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-keep")
+
+        agent = PIAgentBase(PIAgentOptions(model="claude-sonnet-4-6", cwd="/work/tree"))
+
+        events = [
+            json.dumps({"type": "agent_end"}).encode("utf-8") + b"\n",
+        ]
+
+        with (
+            patch(
+                "baloo.agent.pi_runtime.get_settings",
+                return_value=self._settings(repo_sandbox_mode="bwrap"),
+            ),
+            patch("baloo.agent.sandbox.sandbox_available", return_value=True),
+            patch("baloo.agent.pi_runtime.asyncio.create_subprocess_exec") as mock_exec,
+        ):
+            proc = AsyncMock()
+            proc.returncode = 0
+            proc.stdin = AsyncMock()
+            proc.stdin.write = MagicMock()
+            proc.stdin.drain = AsyncMock()
+            proc.stdout = AsyncMock(spec=asyncio.StreamReader)
+
+            event_iter = iter(events)
+
+            async def fake_readline():
+                try:
+                    return next(event_iter)
+                except StopIteration:
+                    return b""
+
+            proc.stdout.readline = fake_readline
+            proc.stderr = AsyncMock()
+            proc.kill = MagicMock()
+            proc.wait = AsyncMock()
+            mock_exec.return_value = proc
+
+            # env is computed and passed at spawn time, before the session is
+            # driven; a truncated mock stream may raise afterwards — irrelevant here.
+            try:
+                await agent.run_query("review")
+            except Exception:
+                pass
+
+        env = mock_exec.call_args.kwargs["env"]
+        assert env is not None
+        assert "GITHUB_PRIVATE_KEY" not in env
+        assert env["ANTHROPIC_API_KEY"] == "sk-keep"

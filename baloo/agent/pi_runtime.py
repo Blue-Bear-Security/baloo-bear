@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -452,6 +453,20 @@ class PIAgentBase:
                 cmd.extend(["--extension", str(ext_path)])
 
         cmd.extend(["--system-prompt", self.options.system_prompt])
+
+        sandbox_mode = getattr(s, "repo_sandbox_mode", "off")
+        if sandbox_mode != "off" and self.options.cwd:
+            from baloo.agent import sandbox
+
+            if sandbox.sandbox_available(sandbox_mode):
+                cmd = sandbox.build_sandbox_prefix(sandbox_mode, self.options.cwd) + cmd
+            else:
+                logger.warning(
+                    "%s: sandbox mode %r requested but binary unavailable; "
+                    "running WITHOUT filesystem isolation",
+                    self.agent_name,
+                    sandbox_mode,
+                )
         return cmd
 
     # -----------------------------------------------------------------
@@ -479,6 +494,19 @@ class PIAgentBase:
         cmd = self._build_pi_command()
         cwd = self.options.cwd or None
 
+        # When the sandbox engages, also scrub the subprocess environment to an
+        # allowlist so a prompt-injected agent (which keeps network access for
+        # the model API) cannot read baloo's secrets from /proc/self/environ and
+        # exfiltrate them. env=None preserves today's inherit-everything behavior
+        # on the unsandboxed/dev path. Must match _build_pi_command's condition.
+        proc_env = None
+        sandbox_mode = getattr(get_settings(), "repo_sandbox_mode", "off")
+        if sandbox_mode != "off" and cwd:
+            from baloo.agent import sandbox
+
+            if sandbox.sandbox_available(sandbox_mode):
+                proc_env = sandbox.build_subprocess_env(dict(os.environ))
+
         logger.info(
             "%s: spawning PI process (model=%s, thinking=%s)",
             self.agent_name,
@@ -493,6 +521,7 @@ class PIAgentBase:
             stderr=asyncio.subprocess.PIPE,
             limit=10 * 1024 * 1024,  # 10 MB line buffer for large JSON-RPC responses
             cwd=cwd,
+            env=proc_env,  # None = inherit (unsandboxed/dev); scrubbed when sandboxed
         )
 
         try:
