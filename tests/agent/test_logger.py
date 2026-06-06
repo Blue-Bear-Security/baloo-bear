@@ -135,3 +135,29 @@ async def test_review_logger_installation_id_none_by_default():
     await rl.agent_started(model="claude", thinking_level="medium")
 
     assert logged_rows[0].installation_id is None
+
+
+@pytest.mark.asyncio
+async def test_tool_use_includes_agent_label():
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()
+
+    logger = ReviewLogger(review_id=42, session=mock_session, agent_label="fidelity")
+    await logger.tool_use(tool_name="read", file_path="a.py", success=True)
+
+    row = mock_session.add.call_args[0][0]
+    meta = json.loads(row.metadata_json)
+    assert meta["agent"] == "fidelity"
+
+
+@pytest.mark.asyncio
+async def test_default_agent_label_is_review():
+    mock_session = AsyncMock()
+    mock_session.add = MagicMock()
+
+    logger = ReviewLogger(review_id=42, session=mock_session)
+    await logger.tool_use(tool_name="read", file_path="a.py", success=True)
+
+    row = mock_session.add.call_args[0][0]
+    meta = json.loads(row.metadata_json)
+    assert meta["agent"] == "review"

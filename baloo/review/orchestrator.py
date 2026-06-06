@@ -686,6 +686,7 @@ async def _run_fidelity_analysis(
     repo_full_name: str,
     pr_context,
     repo_path: str | None = None,
+    db_review_id: int | None = None,
 ) -> tuple[str, FidelityResult | None]:
     """
     Run fidelity analysis comparing PR changes to design plan.
@@ -733,13 +734,44 @@ async def _run_fidelity_analysis(
 
         # Run fidelity analysis
         logger.info(f"Fidelity: Analyzing {ticket_id} against plan")
-        result = await analyze_fidelity(
-            plan_content=plan_content,
-            pr_title=pr_context.title,
-            diff=pr_context.diff,
-            ticket_id=ticket_id,
-            repo_path=repo_path,
-        )
+
+        # Build a fidelity-tagged execution logger on a DEDICATED DB session:
+        # fidelity runs concurrently with the main review under asyncio.gather,
+        # and an AsyncSession is not safe for concurrent use by two tasks. The
+        # owner must commit before close — ReviewLogger only flush()es — or every
+        # fidelity log row is rolled back.
+        fidelity_logger = None
+        fidelity_session = None
+        if db_review_id is not None and settings.database_enabled:
+            from baloo.agent.logger import ReviewLogger
+            from baloo.db.engine import get_session_factory
+
+            fidelity_session = get_session_factory(settings.database_url)()
+            fidelity_logger = ReviewLogger(
+                review_id=db_review_id,
+                session=fidelity_session,
+                installation_id=settings.installation_id,
+                agent_label="fidelity",
+            )
+        try:
+            result = await analyze_fidelity(
+                plan_content=plan_content,
+                pr_title=pr_context.title,
+                diff=pr_context.diff,
+                ticket_id=ticket_id,
+                repo_path=repo_path,
+                review_logger=fidelity_logger,
+            )
+        finally:
+            if fidelity_session is not None:
+                try:
+                    await fidelity_session.commit()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to commit fidelity log session: %s", exc)
+                try:
+                    await fidelity_session.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
         return format_fidelity_report(result=result, ticket_id=ticket_id), result
 
@@ -1063,7 +1095,11 @@ async def process_pr_review(
                         agent_result,
                     ) = await asyncio.gather(
                         _run_fidelity_analysis(
-                            github_client, repo_full_name, pr_context, repo_path=repo_path
+                            github_client,
+                            repo_full_name,
+                            pr_context,
+                            repo_path=repo_path,
+                            db_review_id=db_review_id,
                         ),
                         agent.review_pr(review_context, review_id=db_review_id),
                     )

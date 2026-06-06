@@ -20,11 +20,16 @@ class ReviewLogger:
     """
 
     def __init__(
-        self, review_id: int | None, session: Any = None, installation_id: str | None = None
+        self,
+        review_id: int | None,
+        session: Any = None,
+        installation_id: str | None = None,
+        agent_label: str = "review",
     ):
         self._review_id = review_id
         self._session = session
         self._installation_id = installation_id
+        self._agent_label = agent_label
 
     @property
     def active(self) -> bool:
@@ -39,6 +44,8 @@ class ReviewLogger:
     ) -> None:
         if not self.active:
             return
+        if metadata is not None:
+            metadata = {**metadata, "agent": self._agent_label}
         try:
             row = ReviewLog(
                 review_id=self._review_id,

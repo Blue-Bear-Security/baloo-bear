@@ -33,6 +33,7 @@ class FidelityAgent(PIAgentBase):
         diff: str,
         ticket_id: str,
         repo_path: str | None = None,
+        review_logger: object | None = None,
     ) -> FidelityResult | None:
         """
         Run fidelity analysis comparing PR changes to design plan.
@@ -58,7 +59,7 @@ class FidelityAgent(PIAgentBase):
             prompt = build_fidelity_prompt(plan_content, pr_title, diff)
 
             # Run agent using base class
-            structured_data, metadata = await self.run_query(prompt)
+            structured_data, metadata = await self.run_query(prompt, review_logger=review_logger)
 
             # Parse structured output
             result = self._parse_structured_fidelity(structured_data, ticket_id)
@@ -108,7 +109,15 @@ async def analyze_fidelity(
     diff: str,
     ticket_id: str,
     repo_path: str | None = None,
+    review_logger: object | None = None,
 ) -> FidelityResult | None:
     """Legacy wrapper for FidelityAgent (maintains compatibility)."""
     agent = FidelityAgent()
-    return await agent.analyze(plan_content, pr_title, diff, ticket_id, repo_path=repo_path)
+    return await agent.analyze(
+        plan_content,
+        pr_title,
+        diff,
+        ticket_id,
+        repo_path=repo_path,
+        review_logger=review_logger,
+    )
