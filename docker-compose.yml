@@ -50,6 +50,7 @@ services:
       REPO_CACHE_ENABLED: ${REPO_CACHE_ENABLED:-false}
       REPO_CACHE_ROOT: ${REPO_CACHE_ROOT:-/tmp/baloo-repo-cache}
       REPO_CACHE_MAX_DISK_GB: ${REPO_CACHE_MAX_DISK_GB:-10}
+      REPO_SANDBOX_MODE: ${REPO_SANDBOX_MODE:-off}
     ports:
       - "127.0.0.1:8000:8000"
 

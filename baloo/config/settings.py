@@ -181,6 +181,10 @@ class Settings(BaseSettings):
         default=10,
         description="Total cache disk cap (GB); least-recently-used caches are evicted over this",
     )
+    repo_sandbox_mode: str = Field(
+        default="off",
+        description="Filesystem sandbox for the agent subprocess: 'bwrap' or 'off'",
+    )
 
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(

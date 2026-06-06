@@ -18,3 +18,12 @@ def test_repo_cache_max_disk_gb_default():
 def test_repo_cache_enabled_reads_env(monkeypatch):
     monkeypatch.setenv("REPO_CACHE_ENABLED", "true")
     assert Settings().repo_cache_enabled is True
+
+
+def test_repo_sandbox_mode_defaults_to_off():
+    assert Settings().repo_sandbox_mode == "off"
+
+
+def test_repo_sandbox_mode_reads_env(monkeypatch):
+    monkeypatch.setenv("REPO_SANDBOX_MODE", "bwrap")
+    assert Settings().repo_sandbox_mode == "bwrap"
