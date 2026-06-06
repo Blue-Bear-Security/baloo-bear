@@ -25,6 +25,7 @@ import base64
 import logging
 import os
 import shutil
+import threading
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -249,6 +250,7 @@ def _remote_url(repo_full_name: str) -> str:
 
 
 _auth_singleton = None
+_auth_lock = threading.Lock()  # guards lazy init (called from to_thread workers)
 
 
 def _get_token(installation_id: int | str) -> str:
@@ -258,13 +260,15 @@ def _get_token(installation_id: int | str) -> str:
     ``asyncio.to_thread`` so the blocking HTTP round-trip does not stall the event
     loop. A module-level ``GitHubAuth`` preserves its expiry-aware token cache
     across reviews, so back-to-back reviews of the same installation reuse the
-    token instead of re-minting one each time.
+    token instead of re-minting one each time. The lazy init is lock-guarded
+    because it runs in worker threads (concurrent reviews).
     """
     global _auth_singleton
-    if _auth_singleton is None:
-        from baloo.github.auth import GitHubAuth
+    with _auth_lock:
+        if _auth_singleton is None:
+            from baloo.github.auth import GitHubAuth
 
-        _auth_singleton = GitHubAuth()
+            _auth_singleton = GitHubAuth()
     return _auth_singleton.get_installation_token(int(installation_id))
 
 

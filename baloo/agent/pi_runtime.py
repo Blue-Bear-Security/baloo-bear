@@ -423,8 +423,13 @@ class PIAgentBase:
             "max_turns_reached": result.max_turns_reached,
         }
 
-    def _build_pi_command(self) -> list[str]:
-        """Build the PI CLI command list."""
+    def _build_pi_command(self, sandbox_decision: tuple[str, bool] | None = None) -> list[str]:
+        """Build the PI CLI command list.
+
+        ``sandbox_decision`` lets ``run_query`` compute the (mode, active) tuple
+        once and reuse it for both the bwrap prefix here and the env scrub there,
+        avoiding a redundant settings/availability lookup per review.
+        """
         s = get_settings()
         pi_binary = s.pi_binary_path or "pi"
 
@@ -454,7 +459,9 @@ class PIAgentBase:
 
         cmd.extend(["--system-prompt", self.options.system_prompt])
 
-        mode, active = self._sandbox_decision()
+        mode, active = (
+            sandbox_decision if sandbox_decision is not None else self._sandbox_decision()
+        )
         if active:
             from baloo.agent import sandbox
 
@@ -506,17 +513,20 @@ class PIAgentBase:
             model=self.options.model, thinking_level=self.options.thinking_level
         )
 
-        cmd = self._build_pi_command()
+        # Compute the sandbox decision once and reuse it for both the bwrap argv
+        # prefix and the env scrub, so they always engage together and we don't
+        # repeat the settings/availability lookup.
+        sandbox_decision = self._sandbox_decision()
+        cmd = self._build_pi_command(sandbox_decision)
         cwd = self.options.cwd or None
 
         # When the sandbox engages, also scrub the subprocess environment to an
         # allowlist so a prompt-injected agent (which keeps network access for
         # the model API) cannot read baloo's secrets from /proc/self/environ and
         # exfiltrate them. env=None preserves today's inherit-everything behavior
-        # on the unsandboxed/dev path. Gated on the same _sandbox_decision() as
-        # the bwrap prefix so the two always engage together.
+        # on the unsandboxed/dev path.
         proc_env = None
-        _, sandbox_active = self._sandbox_decision()
+        _, sandbox_active = sandbox_decision
         if sandbox_active:
             from baloo.agent import sandbox
 
