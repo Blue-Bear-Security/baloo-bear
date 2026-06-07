@@ -77,7 +77,7 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `POSTGRES_PASSWORD` | — | Local Docker Compose PostgreSQL password. Set explicitly before running Compose |
 | `POSTGRES_DB` | `baloo` | Local Docker Compose PostgreSQL database name |
 | `INSTALLATION_ID` | — | GitHub installation ID for this broker. If set, broker only processes webhooks for this installation and scopes all DB queries to this tenant. Unset = serve all installations |
-| `DASHBOARD_ENABLED` | `false` | Enable review history dashboard |
+| `DASHBOARD_ENABLED` | `true` | Enable review history dashboard (still requires `DATABASE_ENABLED=true` and credentials to be useful) |
 | `DASHBOARD_USERNAME` | — | Dashboard basic auth username |
 | `DASHBOARD_PASSWORD` | — | Dashboard basic auth password |
 | `LOG_RETENTION_DAYS` | `30` | Days to retain execution logs (0 to disable cleanup) |
@@ -108,10 +108,10 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 
 | Variable | Default | Description |
 |---|---|---|
-| `REPO_CACHE_ENABLED` | `false` | Check out the PR repo at its head SHA so the agent's file tools read real code. Off = diff-only review (current behavior). |
+| `REPO_CACHE_ENABLED` | `true` | Check out the PR repo at its head SHA so the agent's file tools read real code. Off = diff-only review. |
 | `REPO_CACHE_ROOT` | `/tmp/baloo-repo-cache` | Ephemeral root for cached bare clones + per-review worktrees (lost on redeploy). |
 | `REPO_CACHE_MAX_DISK_GB` | `10` | Total cache disk cap (GB). Least-recently-used caches are evicted above this. |
-| `REPO_SANDBOX_MODE` | `off` | Filesystem sandbox for the agent subprocess (`bwrap` binds only the review worktree read-only; `off` disables). |
+| `REPO_SANDBOX_MODE` | `bwrap` | Filesystem sandbox for the agent subprocess (`bwrap` binds only the review worktree read-only; `off` disables). Requires bubblewrap + unprivileged user namespaces; falls back to `off` automatically when unavailable. |
 
 ## Multi-Broker Deployment
 

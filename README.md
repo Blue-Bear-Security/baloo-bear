@@ -160,7 +160,9 @@ All settings are environment variables. Key ones:
 | `REVIEW_MIN_SEVERITY` | `MEDIUM` | Minimum severity to post |
 | `FP_VERIFICATION_ENABLED` | `true` | Enable LLM false-positive verification |
 | `DATABASE_ENABLED` | `false` | Enable PostgreSQL review history |
-| `DASHBOARD_ENABLED` | `false` | Enable review dashboard UI |
+| `DASHBOARD_ENABLED` | `true` | Enable review dashboard UI (needs `DATABASE_ENABLED` + credentials) |
+| `REPO_CACHE_ENABLED` | `true` | Check out the PR repo so the agent reads real code, not just the diff |
+| `REPO_SANDBOX_MODE` | `bwrap` | Sandbox the agent subprocess to the review worktree (falls back to `off` if unavailable) |
 | `FIDELITY_ENABLED` | `true` | Compare PRs against plan docs |
 
 Full reference: [docs/configuration.md](docs/configuration.md)

@@ -169,9 +169,9 @@ class Settings(BaseSettings):
 
     # Repo Provisioning Configuration
     repo_cache_enabled: bool = Field(
-        default=False,
+        default=True,
         description="Check out the PR repo so the agent's file tools read real code "
-        "(off = current diff-only behavior)",
+        "(off = diff-only behavior)",
     )
     repo_cache_root: str = Field(
         default="/tmp/baloo-repo-cache",
@@ -182,8 +182,9 @@ class Settings(BaseSettings):
         description="Total cache disk cap (GB); least-recently-used caches are evicted over this",
     )
     repo_sandbox_mode: str = Field(
-        default="off",
-        description="Filesystem sandbox for the agent subprocess: 'bwrap' or 'off'",
+        default="bwrap",
+        description="Filesystem sandbox for the agent subprocess: 'bwrap' or 'off' "
+        "(bwrap falls back to off if unprivileged user namespaces are unavailable)",
     )
 
     # Fidelity Report Configuration
