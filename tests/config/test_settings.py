@@ -3,8 +3,8 @@
 from baloo.config.settings import Settings
 
 
-def test_repo_cache_enabled_defaults_to_false():
-    assert Settings().repo_cache_enabled is False
+def test_repo_cache_enabled_defaults_to_true():
+    assert Settings().repo_cache_enabled is True
 
 
 def test_repo_cache_root_default():
@@ -16,14 +16,14 @@ def test_repo_cache_max_disk_gb_default():
 
 
 def test_repo_cache_enabled_reads_env(monkeypatch):
-    monkeypatch.setenv("REPO_CACHE_ENABLED", "true")
-    assert Settings().repo_cache_enabled is True
+    monkeypatch.setenv("REPO_CACHE_ENABLED", "false")
+    assert Settings().repo_cache_enabled is False
 
 
-def test_repo_sandbox_mode_defaults_to_off():
-    assert Settings().repo_sandbox_mode == "off"
+def test_repo_sandbox_mode_defaults_to_bwrap():
+    assert Settings().repo_sandbox_mode == "bwrap"
 
 
 def test_repo_sandbox_mode_reads_env(monkeypatch):
-    monkeypatch.setenv("REPO_SANDBOX_MODE", "bwrap")
-    assert Settings().repo_sandbox_mode == "bwrap"
+    monkeypatch.setenv("REPO_SANDBOX_MODE", "off")
+    assert Settings().repo_sandbox_mode == "off"
