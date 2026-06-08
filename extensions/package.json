@@ -7,7 +7,7 @@
     "@ast-grep/lang-go": "^0.0.6",
     "@ast-grep/lang-python": "^0.0.6",
     "@ast-grep/napi": "^0.43.0",
-    "typebox": "^1.2.1"
+    "typebox": "^1.2.2"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
