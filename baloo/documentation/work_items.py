@@ -91,8 +91,12 @@ def _glob_to_regex(pattern: str) -> re.Pattern[str]:
     regex = "^"
     for index, part in enumerate(parts):
         if part == "**":
-            if index == len(parts) - 1:
+            if len(parts) == 1:
+                regex += ".*"
+            elif index == len(parts) - 1:
                 regex += "(?:/.*)?"
+            elif index == 0:
+                regex += "(?:[^/]+/)*"
             else:
                 regex += "/(?:[^/]+/)*"
             continue

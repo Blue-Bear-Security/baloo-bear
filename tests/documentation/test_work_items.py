@@ -138,3 +138,8 @@ def test_path_matching_star_and_globstar():
     assert not rule_matches_path("baloo/agent/nested/client.py", ["baloo/agent/*"])
     assert rule_matches_path("baloo/agent/nested/client.py", ["baloo/agent/**"])
     assert rule_matches_path("baloo/review/orchestrator.py", ["baloo/**/*.py"])
+    assert rule_matches_path("db/migrations/001_create_users.py", ["**/migrations/**"])
+    assert rule_matches_path("migrations/001_create_users.py", ["**/migrations/**"])
+    assert rule_matches_path("app.py", ["**/*.py"])
+    assert rule_matches_path("baloo/review/orchestrator.py", ["**/*.py"])
+    assert rule_matches_path("baloo/review/orchestrator.py", ["**"])
