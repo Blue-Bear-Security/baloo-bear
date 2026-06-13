@@ -53,33 +53,35 @@ Inline comments appear on the exact lines:
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| **Agentic review** | Uses [PI](https://github.com/mariozechner/pi-coding-agent) to read files, grep patterns, and explore the repo — not just the diff |
-| **Multi-model** | Supports Claude (Sonnet, Haiku, Opus) and Gemini (Flash, Pro) with automatic fallback |
-| **Severity routing** | CRITICAL/HIGH → request changes; MEDIUM → Checks API annotations; LOW → filtered |
-| **Guideline enforcement** | Reads repo-level `AGENTS.md` / `CONTRIBUTING.md` and flags violations |
-| **Discussion tracking** | Follows up on existing threads, skips duplicates, detects addressed feedback |
-| **Fidelity analysis** | Optionally compares PR against design plan documents |
-| **FP reduction** | Optional second LLM pass to verify findings and drop false positives |
-| **Dashboard** | Optional PostgreSQL-backed review history UI with cost tracking |
-| **Dependabot-aware** | Specialized review logic for dependency update PRs |
-| **Local dry-run** | Run [`scripts/local_review.py`](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/scripts/local_review.py) against a local git diff — no GitHub webhook or posted comments |
+| Feature                   | Description                                                                                                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agentic review**        | Uses [PI](https://github.com/mariozechner/pi-coding-agent) to read files, grep patterns, and explore the repo — not just the diff                                                   |
+| **Multi-model**           | Supports Claude (Sonnet, Haiku, Opus) and Gemini (Flash, Pro) with automatic fallback                                                                                               |
+| **Severity routing**      | CRITICAL/HIGH → request changes; MEDIUM → Checks API annotations; LOW → filtered                                                                                                    |
+| **Guideline enforcement** | Reads repo-level `AGENTS.md` / `CONTRIBUTING.md` and flags violations                                                                                                               |
+| **Discussion tracking**   | Follows up on existing threads, skips duplicates, detects addressed feedback                                                                                                        |
+| **Fidelity analysis**     | Optionally compares PR against design plan documents                                                                                                                                |
+| **Documentation drift**   | Optionally asks authors to update mapped docs when implementation changes make them stale                                                                                           |
+| **FP reduction**          | Optional second LLM pass to verify findings and drop false positives                                                                                                                |
+| **Dashboard**             | Optional PostgreSQL-backed review history UI with cost tracking                                                                                                                     |
+| **Dependabot-aware**      | Specialized review logic for dependency update PRs                                                                                                                                  |
+| **Local dry-run**         | Run [`scripts/local_review.py`](https://github.com/Blue-Bear-Security/baloo-bear/blob/main/scripts/local_review.py) against a local git diff — no GitHub webhook or posted comments |
 
 ## Baloo Compared
 
-| Need | Baloo's fit |
-|---|---|
-| Hosted AI reviewer alternative | Self-host Baloo as your own GitHub App and choose the model credentials |
-| Static analysis complement | Baloo reviews intent, behavior, edge cases, and repo-specific conventions that linters may not express |
-| GitHub Copilot review complement | Baloo runs automatically as an app on every PR update and can route findings to reviews or Checks |
-| Security review workflow | Baloo combines LLM review with severity routing, false-positive verification, and GitHub-native comments |
+| Need                             | Baloo's fit                                                                                              |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Hosted AI reviewer alternative   | Self-host Baloo as your own GitHub App and choose the model credentials                                  |
+| Static analysis complement       | Baloo reviews intent, behavior, edge cases, and repo-specific conventions that linters may not express   |
+| GitHub Copilot review complement | Baloo runs automatically as an app on every PR update and can route findings to reviews or Checks        |
+| Security review workflow         | Baloo combines LLM review with severity routing, false-positive verification, and GitHub-native comments |
 
 ## Quick Start
 
 ### 1. Create a GitHub App
 
 Go to **GitHub Settings → Developer settings → GitHub Apps → New GitHub App**:
+
 - **Webhook URL**: Your public HTTPS endpoint (e.g. `https://baloo.example.com/webhook`)
 - **Permissions**: Pull requests (read/write), Contents (read), Checks (read/write)
 - **Events**: Pull request
@@ -138,6 +140,7 @@ baloo/
 ├── config/      # Environment-based settings
 ├── db/          # PostgreSQL models + migrations (optional)
 ├── dashboard/   # Review history UI (optional)
+├── documentation/ # Documentation drift analysis (optional)
 ├── fidelity/    # Plan-vs-implementation analysis (optional)
 ├── github/      # Webhooks, API client, auth, Checks API
 └── processor/   # Findings filter, severity routing, decisions, FP verification
@@ -147,21 +150,22 @@ baloo/
 
 All settings are environment variables. Key ones:
 
-| Variable | Default | Description |
-|---|---|---|
-| `GITHUB_APP_ID` | — | Numeric GitHub App ID |
-| `GITHUB_PRIVATE_KEY` | — | Path to `.pem` file or inline PEM |
-| `GITHUB_WEBHOOK_SECRET` | — | Webhook signature secret |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
-| `GEMINI_API_KEY` | — | Google Gemini API key (for fallback/multi-model) |
-| `AGENT_MODEL` | `sonnet` | Model short name: `flash`, `haiku`, `sonnet`, `gemini-pro`, `opus` |
-| `AGENT_FALLBACK_MODEL` | `google/gemini-2.5-flash` | Fallback on primary failure |
-| `REVIEW_AUTO_APPROVE` | `true` | Auto-approve PRs with no blocking findings |
-| `REVIEW_MIN_SEVERITY` | `MEDIUM` | Minimum severity to post |
-| `FP_VERIFICATION_ENABLED` | `true` | Enable LLM false-positive verification |
-| `DATABASE_ENABLED` | `false` | Enable PostgreSQL review history |
-| `DASHBOARD_ENABLED` | `false` | Enable review dashboard UI |
-| `FIDELITY_ENABLED` | `true` | Compare PRs against plan docs |
+| Variable                      | Default                   | Description                                                        |
+| ----------------------------- | ------------------------- | ------------------------------------------------------------------ |
+| `GITHUB_APP_ID`               | —                         | Numeric GitHub App ID                                              |
+| `GITHUB_PRIVATE_KEY`          | —                         | Path to `.pem` file or inline PEM                                  |
+| `GITHUB_WEBHOOK_SECRET`       | —                         | Webhook signature secret                                           |
+| `ANTHROPIC_API_KEY`           | —                         | Anthropic API key                                                  |
+| `GEMINI_API_KEY`              | —                         | Google Gemini API key (for fallback/multi-model)                   |
+| `AGENT_MODEL`                 | `sonnet`                  | Model short name: `flash`, `haiku`, `sonnet`, `gemini-pro`, `opus` |
+| `AGENT_FALLBACK_MODEL`        | `google/gemini-2.5-flash` | Fallback on primary failure                                        |
+| `REVIEW_AUTO_APPROVE`         | `true`                    | Auto-approve PRs with no blocking findings                         |
+| `REVIEW_MIN_SEVERITY`         | `MEDIUM`                  | Minimum severity to post                                           |
+| `FP_VERIFICATION_ENABLED`     | `true`                    | Enable LLM false-positive verification                             |
+| `DATABASE_ENABLED`            | `false`                   | Enable PostgreSQL review history                                   |
+| `DASHBOARD_ENABLED`           | `false`                   | Enable review dashboard UI                                         |
+| `FIDELITY_ENABLED`            | `true`                    | Compare PRs against plan docs                                      |
+| `DOCUMENTATION_DRIFT_ENABLED` | `false`                   | Enable PR-time documentation drift checks                          |
 
 Full reference: [configuration.md](configuration.md)
 
@@ -170,9 +174,11 @@ Full reference: [configuration.md](configuration.md)
 📖 **[Full documentation](getting-started.md)** — Feature guides, configuration reference, and more
 
 Feature guides:
+
 - [Review Agent](features/review-agent.md) — How the agentic review works
 - [Guidelines Enforcement](features/guidelines.md) — Repo convention checking
 - [Fidelity Analysis](features/fidelity.md) — Plan-vs-implementation scoring
+- [Documentation Drift](features/documentation-drift.md) — PR-time stale docs detection
 - [Models](features/models.md) — Supported models and fallback
 - [Severity Routing](features/severity-routing.md) — How findings reach developers
 - [Discussion Tracking](features/discussions.md) — Thread follow-ups across iterations

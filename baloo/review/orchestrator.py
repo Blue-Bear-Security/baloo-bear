@@ -15,6 +15,15 @@ from baloo.agent.repo_provision import provision_repo
 from baloo.config.settings import settings
 from baloo.db.service import DuplicateReviewError, ReviewCompleteDTO, ReviewService
 from baloo.db.tenant import apply_tenant_filter
+from baloo.documentation.analyzer import analyze_documentation_drift
+from baloo.documentation.catalog import load_documentation_catalog
+from baloo.documentation.models import DocumentationDriftResult
+from baloo.documentation.report import (
+    format_documentation_drift_report,
+    has_actionable_documentation_drift,
+    has_documentation_drift_comment,
+)
+from baloo.documentation.work_items import build_documentation_work_item
 from baloo.fidelity.fidelity_analyzer import analyze_fidelity
 from baloo.fidelity.fidelity_report import (
     ERROR_FIDELITY_SENTINEL,
@@ -207,15 +216,22 @@ def _has_existing_static_fidelity_report(
     )
 
 
-def _total_review_cost_usd(review_metadata: dict, fidelity_metadata: dict) -> float:
+def _total_review_cost_usd(
+    review_metadata: dict,
+    fidelity_metadata: dict,
+    documentation_metadata: dict | None = None,
+) -> float:
     """Aggregate all model-call cost components associated with a review."""
     fp_metadata = review_metadata.get("fp_verification") or {}
     if not isinstance(fp_metadata, dict):
         fp_metadata = {}
+    if documentation_metadata is None:
+        documentation_metadata = {}
 
     return (
         (review_metadata.get("cost_usd") or 0.0)
         + (fidelity_metadata.get("cost_usd") or 0.0)
+        + (documentation_metadata.get("cost_usd") or 0.0)
         + (fp_metadata.get("cost_usd") or 0.0)
     )
 
@@ -781,6 +797,111 @@ async def _run_fidelity_analysis(
         return "", None  # Don't fail the review, just skip fidelity
 
 
+async def _run_documentation_drift_analysis(
+    github_client: GitHubAPIClient,
+    repo_full_name: str,
+    pr_context: PRContext,
+    repo_path: str | None = None,
+    db_review_id: int | None = None,
+) -> tuple[str, DocumentationDriftResult | None]:
+    """Run PR-time documentation drift analysis as an isolated side report."""
+    try:
+        if not settings.documentation_drift_enabled:
+            return "", None
+
+        catalog = load_documentation_catalog(
+            repo_path,
+            settings.documentation_drift_catalog_path,
+        )
+        if catalog is None:
+            logger.info(
+                "Documentation drift: no catalog found for %s#%s",
+                repo_full_name,
+                pr_context.pr_number,
+            )
+            return "", None
+
+        work_item = build_documentation_work_item(pr_context=pr_context, catalog=catalog)
+        if not work_item.needs_analysis:
+            logger.info(
+                "Documentation drift: no relevant documentation analysis needed for %s#%s",
+                repo_full_name,
+                pr_context.pr_number,
+            )
+            return "", None
+
+        documentation_logger = None
+        documentation_session = None
+        if db_review_id is not None and settings.database_enabled:
+            from baloo.agent.logger import ReviewLogger
+            from baloo.db.engine import get_session_factory
+
+            documentation_session = get_session_factory(settings.database_url)()
+            documentation_logger = ReviewLogger(
+                review_id=db_review_id,
+                session=documentation_session,
+                installation_id=settings.installation_id,
+                agent_label="documentation",
+            )
+
+        try:
+            result = await analyze_documentation_drift(
+                pr_context=pr_context,
+                work_item=work_item,
+                catalog_path=settings.documentation_drift_catalog_path,
+                repo_path=repo_path,
+                model=settings.documentation_drift_model,
+                review_logger=documentation_logger,
+            )
+        finally:
+            if documentation_session is not None:
+                try:
+                    await documentation_session.commit()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to commit documentation log session: %s", exc)
+                try:
+                    await documentation_session.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        if result is None:
+            return "", None
+
+        return format_documentation_drift_report(result), result
+    except Exception as exc:
+        logger.warning("Documentation drift analysis error: %s", exc, exc_info=True)
+        return "", None
+
+
+def _existing_documentation_drift_comment(
+    issue_comments: list[DiscussionComment],
+) -> DiscussionComment | None:
+    """Return the existing Baloo documentation drift issue comment, if any."""
+    for comment in issue_comments:
+        if comment.is_baloo and has_documentation_drift_comment(comment.body):
+            return comment
+    return None
+
+
+async def _post_or_update_documentation_drift_report(
+    github_client: GitHubAPIClient,
+    repo_full_name: str,
+    pr_number: int,
+    issue_comments: list[DiscussionComment],
+    result: DocumentationDriftResult,
+) -> None:
+    """Upsert the single PR-level documentation drift report comment."""
+    existing = _existing_documentation_drift_comment(issue_comments)
+    report_body = format_documentation_drift_report(result)
+
+    if existing is not None:
+        await github_client.edit_comment(repo_full_name, existing.id, report_body)
+        return
+
+    if has_actionable_documentation_drift(result):
+        await github_client.post_comment(repo_full_name, pr_number, report_body)
+
+
 async def _process_thread_reply(
     *,
     repo_full_name: str,
@@ -1109,23 +1230,44 @@ async def process_pr_review(
                         settings.repo_cache_enabled,
                     )
 
-                if settings.fidelity_enabled:
-                    (
-                        (fidelity_report_text, fidelity_result),
-                        agent_result,
-                    ) = await asyncio.gather(
-                        _run_fidelity_analysis(
-                            github_client,
-                            repo_full_name,
-                            pr_context,
-                            repo_path=repo_path,
-                            db_review_id=db_review_id,
-                        ),
-                        agent.review_pr(review_context, review_id=db_review_id),
+                async def _skip_fidelity() -> tuple[str, FidelityResult | None]:
+                    return "", None
+
+                async def _skip_documentation() -> tuple[str, DocumentationDriftResult | None]:
+                    return "", None
+
+                fidelity_task = (
+                    _run_fidelity_analysis(
+                        github_client,
+                        repo_full_name,
+                        pr_context,
+                        repo_path=repo_path,
+                        db_review_id=db_review_id,
                     )
-                else:
-                    fidelity_report_text, fidelity_result = "", None
-                    agent_result = await agent.review_pr(review_context, review_id=db_review_id)
+                    if settings.fidelity_enabled
+                    else _skip_fidelity()
+                )
+                documentation_task = (
+                    _run_documentation_drift_analysis(
+                        github_client,
+                        repo_full_name,
+                        pr_context,
+                        repo_path=repo_path,
+                        db_review_id=db_review_id,
+                    )
+                    if settings.documentation_drift_enabled
+                    else _skip_documentation()
+                )
+
+                (
+                    (fidelity_report_text, fidelity_result),
+                    (documentation_report_text, documentation_result),
+                    agent_result,
+                ) = await asyncio.gather(
+                    fidelity_task,
+                    documentation_task,
+                    agent.review_pr(review_context, review_id=db_review_id),
+                )
             agent_metadata = agent_result.metadata
             review_result = agent_result
 
@@ -1507,6 +1649,27 @@ async def process_pr_review(
                 except Exception as fidelity_err:
                     logger.warning(f"Failed to post fidelity report: {fidelity_err}")
 
+            if documentation_result:
+                try:
+                    await _post_or_update_documentation_drift_report(
+                        github_client,
+                        repo_full_name,
+                        pr_number,
+                        pr_context.issue_comments,
+                        documentation_result,
+                    )
+                    if documentation_report_text:
+                        logger.info(
+                            "Posted or updated documentation drift report for %s#%s",
+                            repo_full_name,
+                            pr_number,
+                        )
+                except Exception as documentation_err:
+                    logger.warning(
+                        "Failed to post documentation drift report: %s",
+                        documentation_err,
+                    )
+
             logger.info(
                 f"Review completed for {repo_full_name}#{pr_number}: "
                 f"{len(routed['review'])} blocking, {len(routed['checks'])} non-blocking"
@@ -1516,15 +1679,26 @@ async def process_pr_review(
             if settings.database_enabled and db_review_id:
                 review_metadata = review_result.metadata
                 fidelity_metadata = fidelity_result.metadata if fidelity_result else {}
+                documentation_metadata = (
+                    documentation_result.metadata if documentation_result else {}
+                )
 
                 # Aggregate costs and tokens
-                total_input_tokens = (review_metadata.get("input_tokens") or 0) + (
-                    fidelity_metadata.get("input_tokens") or 0
+                total_input_tokens = (
+                    (review_metadata.get("input_tokens") or 0)
+                    + (fidelity_metadata.get("input_tokens") or 0)
+                    + (documentation_metadata.get("input_tokens") or 0)
                 )
-                total_output_tokens = (review_metadata.get("output_tokens") or 0) + (
-                    fidelity_metadata.get("output_tokens") or 0
+                total_output_tokens = (
+                    (review_metadata.get("output_tokens") or 0)
+                    + (fidelity_metadata.get("output_tokens") or 0)
+                    + (documentation_metadata.get("output_tokens") or 0)
                 )
-                total_cost_usd = _total_review_cost_usd(review_metadata, fidelity_metadata)
+                total_cost_usd = _total_review_cost_usd(
+                    review_metadata,
+                    fidelity_metadata,
+                    documentation_metadata,
+                )
 
                 # Detect agent soft-failures: agent caught an error
                 # internally and returned 0 findings

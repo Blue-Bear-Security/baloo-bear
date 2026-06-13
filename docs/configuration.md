@@ -113,6 +113,14 @@ All Baloo settings are environment variables. Set them in `.env`, pass them via 
 | `REPO_CACHE_MAX_DISK_GB` | `10` | Total cache disk cap (GB). Least-recently-used caches are evicted above this. |
 | `REPO_SANDBOX_MODE` | `bwrap` | Filesystem sandbox for the agent subprocess (`bwrap` binds only the review worktree read-only; `off` disables). Requires bubblewrap + unprivileged user namespaces; falls back to `off` automatically when unavailable. |
 
+## Documentation Drift
+
+| Variable | Default | Description |
+|---|---|---|
+| `DOCUMENTATION_DRIFT_ENABLED` | `false` | Enable PR-time documentation drift analysis. |
+| `DOCUMENTATION_DRIFT_CATALOG_PATH` | `.baloo/documentation-catalog.json` | Repo-relative path to the docs catalog used to map changed code areas to docs. |
+| `DOCUMENTATION_DRIFT_MODEL` | `sonnet` | Model used for the documentation drift side agent. |
+
 ## Multi-Broker Deployment
 
 Baloo supports running multiple broker instances against a shared database for high availability and horizontal scale.

@@ -106,6 +106,11 @@ SETTING_CATEGORIES = {
         "repo_cache_max_disk_gb",
         "repo_sandbox_mode",
     },
+    "Documentation Drift": {
+        "documentation_drift_enabled",
+        "documentation_drift_catalog_path",
+        "documentation_drift_model",
+    },
 }
 
 

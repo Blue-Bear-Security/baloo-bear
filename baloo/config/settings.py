@@ -187,6 +187,20 @@ class Settings(BaseSettings):
         "(bwrap falls back to off if unprivileged user namespaces are unavailable)",
     )
 
+    # Documentation Drift Configuration
+    documentation_drift_enabled: bool = Field(
+        default=False,
+        description="Enable PR-time documentation drift analysis",
+    )
+    documentation_drift_catalog_path: str = Field(
+        default=".baloo/documentation-catalog.json",
+        description="Repo-relative path to the documentation drift catalog",
+    )
+    documentation_drift_model: str = Field(
+        default="sonnet",
+        description="Model for documentation drift analysis (short name or provider/model)",
+    )
+
     # Fidelity Report Configuration
     fidelity_enabled: bool = Field(
         default=True,

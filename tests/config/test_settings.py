@@ -27,3 +27,10 @@ def test_repo_sandbox_mode_defaults_to_bwrap():
 def test_repo_sandbox_mode_reads_env(monkeypatch):
     monkeypatch.setenv("REPO_SANDBOX_MODE", "off")
     assert Settings().repo_sandbox_mode == "off"
+
+
+def test_documentation_drift_settings_defaults():
+    s = Settings()
+    assert s.documentation_drift_enabled is False
+    assert s.documentation_drift_catalog_path == ".baloo/documentation-catalog.json"
+    assert s.documentation_drift_model == "sonnet"
