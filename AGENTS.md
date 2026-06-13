@@ -56,6 +56,8 @@ GitHub App that:
 - Prefer linking larger changes to a GitHub issue or pull request discussion.
 - Keep changes scoped and easy to review.
 - Use descriptive branch names such as `feat/review-routing` or `fix/checks-api-fallback`.
+- Use PR titles that describe the change directly, such as `Add review routing` or `Fix checks API fallback`.
+- When creating branches or PRs, follow the repository naming conventions above.
 - Semantic commits are preferred when practical.
 - Before pushing, address open review comments explicitly: fix, decline with reasoning, or explain the tradeoff.
 
