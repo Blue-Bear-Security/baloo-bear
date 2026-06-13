@@ -761,3 +761,327 @@ class TestRepoProvisioningWiring:
             await _run_review(gc, agent)
 
         assert agent.options.cwd is None
+
+
+# ---------------------------------------------------------------------------
+# Documentation drift orchestration
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentationDriftOrchestration:
+    async def test_disabled_feature_does_not_call_loader_or_analyzer(self):
+        from baloo.review.orchestrator import _run_documentation_drift_analysis
+
+        with (
+            patch("baloo.review.orchestrator.settings.documentation_drift_enabled", False),
+            patch("baloo.review.orchestrator.load_documentation_catalog") as load_catalog,
+            patch(
+                "baloo.review.orchestrator.analyze_documentation_drift",
+                new=AsyncMock(),
+            ) as analyze,
+        ):
+            report, result = await _run_documentation_drift_analysis(
+                _make_github_client(),
+                "org/repo",
+                _make_pr_context(),
+                repo_path="/work/tree",
+            )
+
+        assert report == ""
+        assert result is None
+        load_catalog.assert_not_called()
+        analyze.assert_not_called()
+
+    async def test_enabled_feature_with_missing_catalog_returns_no_report(self):
+        from baloo.review.orchestrator import _run_documentation_drift_analysis
+
+        with (
+            patch("baloo.review.orchestrator.settings.documentation_drift_enabled", True),
+            patch("baloo.review.orchestrator.load_documentation_catalog", return_value=None),
+            patch(
+                "baloo.review.orchestrator.analyze_documentation_drift",
+                new=AsyncMock(),
+            ) as analyze,
+        ):
+            report, result = await _run_documentation_drift_analysis(
+                _make_github_client(),
+                "org/repo",
+                _make_pr_context(),
+                repo_path="/work/tree",
+            )
+
+        assert report == ""
+        assert result is None
+        analyze.assert_not_called()
+
+    async def test_enabled_feature_with_required_drift_posts_comment(self):
+        from baloo.documentation.models import DocumentationDriftFinding, DocumentationDriftResult
+        from baloo.review.orchestrator import _post_or_update_documentation_drift_report
+
+        gc = _make_github_client()
+        result = DocumentationDriftResult(
+            required_updates=[
+                DocumentationDriftFinding(
+                    doc_path="README.md",
+                    verdict="required",
+                    rationale="Behavior changed.",
+                )
+            ]
+        )
+
+        await _post_or_update_documentation_drift_report(gc, "org/repo", 1, [], result)
+
+        gc.post_comment.assert_awaited_once()
+        assert "Documentation Drift Review" in gc.post_comment.call_args.args[2]
+
+    async def test_existing_drift_comment_is_edited_instead_of_duplicated(self):
+        from baloo.documentation.models import DocumentationDriftFinding, DocumentationDriftResult
+        from baloo.documentation.report import DOCUMENTATION_DRIFT_SENTINEL
+        from baloo.review.orchestrator import _post_or_update_documentation_drift_report
+
+        gc = _make_github_client()
+        existing = DiscussionComment(
+            id=99,
+            author="baloo-code-reviewer[bot]",
+            body=f"{DOCUMENTATION_DRIFT_SENTINEL}\nold",
+            created_at=_now(),
+            updated_at=_now(),
+            source="issue_comment",
+            is_baloo=True,
+        )
+        result = DocumentationDriftResult(
+            required_updates=[
+                DocumentationDriftFinding(
+                    doc_path="README.md",
+                    verdict="required",
+                    rationale="Behavior changed.",
+                )
+            ]
+        )
+
+        await _post_or_update_documentation_drift_report(gc, "org/repo", 1, [existing], result)
+
+        gc.edit_comment.assert_awaited_once()
+        assert gc.edit_comment.call_args.args[:2] == ("org/repo", 99)
+        gc.post_comment.assert_not_called()
+
+    async def test_no_drift_with_existing_comment_edits_to_no_drift_message(self):
+        from baloo.documentation.models import DocumentationDriftResult
+        from baloo.documentation.report import DOCUMENTATION_DRIFT_SENTINEL
+        from baloo.review.orchestrator import _post_or_update_documentation_drift_report
+
+        gc = _make_github_client()
+        existing = DiscussionComment(
+            id=99,
+            author="baloo-code-reviewer[bot]",
+            body=f"{DOCUMENTATION_DRIFT_SENTINEL}\nold",
+            created_at=_now(),
+            updated_at=_now(),
+            source="issue_comment",
+            is_baloo=True,
+        )
+
+        await _post_or_update_documentation_drift_report(
+            gc,
+            "org/repo",
+            1,
+            [existing],
+            DocumentationDriftResult(),
+        )
+
+        gc.edit_comment.assert_awaited_once()
+        assert "No documentation drift detected" in gc.edit_comment.call_args.args[2]
+        gc.post_comment.assert_not_called()
+
+    async def test_no_drift_without_existing_comment_posts_nothing(self):
+        from baloo.documentation.models import DocumentationDriftResult
+        from baloo.review.orchestrator import _post_or_update_documentation_drift_report
+
+        gc = _make_github_client()
+
+        await _post_or_update_documentation_drift_report(
+            gc,
+            "org/repo",
+            1,
+            [],
+            DocumentationDriftResult(),
+        )
+
+        gc.edit_comment.assert_not_called()
+        gc.post_comment.assert_not_called()
+
+    async def test_documentation_analyzer_exception_does_not_fail_review(self):
+        from baloo.documentation.models import DocumentationCatalog, DocumentationCatalogRule
+        from baloo.review.orchestrator import _run_documentation_drift_analysis
+
+        catalog = DocumentationCatalog(
+            rules=[
+                DocumentationCatalogRule(
+                    area="Review orchestration",
+                    patterns=["baloo/review/**"],
+                    recommended_docs=["README.md"],
+                )
+            ]
+        )
+        pr_context = _make_pr_context()
+        pr_context.files_changed = [
+            MagicMock(filename="baloo/review/orchestrator.py", status="modified")
+        ]
+
+        with (
+            patch("baloo.review.orchestrator.settings.documentation_drift_enabled", True),
+            patch("baloo.review.orchestrator.load_documentation_catalog", return_value=catalog),
+            patch(
+                "baloo.review.orchestrator.analyze_documentation_drift",
+                new=AsyncMock(side_effect=RuntimeError("model failed")),
+            ),
+        ):
+            report, result = await _run_documentation_drift_analysis(
+                _make_github_client(),
+                "org/repo",
+                pr_context,
+                repo_path="/work/tree",
+            )
+
+        assert report == ""
+        assert result is None
+
+    async def test_documentation_logger_uses_independent_session_when_db_enabled(self):
+        from baloo.documentation.models import (
+            DocumentationCatalog,
+            DocumentationCatalogRule,
+            DocumentationDriftResult,
+        )
+        from baloo.review.orchestrator import _run_documentation_drift_analysis
+
+        catalog = DocumentationCatalog(
+            rules=[
+                DocumentationCatalogRule(
+                    area="Review orchestration",
+                    patterns=["baloo/review/**"],
+                    recommended_docs=["README.md"],
+                )
+            ]
+        )
+        pr_context = _make_pr_context()
+        pr_context.files_changed = [
+            MagicMock(filename="baloo/review/orchestrator.py", status="modified")
+        ]
+        session = MagicMock()
+        session.commit = AsyncMock()
+        session.close = AsyncMock()
+
+        with (
+            patch("baloo.review.orchestrator.settings.documentation_drift_enabled", True),
+            patch("baloo.review.orchestrator.settings.database_enabled", True),
+            patch("baloo.review.orchestrator.settings.database_url", "db"),
+            patch("baloo.review.orchestrator.load_documentation_catalog", return_value=catalog),
+            patch(
+                "baloo.review.orchestrator.analyze_documentation_drift",
+                new=AsyncMock(return_value=DocumentationDriftResult(summary="ok")),
+            ),
+            patch(
+                "baloo.db.engine.get_session_factory", return_value=MagicMock(return_value=session)
+            ),
+            patch("baloo.agent.logger.ReviewLogger") as review_logger,
+        ):
+            await _run_documentation_drift_analysis(
+                _make_github_client(),
+                "org/repo",
+                pr_context,
+                repo_path="/work/tree",
+                db_review_id=123,
+            )
+
+        review_logger.assert_called_once()
+        assert review_logger.call_args.kwargs["agent_label"] == "documentation"
+        session.commit.assert_awaited_once()
+        session.close.assert_awaited_once()
+
+    async def test_main_review_runs_when_documentation_is_skipped(self):
+        gc = _make_github_client()
+        agent = _make_agent()
+
+        await _run_review(gc, agent)
+
+        agent.review_pr.assert_awaited_once()
+
+    async def test_documentation_enabled_does_not_run_fidelity_when_fidelity_disabled(self):
+        from baloo.review.orchestrator import process_pr_review
+
+        gc = _make_github_client()
+        agent = _make_agent()
+
+        with ExitStack() as stack:
+            for p in _base_patches(gc, agent):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("baloo.review.orchestrator.settings.documentation_drift_enabled", True)
+            )
+            stack.enter_context(
+                patch(
+                    "baloo.review.orchestrator._run_documentation_drift_analysis",
+                    new=AsyncMock(return_value=("", None)),
+                )
+            )
+            fidelity = stack.enter_context(
+                patch(
+                    "baloo.review.orchestrator._run_fidelity_analysis",
+                    new=AsyncMock(return_value=("", None)),
+                )
+            )
+            await process_pr_review(
+                repo_full_name="org/repo",
+                pr_number=1,
+                installation_id=1,
+                notify_progress=False,
+                head_sha="abc123",
+            )
+
+        fidelity.assert_not_called()
+
+    async def test_synchronize_scoped_review_passes_full_context_to_documentation(self):
+        from baloo.review.orchestrator import process_pr_review
+
+        gc = _make_github_client()
+        pr_context = gc.get_pr_context.return_value
+        latest_file = MagicMock(filename="baloo/agent/client.py", status="modified")
+        gc.get_changed_scope_between_commits = AsyncMock(
+            return_value=(
+                {"baloo/agent/client.py"},
+                {"baloo/agent/client.py": {1}},
+                [latest_file],
+                "+ scoped",
+            )
+        )
+        agent = _make_agent()
+
+        with ExitStack() as stack:
+            for p in _base_patches(gc, agent):
+                stack.enter_context(p)
+            stack.enter_context(
+                patch("baloo.review.orchestrator.settings.documentation_drift_enabled", True)
+            )
+            stack.enter_context(
+                patch(
+                    "baloo.review.orchestrator._decide_synchronize_review_mode",
+                    new=AsyncMock(return_value=("scoped", "small push")),
+                )
+            )
+            documentation = stack.enter_context(
+                patch(
+                    "baloo.review.orchestrator._run_documentation_drift_analysis",
+                    new=AsyncMock(return_value=("", None)),
+                )
+            )
+            await process_pr_review(
+                repo_full_name="org/repo",
+                pr_number=1,
+                installation_id=1,
+                trigger_reason="pull_request:synchronize",
+                synchronize_base_sha="base123",
+                notify_progress=False,
+                head_sha="abc123",
+            )
+
+        assert documentation.await_args.args[2] is pr_context

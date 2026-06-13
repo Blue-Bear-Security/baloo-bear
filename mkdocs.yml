@@ -48,14 +48,15 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Features:
-    - Review Agent: features/review-agent.md
-    - Guidelines Enforcement: features/guidelines.md
-    - Fidelity Analysis: features/fidelity.md
-    - Model Configuration: features/models.md
-    - Severity Routing: features/severity-routing.md
-    - Discussion Tracking: features/discussions.md
-    - FP Verification: features/fp-verification.md
-    - Dashboard: features/dashboard.md
+      - Review Agent: features/review-agent.md
+      - Guidelines Enforcement: features/guidelines.md
+      - Fidelity Analysis: features/fidelity.md
+      - Documentation Drift: features/documentation-drift.md
+      - Model Configuration: features/models.md
+      - Severity Routing: features/severity-routing.md
+      - Discussion Tracking: features/discussions.md
+      - FP Verification: features/fp-verification.md
+      - Dashboard: features/dashboard.md
   - Configuration: configuration.md
   - Development: development.md
   - LLM Index: llms.txt

@@ -115,3 +115,15 @@ def test_repo_provisioning_settings_are_grouped() -> None:
         "repo_sandbox_mode",
     ):
         assert by_name[name] == "Repo Provisioning"
+
+
+def test_documentation_drift_settings_are_grouped() -> None:
+    from baloo.dashboard.router import _settings_rows
+
+    by_name = {r["name"]: r["category"] for r in _settings_rows()}
+    for name in (
+        "documentation_drift_enabled",
+        "documentation_drift_catalog_path",
+        "documentation_drift_model",
+    ):
+        assert by_name[name] == "Documentation Drift"

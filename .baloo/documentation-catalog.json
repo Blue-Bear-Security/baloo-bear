@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "area": "Review orchestration",
+      "patterns": ["baloo/review/**", "baloo/processor/**"],
+      "recommended_docs": [
+        "README.md",
+        "docs/features/review-agent.md",
+        "docs/features/severity-routing.md",
+        "docs/features/discussions.md"
+      ]
+    },
+    {
+      "area": "Agent runtime",
+      "patterns": ["baloo/agent/**"],
+      "recommended_docs": [
+        "README.md",
+        "docs/features/review-agent.md",
+        "docs/features/models.md",
+        "docs/features/thread-agent.md"
+      ]
+    },
+    {
+      "area": "GitHub integration",
+      "patterns": ["baloo/github/**"],
+      "recommended_docs": [
+        "docs/getting-started.md",
+        "docs/features/review-agent.md",
+        "docs/features/discussions.md",
+        "docs/features/severity-routing.md"
+      ]
+    },
+    {
+      "area": "Configuration and deployment",
+      "patterns": [
+        "baloo/config/**",
+        ".env.example",
+        "docker-compose.yml",
+        "Dockerfile",
+        "DOCKER.md"
+      ],
+      "recommended_docs": [
+        "README.md",
+        "docs/configuration.md",
+        "docs/getting-started.md"
+      ]
+    },
+    {
+      "area": "Documentation drift",
+      "patterns": [
+        "baloo/documentation/**",
+        ".baloo/documentation-catalog.json"
+      ],
+      "recommended_docs": [
+        "README.md",
+        "docs/README.md",
+        "docs/index.md",
+        "docs/configuration.md",
+        "docs/features/documentation-drift.md"
+      ]
+    },
+    {
+      "area": "Fidelity analysis",
+      "patterns": ["baloo/fidelity/**"],
+      "recommended_docs": [
+        "README.md",
+        "docs/configuration.md",
+        "docs/features/fidelity.md"
+      ]
+    },
+    {
+      "area": "Dashboard and persisted review data",
+      "patterns": ["baloo/dashboard/**", "baloo/db/**"],
+      "recommended_docs": [
+        "README.md",
+        "docs/configuration.md",
+        "docs/features/dashboard.md"
+      ]
+    },
+    {
+      "area": "Feedback outcomes",
+      "patterns": ["baloo/outcomes/**"],
+      "recommended_docs": [
+        "docs/features/dashboard.md",
+        "docs/features/fp-verification.md"
+      ]
+    },
+    {
+      "area": "Developer tooling",
+      "patterns": ["scripts/**", "tests/**", "pyproject.toml"],
+      "recommended_docs": ["README.md", "docs/development.md"]
+    }
+  ]
+}

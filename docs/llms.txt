@@ -29,6 +29,7 @@ Canonical website: https://www.bluebear.io
 
 - [False-Positive Verification](https://blue-bear-security.github.io/baloo-bear/features/fp-verification/): Optional second-pass LLM verification.
 - [Fidelity Analysis](https://blue-bear-security.github.io/baloo-bear/features/fidelity/): Comparing implementation against plan documents.
+- [Documentation Drift](https://blue-bear-security.github.io/baloo-bear/features/documentation-drift/): PR-time stale docs detection using a repo-owned catalog.
 - [Dashboard](https://blue-bear-security.github.io/baloo-bear/features/dashboard/): PostgreSQL-backed review history and cost tracking.
 
 ## Repository
