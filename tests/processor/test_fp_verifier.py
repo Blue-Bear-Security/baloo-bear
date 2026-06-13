@@ -273,6 +273,39 @@ class TestFPVerifier:
         assert result.stats.kept == 1
 
     @pytest.mark.asyncio
+    async def test_usage_tokens_are_aggregated(self):
+        verifier = FPVerifier()
+        comment = _make_comment()
+        pr_ctx = _make_pr_context()
+
+        with patch.object(
+            verifier,
+            "_verify_single",
+            new_callable=AsyncMock,
+            return_value=(
+                comment,
+                {
+                    "verdict": "real",
+                    "reason": "SQL injection is real",
+                    "cost_usd": 0.001,
+                    "model": "haiku",
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "cache_read_tokens": 7,
+                    "cache_write_tokens": 3,
+                    "thinking_tokens": 5,
+                },
+            ),
+        ):
+            result = await verifier.verify([comment], pr_ctx)
+
+        assert result.stats.input_tokens == 100
+        assert result.stats.output_tokens == 20
+        assert result.stats.cache_read_tokens == 7
+        assert result.stats.cache_write_tokens == 3
+        assert result.stats.thinking_tokens == 5
+
+    @pytest.mark.asyncio
     async def test_fp_finding_is_rejected(self):
         verifier = FPVerifier()
         comment = _make_comment()

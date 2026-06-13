@@ -79,6 +79,12 @@ thread_agent_semaphore = None
 # Map of (repo_full_name, pr_number) -> asyncio.Task
 active_reviews: dict[tuple[str, int], asyncio.Task] = {}
 
+_REVIEW_SIDE_AGENT_METADATA_KEYS = (
+    "fp_verification",
+    "thread_reverification",
+    "sync_scope_decider",
+)
+
 
 def get_review_semaphore() -> asyncio.Semaphore:
     """Get or create the review semaphore with the configured limit."""
@@ -222,9 +228,6 @@ def _total_review_cost_usd(
     documentation_metadata: dict | None = None,
 ) -> float:
     """Aggregate all model-call cost components associated with a review."""
-    fp_metadata = review_metadata.get("fp_verification") or {}
-    if not isinstance(fp_metadata, dict):
-        fp_metadata = {}
     if documentation_metadata is None:
         documentation_metadata = {}
 
@@ -232,8 +235,59 @@ def _total_review_cost_usd(
         (review_metadata.get("cost_usd") or 0.0)
         + (fidelity_metadata.get("cost_usd") or 0.0)
         + (documentation_metadata.get("cost_usd") or 0.0)
-        + (fp_metadata.get("cost_usd") or 0.0)
+        + sum(
+            (metadata.get("cost_usd") or 0.0)
+            for metadata in _review_side_agent_metadata(review_metadata)
+        )
     )
+
+
+def _total_review_tokens(
+    token_key: str,
+    review_metadata: dict,
+    fidelity_metadata: dict,
+    documentation_metadata: dict | None = None,
+) -> int:
+    """Aggregate token counters for all model calls associated with a review."""
+    if documentation_metadata is None:
+        documentation_metadata = {}
+
+    return int(
+        (review_metadata.get(token_key) or 0)
+        + (fidelity_metadata.get(token_key) or 0)
+        + (documentation_metadata.get(token_key) or 0)
+        + sum(
+            (metadata.get(token_key) or 0)
+            for metadata in _review_side_agent_metadata(review_metadata)
+        )
+    )
+
+
+def _review_side_agent_metadata(review_metadata: dict) -> list[dict]:
+    """Return nested per-review side-agent metadata blocks."""
+    nested = []
+    for key in _REVIEW_SIDE_AGENT_METADATA_KEYS:
+        metadata = review_metadata.get(key) or {}
+        if isinstance(metadata, dict):
+            nested.append(metadata)
+    return nested
+
+
+def _fp_stats_metadata(stats) -> dict:
+    """Normalize FP verifier stats into the same metadata shape as PI agents."""
+    return {
+        "input_tokens": stats.input_tokens,
+        "output_tokens": stats.output_tokens,
+        "cache_read_tokens": stats.cache_read_tokens,
+        "cache_write_tokens": stats.cache_write_tokens,
+        "thinking_tokens": stats.thinking_tokens,
+        "cost_usd": stats.total_cost_usd,
+        "duration_seconds": stats.duration_seconds,
+        "total": stats.total_verified,
+        "kept": stats.kept,
+        "rejected": stats.rejected,
+        "errors": stats.errors,
+    }
 
 
 def _threads_from_issue_comments(
@@ -301,6 +355,7 @@ async def _decide_synchronize_review_mode(
     pr_context: PRContext,
     changed_files_changed: list,
     scoped_diff: str,
+    usage_metadata: dict | None = None,
 ) -> tuple[str, str]:
     """Ask PI whether synchronize should use scoped or full PR context."""
     options = get_agent_options()
@@ -332,7 +387,9 @@ Full PR diff (truncated):
 {pr_context.diff[:12000]}
 """
     try:
-        structured, _ = await decider.run_query(prompt)
+        structured, metadata = await decider.run_query(prompt)
+        if usage_metadata is not None:
+            usage_metadata.update(metadata)
         if isinstance(structured, dict):
             mode = str(structured.get("mode", "")).strip().lower()
             reason = str(structured.get("reason", "")).strip()
@@ -345,6 +402,8 @@ Full PR diff (truncated):
                 pr_context.pr_number,
             )
     except Exception as exc:
+        if usage_metadata is not None:
+            usage_metadata.update(getattr(exc, "metadata", {}) or {})
         logger.warning("Scope decider failed, defaulting full_pr: %s", exc)
 
     return "full_pr", "Scope decision unavailable; defaulting to full PR"
@@ -421,6 +480,7 @@ async def _reverify_awaiting_threads(
     pr_context: PRContext,
     api_client,
     db_review_id: int | None = None,
+    usage_metadata: dict | None = None,
 ) -> int:
     """Re-verify awaiting Baloo threads against the new diff.
 
@@ -446,6 +506,8 @@ async def _reverify_awaiting_threads(
 
     verifier = FPVerifier()
     fp_result = await verifier.verify(comments, pr_context)
+    if usage_metadata is not None:
+        usage_metadata.update(_fp_stats_metadata(fp_result.stats))
 
     # fp_result.rejected = findings the verifier says are no longer present
     rejected_paths_lines = {(r.comment.path, r.comment.line) for r in fp_result.rejected}
@@ -1140,6 +1202,7 @@ async def process_pr_review(
 
             changed_files_scope: set[str] | None = None
             changed_line_scope: dict[str, set[int]] = {}
+            sync_scope_metadata: dict = {}
             review_mode = "full_pr"
             review_mode_reason = "Non-synchronize trigger"
             review_context = pr_context
@@ -1159,6 +1222,7 @@ async def process_pr_review(
                         pr_context=pr_context,
                         changed_files_changed=changed_files_changed,
                         scoped_diff=scoped_diff,
+                        usage_metadata=sync_scope_metadata,
                     )
                     logger.info(
                         "Synchronize review mode for %s#%s: %s (%s)",
@@ -1376,14 +1440,7 @@ async def process_pr_review(
                 nonlocal agent_metadata
                 merged_metadata = {
                     **review_result.metadata,
-                    "fp_verification": {
-                        "total": fp_result.stats.total_verified,
-                        "kept": fp_result.stats.kept,
-                        "rejected": fp_result.stats.rejected,
-                        "errors": fp_result.stats.errors,
-                        "cost_usd": fp_result.stats.total_cost_usd,
-                        "duration_seconds": fp_result.stats.duration_seconds,
-                    },
+                    "fp_verification": _fp_stats_metadata(fp_result.stats),
                 }
                 agent_metadata = merged_metadata
                 logger.info(
@@ -1394,12 +1451,24 @@ async def process_pr_review(
                 )
                 return fp_result.verified
 
+            thread_reverification_metadata: dict = {}
             verified_new_findings, auto_resolved_count = await asyncio.gather(
                 _fp_verify_new_findings(new_findings_comments),
                 _reverify_awaiting_threads(
-                    awaiting_not_refiled, pr_context, github_client, db_review_id=db_review_id
+                    awaiting_not_refiled,
+                    pr_context,
+                    github_client,
+                    db_review_id=db_review_id,
+                    usage_metadata=thread_reverification_metadata,
                 ),
             )
+            side_agent_metadata = {}
+            if sync_scope_metadata:
+                side_agent_metadata["sync_scope_decider"] = sync_scope_metadata
+            if thread_reverification_metadata:
+                side_agent_metadata["thread_reverification"] = thread_reverification_metadata
+            if side_agent_metadata:
+                agent_metadata = {**agent_metadata, **side_agent_metadata}
 
             fresh_comments = verified_new_findings
             decision_comments = fresh_comments + [comment for _, comment in follow_up_comments]
@@ -1684,15 +1753,17 @@ async def process_pr_review(
                 )
 
                 # Aggregate costs and tokens
-                total_input_tokens = (
-                    (review_metadata.get("input_tokens") or 0)
-                    + (fidelity_metadata.get("input_tokens") or 0)
-                    + (documentation_metadata.get("input_tokens") or 0)
+                total_input_tokens = _total_review_tokens(
+                    "input_tokens",
+                    review_metadata,
+                    fidelity_metadata,
+                    documentation_metadata,
                 )
-                total_output_tokens = (
-                    (review_metadata.get("output_tokens") or 0)
-                    + (fidelity_metadata.get("output_tokens") or 0)
-                    + (documentation_metadata.get("output_tokens") or 0)
+                total_output_tokens = _total_review_tokens(
+                    "output_tokens",
+                    review_metadata,
+                    fidelity_metadata,
+                    documentation_metadata,
                 )
                 total_cost_usd = _total_review_cost_usd(
                     review_metadata,

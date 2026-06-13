@@ -126,6 +126,53 @@ async def test_reverify_fp_verdict_triggers_reply_and_resolve():
 
 
 @pytest.mark.asyncio
+async def test_reverify_records_verifier_usage_metadata():
+    """Awaiting-thread re-verification should expose usage for review cost totals."""
+    from baloo.review.orchestrator import _reverify_awaiting_threads
+
+    thread = _make_awaiting_thread(root_comment_id=42, node_id="PRT_x")
+    pr_context = _make_pr_context(awaiting_threads=[thread])
+    usage = {}
+    fp_result = FPVerificationResult(
+        verified=[],
+        rejected=[],
+        stats=FPStats(
+            total_verified=1,
+            kept=1,
+            input_tokens=25,
+            output_tokens=7,
+            cache_read_tokens=3,
+            cache_write_tokens=2,
+            thinking_tokens=5,
+            total_cost_usd=0.006,
+            duration_seconds=1.2,
+        ),
+    )
+
+    mock_api = AsyncMock()
+
+    with patch("baloo.review.orchestrator.FPVerifier") as mock_verifier_cls:
+        mock_instance = AsyncMock()
+        mock_instance.verify = AsyncMock(return_value=fp_result)
+        mock_verifier_cls.return_value = mock_instance
+
+        await _reverify_awaiting_threads(
+            awaiting_threads=[thread],
+            pr_context=pr_context,
+            api_client=mock_api,
+            usage_metadata=usage,
+        )
+
+    assert usage["input_tokens"] == 25
+    assert usage["output_tokens"] == 7
+    assert usage["cache_read_tokens"] == 3
+    assert usage["cache_write_tokens"] == 2
+    assert usage["thinking_tokens"] == 5
+    assert usage["cost_usd"] == 0.006
+    assert usage["total"] == 1
+
+
+@pytest.mark.asyncio
 async def test_reverify_real_verdict_no_action():
     """real verdict → thread untouched."""
     from baloo.review.orchestrator import _reverify_awaiting_threads
