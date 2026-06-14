@@ -85,6 +85,25 @@ def test_catalog_gaps_render_as_catalog_hygiene():
     assert "### Catalog Gaps" not in body
 
 
+def test_optional_only_updates_are_rendered():
+    body = format_documentation_drift_report(
+        DocumentationDriftResult(
+            optional_updates=[
+                DocumentationDriftFinding(
+                    doc_path="docs/api.md",
+                    verdict="optional",
+                    rationale="Could mention the optional helper.",
+                )
+            ],
+        )
+    )
+
+    assert "Action required: none." in body
+    assert "### Optional Updates" in body
+    assert "docs/api.md" in body
+    assert "No documentation drift detected" not in body
+
+
 def test_required_updates_render_action_required():
     body = format_documentation_drift_report(
         DocumentationDriftResult(

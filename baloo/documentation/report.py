@@ -67,7 +67,7 @@ def has_actionable_documentation_drift(result: DocumentationDriftResult) -> bool
 
 def has_reportable_documentation_drift(result: DocumentationDriftResult) -> bool:
     """Return True when a documentation drift result is useful enough to show."""
-    return bool(result.required_updates or result.catalog_gaps)
+    return bool(result.required_updates or result.optional_updates or result.catalog_gaps)
 
 
 def _format_action_required(result: DocumentationDriftResult) -> str:
