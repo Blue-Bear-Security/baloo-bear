@@ -27,6 +27,7 @@ from baloo.github.models import (
 from baloo.review.orchestrator import (
     _decide_synchronize_review_mode,
     _total_review_cost_usd,
+    _total_review_tokens,
     process_pr_review,
 )
 
@@ -66,17 +67,36 @@ def _baloo_thread(
     )
 
 
-def test_total_review_cost_includes_fp_verification_cost():
-    """Persisted review cost should include main, fidelity, and FP verifier calls."""
+def test_total_review_cost_includes_side_agent_costs():
+    """Persisted review cost should include main and PR-time side-agent calls."""
     total = _total_review_cost_usd(
         {
             "cost_usd": 0.10,
             "fp_verification": {"cost_usd": 0.03},
+            "thread_reverification": {"cost_usd": 0.04},
+            "sync_scope_decider": {"cost_usd": 0.005},
         },
         {"cost_usd": 0.02},
+        {"cost_usd": 0.01},
     )
 
-    assert total == pytest.approx(0.15)
+    assert total == pytest.approx(0.205)
+
+
+def test_total_review_tokens_include_side_agent_tokens():
+    total = _total_review_tokens(
+        "input_tokens",
+        {
+            "input_tokens": 100,
+            "fp_verification": {"input_tokens": 10},
+            "thread_reverification": {"input_tokens": 20},
+            "sync_scope_decider": {"input_tokens": 5},
+        },
+        {"input_tokens": 30},
+        {"input_tokens": 40},
+    )
+
+    assert total == 205
 
 
 @pytest.mark.asyncio

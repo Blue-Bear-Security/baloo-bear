@@ -254,6 +254,29 @@ class TestDecideSynchronizeReviewMode:
         assert reason == "small diff"
 
     @pytest.mark.asyncio
+    async def test_records_scope_decider_usage_metadata(self):
+        from baloo.review.orchestrator import _decide_synchronize_review_mode
+
+        usage = {}
+        with patch(
+            "baloo.review.orchestrator.PIAgentBase.run_query",
+            new=AsyncMock(
+                return_value=(
+                    {"mode": "scoped", "reason": "small diff"},
+                    {"input_tokens": 12, "output_tokens": 3, "cost_usd": 0.004},
+                )
+            ),
+        ):
+            await _decide_synchronize_review_mode(
+                pr_context=_make_pr_context(),
+                changed_files_changed=[],
+                scoped_diff="+ small change",
+                usage_metadata=usage,
+            )
+
+        assert usage == {"input_tokens": 12, "output_tokens": 3, "cost_usd": 0.004}
+
+    @pytest.mark.asyncio
     async def test_returns_full_pr_when_llm_says_full_pr(self):
         from baloo.review.orchestrator import _decide_synchronize_review_mode
 

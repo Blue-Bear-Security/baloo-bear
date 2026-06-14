@@ -48,6 +48,11 @@ class FPStats:
     kept: int = 0
     rejected: int = 0
     errors: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    thinking_tokens: int = 0
     total_cost_usd: float = 0.0
     duration_seconds: float = 0.0
 
@@ -163,6 +168,11 @@ class FPVerifier:
             cost = verdict_data.get("cost_usd", 0.0)
             model_used = verdict_data.get("model", self.model)
 
+            stats.input_tokens += verdict_data.get("input_tokens", 0)
+            stats.output_tokens += verdict_data.get("output_tokens", 0)
+            stats.cache_read_tokens += verdict_data.get("cache_read_tokens", 0)
+            stats.cache_write_tokens += verdict_data.get("cache_write_tokens", 0)
+            stats.thinking_tokens += verdict_data.get("thinking_tokens", 0)
             stats.total_cost_usd += cost
 
             if verdict == "fp":
@@ -252,6 +262,13 @@ class FPVerifier:
 
             cost = metadata.get("cost_usd", 0.0)
             model_used = metadata.get("model", self.model)
+            usage_metadata = {
+                "input_tokens": metadata.get("input_tokens", 0),
+                "output_tokens": metadata.get("output_tokens", 0),
+                "cache_read_tokens": metadata.get("cache_read_tokens", 0),
+                "cache_write_tokens": metadata.get("cache_write_tokens", 0),
+                "thinking_tokens": metadata.get("thinking_tokens", 0),
+            }
 
             if structured and isinstance(structured, dict):
                 verdict = structured.get("verdict", "real")
@@ -264,6 +281,7 @@ class FPVerifier:
                     "reason": reason,
                     "cost_usd": cost,
                     "model": model_used,
+                    **usage_metadata,
                 }
 
             # Could not parse response — fail-open.  Distinguish the
@@ -285,6 +303,7 @@ class FPVerifier:
                 "reason": reason,
                 "cost_usd": cost,
                 "model": model_used,
+                **usage_metadata,
             }
 
         except Exception as exc:
