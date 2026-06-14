@@ -52,7 +52,55 @@ def test_required_updates_render_before_optional_updates():
 def test_empty_result_renders_no_drift_message():
     body = format_documentation_drift_report(DocumentationDriftResult())
 
+    assert "Action required: none." in body
     assert "No documentation drift detected in the latest review." in body
+
+
+def test_report_suppresses_already_covered_section():
+    body = format_documentation_drift_report(
+        DocumentationDriftResult(
+            catalog_gaps=["baloo/documentation/analyzer.py"],
+            not_needed=[
+                DocumentationDriftFinding(
+                    doc_path="README.md",
+                    verdict="not_needed",
+                    rationale="Already generic enough.",
+                )
+            ],
+        )
+    )
+
+    assert "### Already Covered" not in body
+    assert "README.md" not in body
+
+
+def test_catalog_gaps_render_as_catalog_hygiene():
+    body = format_documentation_drift_report(
+        DocumentationDriftResult(catalog_gaps=["baloo/documentation/analyzer.py"])
+    )
+
+    assert "Action required: none." in body
+    assert "### Catalog Hygiene" in body
+    assert "Add a catalog rule" in body
+    assert "### Catalog Gaps" not in body
+
+
+def test_required_updates_render_action_required():
+    body = format_documentation_drift_report(
+        DocumentationDriftResult(
+            summary="Action required: update docs. API response changed.",
+            required_updates=[
+                DocumentationDriftFinding(
+                    doc_path="docs/api.md",
+                    verdict="required",
+                    rationale="Response shape changed.",
+                )
+            ],
+        )
+    )
+
+    assert body.count("Action required: update docs.") == 1
+    assert "API response changed." in body
 
 
 def test_has_actionable_documentation_drift_for_required_updates_or_gaps():

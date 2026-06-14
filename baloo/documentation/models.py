@@ -31,6 +31,7 @@ class DocumentationWorkItem(BaseModel):
     changed_files: list[str]
     matches: list[DocumentationWorkItemMatch]
     unmapped_files: list[str]
+    ignored_unmapped_files: list[str] = Field(default_factory=list)
     has_relevant_impl_changes: bool
     has_docs_to_review: bool
     has_docs_already_changed: bool
@@ -47,6 +48,7 @@ class DocumentationDriftFinding(BaseModel):
 
 
 class DocumentationDriftResult(BaseModel):
+    action_required: Literal["none", "update_docs", "catalog_hygiene"] | None = None
     summary: str = ""
     required_updates: list[DocumentationDriftFinding] = Field(default_factory=list)
     optional_updates: list[DocumentationDriftFinding] = Field(default_factory=list)

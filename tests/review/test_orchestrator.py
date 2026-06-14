@@ -852,8 +852,9 @@ class TestDocumentationDriftOrchestration:
             ]
         )
 
-        await _post_or_update_documentation_drift_report(gc, "org/repo", 1, [], result)
+        status = await _post_or_update_documentation_drift_report(gc, "org/repo", 1, [], result)
 
+        assert status == "posted"
         gc.post_comment.assert_awaited_once()
         assert "Documentation Drift Review" in gc.post_comment.call_args.args[2]
 
@@ -882,8 +883,11 @@ class TestDocumentationDriftOrchestration:
             ]
         )
 
-        await _post_or_update_documentation_drift_report(gc, "org/repo", 1, [existing], result)
+        status = await _post_or_update_documentation_drift_report(
+            gc, "org/repo", 1, [existing], result
+        )
 
+        assert status == "updated"
         gc.edit_comment.assert_awaited_once()
         assert gc.edit_comment.call_args.args[:2] == ("org/repo", 99)
         gc.post_comment.assert_not_called()
@@ -904,7 +908,7 @@ class TestDocumentationDriftOrchestration:
             is_baloo=True,
         )
 
-        await _post_or_update_documentation_drift_report(
+        status = await _post_or_update_documentation_drift_report(
             gc,
             "org/repo",
             1,
@@ -912,6 +916,7 @@ class TestDocumentationDriftOrchestration:
             DocumentationDriftResult(),
         )
 
+        assert status == "updated"
         gc.edit_comment.assert_awaited_once()
         assert "No documentation drift detected" in gc.edit_comment.call_args.args[2]
         gc.post_comment.assert_not_called()
@@ -922,7 +927,7 @@ class TestDocumentationDriftOrchestration:
 
         gc = _make_github_client()
 
-        await _post_or_update_documentation_drift_report(
+        status = await _post_or_update_documentation_drift_report(
             gc,
             "org/repo",
             1,
@@ -930,6 +935,7 @@ class TestDocumentationDriftOrchestration:
             DocumentationDriftResult(),
         )
 
+        assert status == "skipped"
         gc.edit_comment.assert_not_called()
         gc.post_comment.assert_not_called()
 

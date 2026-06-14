@@ -73,6 +73,7 @@ def test_prompt_includes_changed_files_and_matched_docs():
     assert "baloo/review/orchestrator.py" in prompt
     assert "README.md" in prompt
     assert "docs_to_review" in prompt
+    assert "ignored_unmapped_files" in prompt
 
 
 def test_prompt_includes_docs_already_changed():
@@ -85,6 +86,20 @@ def test_prompt_includes_docs_already_changed():
     assert "docs_already_changed" in prompt
     assert "docs/features/review-agent.md" in prompt
     assert "decide whether they are sufficient" in prompt
+
+
+def test_prompt_requires_author_focused_action_summary():
+    prompt = build_documentation_drift_prompt(
+        pr_context=_pr_context(),
+        work_item=_work_item(),
+        catalog_path=".baloo/documentation-catalog.json",
+    )
+
+    assert "Use these action_required values" in prompt
+    assert 'Do not include an "Already Covered" section' in prompt
+    assert "Treat unmapped_files as catalog hygiene" in prompt
+    assert "Action required: none" in prompt
+    assert "Action required: update docs" in prompt
 
 
 def test_prompt_forbids_file_edits():

@@ -16,15 +16,21 @@ def format_documentation_drift_report(result: DocumentationDriftResult) -> str:
         "",
     ]
 
-    if not has_actionable_documentation_drift(result) and not result.optional_updates:
+    if not has_reportable_documentation_drift(result):
+        lines.append("Action required: none.")
+        lines.append("")
         lines.append("No documentation drift detected in the latest review.")
         return "\n".join(lines).rstrip() + "\n"
+
+    lines.extend([_format_action_required(result), ""])
 
     summary = (
         result.summary
         or "This PR appears to change behavior or workflows that are documented elsewhere."
     )
-    lines.extend([summary, ""])
+    summary = _strip_action_prefix(summary)
+    if summary:
+        lines.extend([summary, ""])
 
     if result.required_updates:
         lines.extend(["### Required Updates", ""])
@@ -36,15 +42,14 @@ def format_documentation_drift_report(result: DocumentationDriftResult) -> str:
         lines.extend(_format_findings(result.optional_updates))
         lines.append("")
 
-    if result.not_needed:
-        lines.extend(["### Already Covered", ""])
-        lines.extend(_format_findings(result.not_needed))
-        lines.append("")
-
     if result.catalog_gaps:
-        lines.extend(["### Catalog Gaps", ""])
+        lines.extend(["### Catalog Hygiene", ""])
         for gap in result.catalog_gaps:
-            lines.append(f"- `{gap}` is not mapped in the documentation drift catalog.")
+            lines.append(
+                f"- `{gap}` is not mapped. Add a catalog rule if this area "
+                "should be checked for documentation drift, or mark it read-only if it should "
+                "never request docs."
+            )
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"
@@ -58,6 +63,31 @@ def has_documentation_drift_comment(body: str) -> bool:
 def has_actionable_documentation_drift(result: DocumentationDriftResult) -> bool:
     """Return True when a result should create or keep a PR comment."""
     return bool(result.required_updates or result.catalog_gaps)
+
+
+def has_reportable_documentation_drift(result: DocumentationDriftResult) -> bool:
+    """Return True when a documentation drift result is useful enough to show."""
+    return bool(result.required_updates or result.catalog_gaps)
+
+
+def _format_action_required(result: DocumentationDriftResult) -> str:
+    if result.required_updates:
+        return "Action required: update docs."
+    return "Action required: none."
+
+
+def _strip_action_prefix(summary: str) -> str:
+    stripped = summary.strip()
+    lowered = stripped.lower()
+    for prefix in (
+        "action required: none.",
+        "action required: none",
+        "action required: update docs.",
+        "action required: update docs",
+    ):
+        if lowered.startswith(prefix):
+            return stripped[len(prefix) :].lstrip(" \n:-")
+    return stripped
 
 
 def _format_findings(findings: list[DocumentationDriftFinding]) -> list[str]:
