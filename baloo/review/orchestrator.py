@@ -951,17 +951,20 @@ async def _post_or_update_documentation_drift_report(
     pr_number: int,
     issue_comments: list[DiscussionComment],
     result: DocumentationDriftResult,
-) -> None:
+) -> str:
     """Upsert the single PR-level documentation drift report comment."""
     existing = _existing_documentation_drift_comment(issue_comments)
     report_body = format_documentation_drift_report(result)
 
     if existing is not None:
         await github_client.edit_comment(repo_full_name, existing.id, report_body)
-        return
+        return "updated"
 
     if has_actionable_documentation_drift(result):
         await github_client.post_comment(repo_full_name, pr_number, report_body)
+        return "posted"
+
+    return "skipped"
 
 
 async def _process_thread_reply(
@@ -1720,7 +1723,7 @@ async def process_pr_review(
 
             if documentation_result:
                 try:
-                    await _post_or_update_documentation_drift_report(
+                    documentation_report_status = await _post_or_update_documentation_drift_report(
                         github_client,
                         repo_full_name,
                         pr_number,
@@ -1729,7 +1732,8 @@ async def process_pr_review(
                     )
                     if documentation_report_text:
                         logger.info(
-                            "Posted or updated documentation drift report for %s#%s",
+                            "Documentation drift report %s for %s#%s",
+                            documentation_report_status,
                             repo_full_name,
                             pr_number,
                         )

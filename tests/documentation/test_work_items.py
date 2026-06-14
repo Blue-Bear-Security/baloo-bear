@@ -4,6 +4,7 @@ from baloo.documentation.models import DocumentationCatalog, DocumentationCatalo
 from baloo.documentation.work_items import (
     build_documentation_work_item,
     is_documentation_path,
+    is_ignored_unmapped_path,
     rule_matches_path,
 )
 from baloo.github.models import (
@@ -110,6 +111,35 @@ def test_unmapped_implementation_files_are_surfaced():
     assert item.unmapped_files == ["baloo/documentation/analyzer.py"]
     assert item.has_catalog_gaps is True
     assert item.needs_analysis is True
+
+
+def test_low_signal_unmapped_files_are_ignored():
+    item = build_documentation_work_item(
+        pr_context=_pr_context(
+            [
+                "bluebear-backend/src/shared/tests/test_managed_agents.py",
+                "console/next-env.d.ts",
+                "src/generated/client.ts",
+            ]
+        ),
+        catalog=_catalog(),
+    )
+
+    assert item.unmapped_files == []
+    assert item.ignored_unmapped_files == [
+        "bluebear-backend/src/shared/tests/test_managed_agents.py",
+        "console/next-env.d.ts",
+        "src/generated/client.ts",
+    ]
+    assert item.has_catalog_gaps is False
+    assert item.needs_analysis is False
+
+
+def test_is_ignored_unmapped_path():
+    assert is_ignored_unmapped_path("src/tests/test_widget.py")
+    assert is_ignored_unmapped_path("console/next-env.d.ts")
+    assert is_ignored_unmapped_path("src/generated/client.ts")
+    assert not is_ignored_unmapped_path("src/shared/managed_agents.py")
 
 
 def test_read_only_rules_do_not_create_docs_to_review():

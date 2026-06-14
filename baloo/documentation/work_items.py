@@ -12,6 +12,24 @@ from baloo.documentation.models import (
 from baloo.github.models import PRContext
 
 _DOC_EXTENSIONS = (".md", ".mdx", ".rst", ".csv")
+_IGNORED_UNMAPPED_BASENAMES = {
+    "next-env.d.ts",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    "poetry.lock",
+}
+_IGNORED_UNMAPPED_SEGMENTS = {
+    "__generated__",
+    "__snapshots__",
+    "__tests__",
+    "dist",
+    "build",
+    "coverage",
+    "node_modules",
+    "tests",
+}
 
 
 def is_documentation_path(path: str) -> bool:
@@ -24,6 +42,41 @@ def rule_matches_path(path: str, patterns: list[str]) -> bool:
     """Match GitHub-style globs where * is one segment and ** is recursive."""
     normalized_path = path.strip("/")
     return any(_glob_to_regex(pattern).fullmatch(normalized_path) for pattern in patterns)
+
+
+def is_ignored_unmapped_path(path: str) -> bool:
+    """Return True for paths that should not create documentation catalog gaps."""
+    normalized = path.strip("/")
+    lowered = normalized.lower()
+    basename = lowered.rsplit("/", 1)[-1]
+    segments = set(lowered.split("/"))
+
+    if basename in _IGNORED_UNMAPPED_BASENAMES:
+        return True
+    if segments & _IGNORED_UNMAPPED_SEGMENTS:
+        return True
+    if basename.startswith("test_"):
+        return True
+    if any(
+        basename.endswith(suffix)
+        for suffix in (
+            "_test.py",
+            ".test.js",
+            ".test.jsx",
+            ".test.ts",
+            ".test.tsx",
+            ".spec.js",
+            ".spec.jsx",
+            ".spec.ts",
+            ".spec.tsx",
+            ".snap",
+            ".d.ts",
+        )
+    ):
+        return True
+    if "/generated/" in lowered or lowered.startswith("generated/"):
+        return True
+    return False
 
 
 def build_documentation_work_item(
@@ -64,7 +117,9 @@ def build_documentation_work_item(
             )
         )
 
-    unmapped_files = [path for path in implementation_files if path not in matched_impl_files]
+    raw_unmapped_files = [path for path in implementation_files if path not in matched_impl_files]
+    ignored_unmapped_files = [path for path in raw_unmapped_files if is_ignored_unmapped_path(path)]
+    unmapped_files = [path for path in raw_unmapped_files if path not in ignored_unmapped_files]
     has_relevant_impl_changes = bool(matched_impl_files)
     has_docs_to_review = any(match.docs_to_review for match in matches)
     has_docs_already_changed = any(match.docs_already_changed for match in matches)
@@ -78,6 +133,7 @@ def build_documentation_work_item(
         changed_files=changed_files,
         matches=matches,
         unmapped_files=unmapped_files,
+        ignored_unmapped_files=ignored_unmapped_files,
         has_relevant_impl_changes=has_relevant_impl_changes,
         has_docs_to_review=has_docs_to_review,
         has_docs_already_changed=has_docs_already_changed,

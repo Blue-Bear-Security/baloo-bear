@@ -147,7 +147,7 @@ Baloo uses the stable sentinel `<!-- baloo:documentation-drift-report -->` to fi
 - If no drift is found and no previous report exists, Baloo stays silent.
 - If no drift is found and a previous report exists, Baloo edits it to say no drift was detected.
 
-Catalog gaps are actionable. If an implementation file changed but did not match any catalog rule, Baloo reports it under `Catalog Gaps` so maintainers can decide whether to add a new rule.
+Catalog gaps are reported as catalog hygiene, not as a required PR-author docs update. If an implementation file changed but did not match any catalog rule, Baloo reports it under `Catalog Hygiene` so maintainers can decide whether to add a new rule. Low-signal generated, test, lockfile, build-output, and framework ambient type files are ignored for catalog-gap reporting.
 
 ## Example Comment
 
@@ -156,7 +156,9 @@ Catalog gaps are actionable. If an implementation file changed but did not match
 
 ## Documentation Drift Review
 
-This PR appears to change behavior or workflows that are documented elsewhere.
+Action required: update docs.
+
+This PR changes review behavior that is documented elsewhere.
 
 ### Required Updates
 
@@ -165,9 +167,9 @@ This PR appears to change behavior or workflows that are documented elsewhere.
   - Rationale: The PR adds a new review-side analysis step.
   - Evidence: `baloo/review/orchestrator.py`
 
-### Catalog Gaps
+### Catalog Hygiene
 
-- `baloo/documentation/analyzer.py` is not mapped in the documentation drift catalog.
+- `baloo/documentation/analyzer.py` is not mapped. Add a catalog rule if this area should be checked for documentation drift, or mark it read-only if it should never request docs.
 ```
 
 If a previous drift comment exists and the latest review finds no drift, Baloo edits that same comment to a short no-drift message. If no previous drift comment exists and no drift is found, Baloo posts nothing.
@@ -188,10 +190,10 @@ Check these first:
 
 - `DOCUMENTATION_DRIFT_ENABLED=true` is set in the running Baloo service.
 - The reviewed PR head contains the catalog file.
-- The changed files match at least one catalog rule, or there are unmapped implementation files that should be reported as catalog gaps.
+- The changed files match at least one catalog rule, or there are meaningful unmapped implementation files that should be reported as catalog hygiene.
 - The PR only changed docs. Docs-only PRs skip analysis unless implementation files changed too.
 
-### The report says there is a catalog gap
+### The report says there is catalog hygiene
 
 Add or update a rule in `.baloo/documentation-catalog.json` so the changed implementation path maps to the docs that describe it. If the path should never request documentation updates, add a `read_only: true` rule.
 
